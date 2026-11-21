@@ -38,6 +38,7 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
   const status = (data?.status as string) || 'accepted';
   const isDashed = status === 'suggested' || relation === 'derived_from';
   const strokeColor = RELATION_STROKES[relation] || '#252C36';
+  const confidence = typeof data?.confidence === 'number' ? data.confidence : null;
 
   let displayLabel = relation.replace('_', ' ');
   if (relation === 'derived_from') displayLabel = 'what-if';
@@ -45,7 +46,7 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
 
   return (
     <>
-      {/* Selected Edge Teal Halo as seen in the Mockup */}
+      {/* Selected Edge Teal Halo */}
       {selected && (
         <BaseEdge
           id={`${id}-halo`}
@@ -53,7 +54,7 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
           style={{
             stroke: '#3DD6B5',
             strokeWidth: 8,
-            opacity: 0.22,
+            opacity: 0.25,
           }}
         />
       )}
@@ -63,11 +64,18 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
         id={id}
         path={edgePath}
         markerEnd={markerEnd}
+        className={selected ? 'edge-flow-active' : undefined}
         style={{
           ...style,
           stroke: strokeColor,
           strokeWidth: selected ? 2.5 : 1.5,
-          strokeDasharray: isDashed ? (relation === 'derived_from' ? '3 4' : '5 4') : undefined,
+          strokeDasharray: selected
+            ? '6 6'
+            : isDashed
+            ? relation === 'derived_from'
+              ? '3 4'
+              : '5 4'
+            : undefined,
           opacity: selected ? 1 : 0.85,
         }}
       />
@@ -88,13 +96,18 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
           }}
         >
           <div
-            className={`font-mono text-[9px] px-1.5 py-0.5 rounded transition-all hover:scale-110 select-none ${
+            className={`group flex items-center gap-1 font-mono text-[9px] px-2 py-0.5 rounded-full transition-all duration-200 hover:scale-110 select-none shadow-md ${
               selected
-                ? 'bg-[#161B22] text-[#3DD6B5] border border-[#3DD6B5]'
-                : 'bg-[#0E1116]/80 text-[#9AA4B2] hover:text-[#E6EAF0]'
+                ? 'bg-[#161B22] text-[#3DD6B5] border border-[#3DD6B5] ring-2 ring-[#3DD6B5]/20'
+                : 'bg-[#161B22]/90 text-[#9AA4B2] border border-[#252C36] hover:border-[#3A4452] hover:text-[#E6EAF0]'
             }`}
           >
-            {displayLabel}
+            <span>{displayLabel}</span>
+            {confidence && (
+              <span className="text-[8px] opacity-75 font-sans">
+                {Math.round(confidence * 100)}%
+              </span>
+            )}
           </div>
         </div>
       </EdgeLabelRenderer>
