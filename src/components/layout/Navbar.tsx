@@ -1,5 +1,6 @@
 import React from 'react';
-import { Play, BookOpen, Terminal } from 'lucide-react';
+import { Play, BookOpen, Terminal, Sun, Moon } from 'lucide-react';
+import { useTheme } from '../../context/ThemeContext';
 
 export type ActiveTab = 'graph' | 'sources' | 'ask' | 'runs' | 'dashboard';
 
@@ -20,23 +21,25 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleLogs,
   logCount = 0,
 }) => {
+  const { theme, toggleTheme } = useTheme();
+
   return (
-    <header className="flex flex-col w-full z-30 select-none border-b border-[#262626] bg-[#000000]/95 backdrop-blur-xl">
+    <header className="flex flex-col w-full z-30 select-none border-b border-[var(--border-primary)] bg-[var(--header-bg)] backdrop-blur-xl transition-colors duration-200">
       {/* Prithvi Twin Signature 2px Tri-color Header Accent Stripe */}
       <div className="flex h-[2px] w-full">
-        <div className="w-1/3 bg-white" />
+        <div className={`w-1/3 ${theme === 'dark' ? 'bg-white' : 'bg-slate-900'}`} />
         <div className="w-1/3 bg-[#f97316]" />
-        <div className="w-1/3 bg-[#262626]" />
+        <div className={`w-1/3 ${theme === 'dark' ? 'bg-[#262626]' : 'bg-slate-300'}`} />
       </div>
 
-      <div className="flex min-h-[58px] w-full flex-wrap items-center justify-between gap-4 px-6 text-[#e5e5e5]">
+      <div className="flex min-h-[58px] w-full flex-wrap items-center justify-between gap-4 px-6 text-[var(--text-secondary)]">
         {/* Brand Identity */}
         <div className="flex items-center gap-3">
           <div
             className="flex items-center gap-2.5 font-semibold text-base cursor-pointer group"
             onClick={() => onSelectTab('graph')}
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[#0a0a0a] border border-[#f97316]/50 group-hover:border-[#f97316] transition shadow-[0_0_12px_rgba(249,115,22,0.2)]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[var(--bg-surface)] border border-[#f97316]/50 group-hover:border-[#f97316] transition shadow-[0_0_12px_rgba(249,115,22,0.2)]">
               <svg
                 width="18"
                 height="18"
@@ -52,14 +55,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
-                <span className="tracking-tight text-[15px] font-bold text-white uppercase font-mono">
+                <span className="tracking-tight text-[15px] font-bold text-[var(--text-primary)] uppercase font-mono">
                   ResearchGraph
                 </span>
                 <span className="badge-solid-white">
                   DIGITAL TWIN
                 </span>
               </div>
-              <span className="text-[10px] text-[#737373] font-mono tracking-wider">
+              <span className="text-[10px] text-[var(--text-dim)] font-mono tracking-wider">
                 EMPIRICAL REPRODUCIBILITY ENGINE
               </span>
             </div>
@@ -67,13 +70,13 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Navigation View Tabs */}
-        <nav className="flex items-center gap-1.5 p-1 rounded-lg border border-[#262626] bg-[#0a0a0a]">
+        <nav className="flex items-center gap-1.5 p-1 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)]">
           <button
             onClick={() => onSelectTab('graph')}
             className={`h-7 px-3.5 rounded text-[12px] font-mono uppercase tracking-wide transition ${
               activeTab === 'graph'
-                ? 'bg-white text-black font-bold shadow-sm'
-                : 'bg-transparent text-[#a3a3a3] hover:text-white hover:bg-[#171717]'
+                ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold shadow-sm'
+                : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
             }`}
           >
             Graph
@@ -83,8 +86,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={() => onSelectTab('sources')}
             className={`h-7 px-3.5 rounded text-[12px] font-mono uppercase tracking-wide transition ${
               activeTab === 'sources'
-                ? 'bg-white text-black font-bold shadow-sm'
-                : 'bg-transparent text-[#a3a3a3] hover:text-white hover:bg-[#171717]'
+                ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold shadow-sm'
+                : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
             }`}
           >
             Sources
@@ -94,8 +97,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={() => onSelectTab('ask')}
             className={`h-7 px-3.5 rounded text-[12px] font-mono uppercase tracking-wide transition ${
               activeTab === 'ask'
-                ? 'bg-white text-black font-bold shadow-sm'
-                : 'bg-transparent text-[#a3a3a3] hover:text-white hover:bg-[#171717]'
+                ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold shadow-sm'
+                : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
             }`}
           >
             Ask RAG
@@ -105,8 +108,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={() => onSelectTab('runs')}
             className={`h-7 px-3.5 rounded text-[12px] font-mono uppercase tracking-wide transition ${
               activeTab === 'runs'
-                ? 'bg-white text-black font-bold shadow-sm'
-                : 'bg-transparent text-[#a3a3a3] hover:text-white hover:bg-[#171717]'
+                ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold shadow-sm'
+                : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
             }`}
           >
             Run A / B
@@ -116,24 +119,24 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={() => onSelectTab('dashboard')}
             className={`h-7 px-3.5 rounded text-[12px] font-mono uppercase tracking-wide transition ${
               activeTab === 'dashboard'
-                ? 'bg-white text-black font-bold shadow-sm'
-                : 'bg-transparent text-[#a3a3a3] hover:text-white hover:bg-[#171717]'
+                ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold shadow-sm'
+                : 'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
             }`}
           >
             Strategies
           </button>
         </nav>
 
-        {/* Status Badges & Quick Triggers */}
+        {/* Status Badges, Quick Triggers & Theme Toggle */}
         <div className="flex items-center gap-3">
           <span className="badge-orange-outline">
             MODE: ADAPTED
           </span>
-          <span className="b border-[#262626] bg-[#0a0a0a] text-[#737373]">
+          <span className="b border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-dim)]">
             DATA: OPENML:52350
           </span>
 
-          {/* Plan & Run (Prithvi International Orange Hero Button) */}
+          {/* Plan & Run (Hero Action Button) */}
           <button
             onClick={onOpenApproval}
             className="flex items-center gap-1.5 h-7 px-3 rounded bg-[#f97316] text-black font-bold text-xs hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)] active:scale-95"
@@ -146,7 +149,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Colab Notebook Export */}
           <button
             onClick={onOpenExport}
-            className="flex items-center gap-1.5 h-7 px-2.5 rounded border border-[#262626] bg-[#0a0a0a] text-[#e5e5e5] text-xs font-mono uppercase tracking-wide hover:border-[#404040] hover:text-white transition"
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded border border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-secondary)] text-xs font-mono uppercase tracking-wide hover:border-[var(--border-secondary)] hover:text-[var(--text-primary)] transition"
             title="Export self-contained Jupyter notebook for Google Colab"
           >
             <BookOpen className="h-3 w-3 text-[#f97316]" />
@@ -156,7 +159,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Sandbox Stream Logs Trigger */}
           <button
             onClick={onToggleLogs}
-            className="flex items-center gap-1.5 h-7 px-2.5 rounded border border-[#262626] bg-[#0a0a0a] text-[#a3a3a3] text-xs hover:text-white hover:border-[#404040] transition"
+            className="flex items-center gap-1.5 h-7 px-2.5 rounded border border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-muted)] text-xs hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition"
             title="Toggle E2B Sandbox logs"
           >
             <Terminal className="h-3 w-3 text-[#f97316]" />
@@ -164,6 +167,20 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="font-mono text-[10px] text-[#f97316] font-bold">
                 {logCount}
               </span>
+            )}
+          </button>
+
+          {/* Theme Toggle Button (Light/Dark Switcher) */}
+          <button
+            onClick={toggleTheme}
+            className="flex items-center justify-center h-7 w-7 rounded border border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition shadow-sm"
+            title={theme === 'dark' ? 'Switch to White (Light) Theme' : 'Switch to Prithvi Obsidian Dark Theme'}
+            aria-label="Toggle Color Theme"
+          >
+            {theme === 'dark' ? (
+              <Sun className="h-3.5 w-3.5 text-[#f97316] hover:rotate-45 transition-transform" />
+            ) : (
+              <Moon className="h-3.5 w-3.5 text-slate-800 hover:-rotate-12 transition-transform" />
             )}
           </button>
         </div>

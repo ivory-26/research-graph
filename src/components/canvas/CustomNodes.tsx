@@ -37,20 +37,20 @@ export const SourceNode: React.FC<NodeProps> = ({ data, selected }) => {
         isHighlighted
           ? 'border-2 border-[#f97316] shadow-[0_0_25px_rgba(249,115,22,0.45)] node-highlighted'
           : isHero
-          ? 'border border-[#404040] hover:border-[#f97316]'
-          : 'border border-[#262626] hover:border-[#404040]'
+          ? 'border border-[var(--border-secondary)] hover:border-[#f97316]'
+          : 'border border-[var(--border-primary)] hover:border-[var(--border-secondary)]'
       }`}
     >
       {/* Node Toolbar on Selection */}
       <NodeToolbar
         isVisible={selected}
         position={Position.Top}
-        className="flex items-center gap-1 rounded-md border border-[#262626] bg-[#0a0a0a] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
+        className="flex items-center gap-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
       >
-        <span className="font-mono text-[9px] uppercase tracking-wider text-[#737373] mr-1">Source:</span>
+        <span className="font-mono text-[9px] uppercase tracking-wider text-[var(--text-dim)] mr-1">Source:</span>
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1 rounded bg-[#171717] px-1.5 py-0.5 text-[9px] font-mono text-white hover:text-[#f97316] transition"
+          className="flex items-center gap-1 rounded bg-[var(--bg-surface-hover)] px-1.5 py-0.5 text-[9px] font-mono text-[var(--text-primary)] hover:text-[#f97316] transition"
           title="Copy DOI"
         >
           {copied ? <Check className="h-3 w-3 text-[#f97316]" /> : <Copy className="h-3 w-3" />}
@@ -61,27 +61,27 @@ export const SourceNode: React.FC<NodeProps> = ({ data, selected }) => {
       <Handle
         type="source"
         position={Position.Right}
-        className="!bg-white !w-2.5 !h-2.5"
+        className="!bg-[var(--accent-orange)] !w-2.5 !h-2.5"
       />
 
       <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-[#a3a3a3]">
+        <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-[var(--text-muted)]">
           <span
             className={`h-1.5 w-1.5 rounded-full ${
-              isHero ? 'bg-[#f97316] pulse-dot' : 'bg-white'
+              isHero ? 'bg-[#f97316] pulse-dot' : 'bg-[var(--text-dim)]'
             }`}
           />
           <span className="font-semibold">{isHero ? 'SOURCE · PRIMARY' : 'SOURCE · SUPPORT'}</span>
         </div>
-        <FileText className="h-3 w-3 text-[#a3a3a3]" />
+        <FileText className="h-3 w-3 text-[var(--text-muted)]" />
       </div>
 
-      <div className="text-[12px] font-medium text-white truncate">
+      <div className="text-[12px] font-medium text-[var(--text-primary)] truncate">
         {data.title as string}
       </div>
 
-      <div className="mt-1 flex items-center justify-between text-[10px] text-[#737373]">
-        <span className="font-mono text-[9px] truncate max-w-[110px] text-[#a3a3a3]">
+      <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--text-dim)]">
+        <span className="font-mono text-[9px] truncate max-w-[110px] text-[var(--text-muted)]">
           {data.doi ? String(data.doi) : 'Open Access'}
         </span>
         <span className="font-mono">{data.pages ? `${data.pages} pp` : ''}</span>
@@ -96,7 +96,7 @@ export const ClaimNode: React.FC<NodeProps> = ({ data, selected }) => {
 
   return (
     <div
-      className={`node-premium-card w-[230px] rounded-lg bg-[#0a0a0a] p-3.5 transition-all ${
+      className={`node-premium-card w-[230px] rounded-lg p-3.5 transition-all ${
         isDimmed ? 'node-dimmed' : ''
       } ${
         isHighlighted
@@ -107,7 +107,7 @@ export const ClaimNode: React.FC<NodeProps> = ({ data, selected }) => {
       <NodeToolbar
         isVisible={selected}
         position={Position.Top}
-        className="flex items-center gap-1.5 rounded-md border border-[#262626] bg-[#0a0a0a] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
+        className="flex items-center gap-1.5 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
       >
         <span className="badge-solid-white">AUDITED HYPOTHESIS</span>
       </NodeToolbar>
@@ -131,12 +131,12 @@ export const ClaimNode: React.FC<NodeProps> = ({ data, selected }) => {
         <Target className="h-3.5 w-3.5 text-[#f97316]" />
       </div>
 
-      <div className="text-[12px] font-medium leading-snug text-white">
+      <div className="text-[12px] font-medium leading-snug text-[var(--text-primary)]">
         {(data.text as string) || (data.title as string)}
       </div>
 
-      <div className="mt-2.5 flex items-center justify-between border-t border-[#262626] pt-1.5 font-mono text-[9px] text-[#a3a3a3]">
-        <span className="text-[#f97316]">Deterministic eval</span>
+      <div className="mt-2.5 flex items-center justify-between border-t border-[var(--border-primary)] pt-1.5 font-mono text-[9px] text-[var(--text-muted)]">
+        <span className="text-[#f97316] font-semibold">Deterministic eval</span>
         <span>Adapted mode</span>
       </div>
     </div>
@@ -154,41 +154,41 @@ export const MethodNode: React.FC<NodeProps> = ({ data, selected }) => {
       } ${
         isHighlighted
           ? 'border-2 border-[#f97316] shadow-[0_0_25px_rgba(249,115,22,0.45)] node-highlighted'
-          : 'border border-[#404040] hover:border-neutral-200'
+          : 'border border-[var(--border-secondary)] hover:border-[var(--text-primary)]'
       }`}
     >
       <NodeToolbar
         isVisible={selected}
         position={Position.Top}
-        className="flex items-center gap-1 rounded-md border border-[#262626] bg-[#0a0a0a] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
+        className="flex items-center gap-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
       >
-        <span className="font-mono text-[9px] text-[#e5e5e5]">scikit-learn 1.9.1</span>
+        <span className="font-mono text-[9px] text-[var(--text-primary)]">scikit-learn 1.9.1</span>
       </NodeToolbar>
 
       <Handle
         type="target"
         position={Position.Left}
-        className="!bg-white !w-2.5 !h-2.5"
+        className="!bg-[var(--accent-orange)] !w-2.5 !h-2.5"
       />
       <Handle
         type="source"
         position={Position.Right}
-        className="!bg-white !w-2.5 !h-2.5"
+        className="!bg-[var(--accent-orange)] !w-2.5 !h-2.5"
       />
 
       <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-[#737373]">
-          <span className="h-1.5 w-1.5 rounded-full bg-white" />
+        <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-[var(--text-dim)]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--text-dim)]" />
           <span>METHOD</span>
         </div>
-        <Cpu className="h-3 w-3 text-[#a3a3a3]" />
+        <Cpu className="h-3 w-3 text-[var(--text-muted)]" />
       </div>
 
-      <div className="text-[12px] font-medium text-white">
+      <div className="text-[12px] font-medium text-[var(--text-primary)]">
         {data.title as string}
       </div>
 
-      <div className="mt-1 text-[10px] text-[#737373] font-mono">
+      <div className="mt-1 text-[10px] text-[var(--text-dim)] font-mono">
         RandomForest · 100 trees
       </div>
     </div>
@@ -206,44 +206,44 @@ export const DatasetNode: React.FC<NodeProps> = ({ data, selected }) => {
       } ${
         isHighlighted
           ? 'border-2 border-[#f97316] shadow-[0_0_25px_rgba(249,115,22,0.45)] node-highlighted'
-          : 'border border-[#262626] hover:border-[#404040]'
+          : 'border border-[var(--border-primary)] hover:border-[var(--border-secondary)]'
       }`}
     >
       <NodeToolbar
         isVisible={selected}
         position={Position.Top}
-        className="flex items-center gap-1.5 rounded-md border border-[#262626] bg-[#0a0a0a] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
+        className="flex items-center gap-1.5 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
       >
         <ShieldCheck className="h-3.5 w-3.5 text-[#f97316]" />
-        <span className="font-mono text-[9px] text-white">SHA-256 Pinned</span>
+        <span className="font-mono text-[9px] text-[var(--text-primary)]">SHA-256 Pinned</span>
       </NodeToolbar>
 
       <Handle
         type="target"
         position={Position.Left}
-        className="!bg-white !w-2.5 !h-2.5"
+        className="!bg-[var(--accent-orange)] !w-2.5 !h-2.5"
       />
       <Handle
         type="source"
         position={Position.Right}
-        className="!bg-white !w-2.5 !h-2.5"
+        className="!bg-[var(--accent-orange)] !w-2.5 !h-2.5"
       />
 
       <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-[#737373]">
+        <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-[var(--text-dim)]">
           <span className="h-1.5 w-1.5 rounded-full bg-[#f97316]" />
           <span>DATASET · PINNED</span>
         </div>
-        <Database className="h-3 w-3 text-[#a3a3a3]" />
+        <Database className="h-3 w-3 text-[var(--text-muted)]" />
       </div>
 
-      <div className="text-[12px] font-medium text-white">
+      <div className="text-[12px] font-medium text-[var(--text-primary)]">
         {data.title as string}
       </div>
 
-      <div className="mt-1 flex items-center justify-between text-[10px] text-[#737373] font-mono">
+      <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--text-dim)] font-mono">
         <span>569 rows</span>
-        <span className="text-[#a3a3a3]">+3 noise cols</span>
+        <span className="text-[var(--text-muted)]">+3 noise cols</span>
       </div>
     </div>
   );
@@ -261,46 +261,46 @@ export const RunNode: React.FC<NodeProps> = ({ data, selected }) => {
       } ${
         isHighlighted
           ? 'border-2 border-[#f97316] shadow-[0_0_25px_rgba(249,115,22,0.45)] node-highlighted'
-          : 'border border-[#404040]'
+          : 'border border-[var(--border-secondary)]'
       }`}
     >
       <NodeToolbar
         isVisible={selected}
         position={Position.Top}
-        className="flex items-center gap-1.5 rounded-md border border-[#262626] bg-[#0a0a0a] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
+        className="flex items-center gap-1.5 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
       >
-        <span className="font-mono text-[9px] text-white">E2B Sandbox · none network</span>
+        <span className="font-mono text-[9px] text-[var(--text-primary)]">E2B Sandbox · none network</span>
       </NodeToolbar>
 
       <Handle
         type="target"
         position={Position.Left}
-        className="!bg-white !w-2.5 !h-2.5"
+        className="!bg-[var(--accent-orange)] !w-2.5 !h-2.5"
       />
       <Handle
         type="source"
         position={Position.Right}
-        className="!bg-white !w-2.5 !h-2.5"
+        className="!bg-[var(--accent-orange)] !w-2.5 !h-2.5"
       />
 
       <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-[#737373]">
+        <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-[var(--text-dim)]">
           <span
             className={`h-1.5 w-1.5 rounded-full ${
-              isWhatIf ? 'bg-white' : 'bg-[#f97316]'
+              isWhatIf ? 'bg-[var(--text-primary)]' : 'bg-[#f97316]'
             }`}
           />
           <span>{isWhatIf ? 'RUN B · WHAT-IF' : 'RUN A · ROOT'}</span>
         </div>
         {isWhatIf ? (
-          <GitBranch className="h-3 w-3 text-white" />
+          <GitBranch className="h-3 w-3 text-[var(--text-primary)]" />
         ) : (
           <Play className="h-3 w-3 text-[#f97316]" />
         )}
       </div>
 
       <div className="flex items-center justify-between">
-        <span className="text-[12px] font-medium text-white truncate mr-1">
+        <span className="text-[12px] font-medium text-[var(--text-primary)] truncate mr-1">
           {data.title as string}
         </span>
         <span className="badge-orange-outline !text-[8px] !px-1">
@@ -308,9 +308,9 @@ export const RunNode: React.FC<NodeProps> = ({ data, selected }) => {
         </span>
       </div>
 
-      <div className="mt-1 flex items-center justify-between text-[10px] text-[#737373] font-mono">
+      <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--text-dim)] font-mono">
         <span>adapted</span>
-        <span className="text-white">3.4s (CPU)</span>
+        <span className="text-[var(--text-primary)]">3.4s (CPU)</span>
       </div>
     </div>
   );
@@ -327,7 +327,7 @@ export const ResultNode: React.FC<NodeProps> = ({ data, selected }) => {
       } ${
         isHighlighted
           ? 'border-2 border-[#f97316] shadow-[0_0_25px_rgba(249,115,22,0.45)] node-highlighted'
-          : 'border border-[#262626] hover:border-[#404040]'
+          : 'border border-[var(--border-primary)] hover:border-[var(--border-secondary)]'
       }`}
     >
       <Handle
@@ -345,7 +345,7 @@ export const ResultNode: React.FC<NodeProps> = ({ data, selected }) => {
       </div>
 
       <div className="flex items-center justify-between">
-        <span className="text-[12px] font-medium text-white truncate mr-1">
+        <span className="text-[12px] font-medium text-[var(--text-primary)] truncate mr-1">
           {data.title as string}
         </span>
         <span className="badge-solid-white !text-[8px] !px-1">
@@ -353,7 +353,7 @@ export const ResultNode: React.FC<NodeProps> = ({ data, selected }) => {
         </span>
       </div>
 
-      <div className="mt-1 text-[10px] text-[#737373] font-mono truncate">
+      <div className="mt-1 text-[10px] text-[var(--text-dim)] font-mono truncate">
         {data.criteria as string || 'Deterministic arithmetic check'}
       </div>
     </div>
@@ -371,7 +371,7 @@ export const NoteNode: React.FC<NodeProps> = ({ data, selected }) => {
       } ${
         isHighlighted
           ? 'border-2 border-[#f97316] shadow-[0_0_25px_rgba(249,115,22,0.45)] node-highlighted'
-          : 'border border-[#262626] hover:border-[#404040]'
+          : 'border border-[var(--border-primary)] hover:border-[var(--border-secondary)]'
       }`}
     >
       <Handle
@@ -379,10 +379,10 @@ export const NoteNode: React.FC<NodeProps> = ({ data, selected }) => {
         position={Position.Left}
         className="!bg-[#f97316] !w-2.5 !h-2.5"
       />
-      <div className="font-mono text-[9px] uppercase tracking-wider text-[#a3a3a3] mb-1">
+      <div className="font-mono text-[9px] uppercase tracking-wider text-[var(--text-muted)] mb-1">
         AUDITOR NOTE
       </div>
-      <div className="text-[11px] text-[#e5e5e5] leading-snug line-clamp-2">
+      <div className="text-[11px] text-[var(--text-secondary)] leading-snug line-clamp-2">
         {data.body as string}
       </div>
     </div>

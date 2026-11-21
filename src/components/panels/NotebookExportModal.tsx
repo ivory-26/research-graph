@@ -89,29 +89,29 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-fade-in">
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-lg border border-[#262626] bg-[#000000] text-[#e5e5e5] shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md animate-fade-in">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] text-[var(--text-secondary)] shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[#262626] p-5">
+        <div className="flex items-center justify-between border-b border-[var(--border-primary)] p-5">
           <div className="flex items-center gap-3">
             <div className="rounded bg-[#f97316]/10 p-2 text-[#f97316] border border-[#f97316]/30">
               <BookOpen className="h-5 w-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-white font-mono uppercase tracking-tight">
+                <h2 className="text-base font-bold text-[var(--text-primary)] font-mono uppercase tracking-tight">
                   Export Self-Contained Notebook (.ipynb)
                 </h2>
                 <span className="badge-solid-white">COLAB READY</span>
               </div>
-              <p className="text-xs text-[#737373] mt-0.5 font-mono">
+              <p className="text-xs text-[var(--text-dim)] mt-0.5 font-mono">
                 One-click executable reproduction notebook with verified packages and pinned SHA-256 data.
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="rounded p-1.5 text-[#737373] hover:text-white hover:bg-[#171717] transition"
+            className="rounded p-1.5 text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
           >
             <X className="h-4 w-4" />
           </button>
@@ -119,14 +119,14 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div className="c p-4 bg-[#0a0a0a] border border-[#262626] text-xs space-y-1.5 font-mono">
+          <div className="c p-4 bg-[var(--card-bg)] border border-[var(--border-primary)] text-xs space-y-1.5 font-mono">
             <div className="flex items-center justify-between">
               <span className="l">Target Paper:</span>
-              <span className="text-white font-bold">Strobl et al. 2007 (BMC Bioinformatics)</span>
+              <span className="text-[var(--text-primary)] font-bold">Strobl et al. 2007 (BMC Bioinformatics)</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="l">Kernel:</span>
-              <span className="text-white">Python 3.12 (scikit-learn 1.9.1)</span>
+              <span className="text-[var(--text-primary)]">Python 3.12 (scikit-learn 1.9.1)</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="l">Reproduction Criteria:</span>
@@ -137,19 +137,19 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="l">Notebook JSON Preview</span>
-              <span className="font-mono text-[10px] text-[#737373]">Valid Jupyter nbformat 4.5</span>
+              <span className="font-mono text-[10px] text-[var(--text-dim)]">Valid Jupyter nbformat 4.5</span>
             </div>
-            <pre className="max-h-64 overflow-y-auto rounded-lg border border-[#262626] bg-[#0a0a0a] p-4 font-mono text-[10px] text-[#a3a3a3] leading-relaxed">
+            <pre className="max-h-64 overflow-y-auto rounded-lg border border-[var(--border-primary)] bg-[var(--card-bg)] p-4 font-mono text-[10px] text-[var(--text-muted)] leading-relaxed">
               <code>{formattedJson.slice(0, 1800)}...</code>
             </pre>
           </div>
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-end gap-3 border-t border-[#262626] p-4 bg-[#0a0a0a]">
+        <div className="flex items-center justify-end gap-3 border-t border-[var(--border-primary)] p-4 bg-[var(--bg-surface)]">
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1.5 h-8 px-3 rounded border border-[#262626] bg-transparent text-xs font-mono uppercase text-[#e5e5e5] hover:text-white hover:border-[#404040] transition"
+            className="flex items-center gap-1.5 h-8 px-3 rounded border border-[var(--border-primary)] bg-transparent text-xs font-mono uppercase text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition"
           >
             {copied ? <Check className="h-3.5 w-3.5 text-[#f97316]" /> : <Copy className="h-3.5 w-3.5" />}
             <span>{copied ? 'Copied' : 'Copy JSON'}</span>

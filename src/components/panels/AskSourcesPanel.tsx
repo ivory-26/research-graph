@@ -66,28 +66,28 @@ export const AskSourcesPanel: React.FC<AskSourcesPanelProps> = ({ isOpen, onClos
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-xl border-l border-[#262626] bg-[#000000] p-6 text-[#e5e5e5] shadow-2xl backdrop-blur-xl transition-all">
+    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-xl border-l border-[var(--border-primary)] bg-[var(--bg-primary)] p-6 text-[var(--text-secondary)] shadow-2xl backdrop-blur-xl transition-all">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-[#262626] pb-4">
+      <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-4">
         <div className="flex items-center gap-2.5">
           <div className="rounded bg-[#f97316]/10 p-2 text-[#f97316] border border-[#f97316]/30">
             <Sparkles className="h-5 w-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-white font-mono uppercase tracking-wide">
+              <h3 className="text-sm font-bold text-[var(--text-primary)] font-mono uppercase tracking-wide">
                 Ask Ingested Sources
               </h3>
               <span className="badge-solid-white">RAG</span>
             </div>
-            <p className="text-[11px] text-[#737373] font-mono mt-0.5">
+            <p className="text-[11px] text-[var(--text-dim)] font-mono mt-0.5">
               768-dim Gemini embeddings with mandatory passage citation
             </p>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="rounded p-1.5 text-[#737373] hover:text-white hover:bg-[#171717] transition"
+          className="rounded p-1.5 text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
         >
           <X className="h-4 w-4" />
         </button>
@@ -102,9 +102,9 @@ export const AskSourcesPanel: React.FC<AskSourcesPanelProps> = ({ isOpen, onClos
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch(query)}
             placeholder="Search cross-paper claims and methodologies..."
-            className="w-full rounded border border-[#262626] bg-[#0a0a0a] py-2.5 pl-10 pr-24 text-xs text-white placeholder-[#737373] outline-none font-mono focus:border-[#f97316]"
+            className="w-full rounded border border-[var(--border-primary)] bg-[var(--card-bg)] py-2.5 pl-10 pr-24 text-xs text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none font-mono focus:border-[#f97316]"
           />
-          <Search className="absolute left-3.5 top-3 h-4 w-4 text-[#737373]" />
+          <Search className="absolute left-3.5 top-3 h-4 w-4 text-[var(--text-dim)]" />
           <button
             onClick={() => handleSearch(query)}
             disabled={isSearching}
@@ -123,7 +123,7 @@ export const AskSourcesPanel: React.FC<AskSourcesPanelProps> = ({ isOpen, onClos
                 setQuery(pq);
                 handleSearch(pq);
               }}
-              className="b text-[10px] text-[#a3a3a3] border-[#262626] bg-[#0a0a0a] hover:border-[#f97316] hover:text-white transition text-left"
+              className="b text-[10px] text-[var(--text-muted)] border-[var(--border-primary)] bg-[var(--card-bg)] hover:border-[#f97316] hover:text-[var(--text-primary)] transition text-left"
             >
               {pq}
             </button>
@@ -134,9 +134,9 @@ export const AskSourcesPanel: React.FC<AskSourcesPanelProps> = ({ isOpen, onClos
         <div className="max-h-[calc(100vh-250px)] overflow-y-auto space-y-4 pr-1">
           {activeResults ? (
             activeResults.map((res, i) => (
-              <div key={i} className="c p-4 bg-[#0a0a0a] border border-[#262626] space-y-3">
-                <div className="flex items-center justify-between border-b border-[#262626] pb-2">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-white font-mono">
+              <div key={i} className="c p-4 bg-[var(--card-bg)] border border-[var(--border-primary)] space-y-3">
+                <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-2">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-primary)] font-mono">
                     <BookOpen className="h-3.5 w-3.5 text-[#f97316]" />
                     <span>{res.source.title}</span>
                   </div>
@@ -146,27 +146,27 @@ export const AskSourcesPanel: React.FC<AskSourcesPanelProps> = ({ isOpen, onClos
                 </div>
 
                 {/* Synthesis */}
-                <p className="text-xs leading-relaxed text-[#e5e5e5] font-serif">
+                <p className="text-xs leading-relaxed text-[var(--text-secondary)] font-serif">
                   {res.synthesis}
                 </p>
 
                 {/* Grounding Cited Chunk */}
-                <div className="c p-3 bg-[#000000] border-[#262626] border-l-[3px] !border-l-[#f97316] text-[11px] leading-relaxed text-[#a3a3a3]">
+                <div className="c p-3 bg-[var(--bg-primary)] border-[var(--border-primary)] border-l-[3px] !border-l-[#f97316] text-[11px] leading-relaxed text-[var(--text-muted)]">
                   <div className="flex items-center justify-between text-[10px] font-bold text-[#f97316] mb-1 font-mono">
                     <span className="flex items-center gap-1">
                       <Quote className="h-3 w-3" />
                       CITED PASSAGE GROUNDING
                     </span>
-                    <span className="m text-[#737373]">PAGE {res.chunk.page}</span>
+                    <span className="m text-[var(--text-dim)]">PAGE {res.chunk.page}</span>
                   </div>
                   &ldquo;{res.chunk.text}&rdquo;
                 </div>
               </div>
             ))
           ) : (
-            <div className="c p-8 text-center bg-[#0a0a0a] border border-[#262626]">
+            <div className="c p-8 text-center bg-[var(--card-bg)] border border-[var(--border-primary)]">
               <div className="l text-xs">Vector Search Grounding</div>
-              <p className="text-xs text-[#737373] mt-2 font-mono">
+              <p className="text-xs text-[var(--text-dim)] mt-2 font-mono">
                 Click &ldquo;Query&rdquo; or pick a preset query to perform semantic retrieval across the 3 ingested research papers.
               </p>
             </div>

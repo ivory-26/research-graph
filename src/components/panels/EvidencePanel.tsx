@@ -13,9 +13,9 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
 }) => {
   if (!edge) {
     return (
-      <aside className="w-[350px] border-l border-[#262626] bg-[#000000] p-5 flex flex-col gap-4 text-[#e5e5e5]">
+      <aside className="w-[350px] border-l border-[var(--border-primary)] bg-[var(--bg-primary)] p-5 flex flex-col gap-4 text-[var(--text-secondary)]">
         <div className="l">CITATION EVIDENCE</div>
-        <div className="text-xs text-[#737373] italic font-mono">
+        <div className="text-xs text-[var(--text-dim)] italic font-mono">
           Select any edge or relation pill on the canvas to inspect its auditable citation evidence.
         </div>
       </aside>
@@ -38,7 +38,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
   const isRejected = status === 'rejected';
 
   return (
-    <aside className="w-[350px] flex-shrink-0 border-l border-[#262626] bg-[#000000] p-5 flex flex-col gap-4 text-[#e5e5e5] overflow-y-auto">
+    <aside className="w-[350px] flex-shrink-0 border-l border-[var(--border-primary)] bg-[var(--bg-primary)] p-5 flex flex-col gap-4 text-[var(--text-secondary)] overflow-y-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="l">CITATION EVIDENCE</div>
@@ -53,16 +53,16 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         <span
           className={`b ${
             isAccepted
-              ? 'border-white bg-white text-black font-bold'
+              ? 'border-[var(--text-primary)] bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold'
               : isRejected
-              ? 'border-red-500/50 bg-red-500/10 text-red-400'
-              : 'border-[#262626] bg-[#0a0a0a] text-[#737373]'
+              ? 'border-red-500/50 bg-red-500/10 text-red-500'
+              : 'border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-dim)]'
           }`}
         >
           {status}
         </span>
         {confidence && (
-          <span className="b border-[#262626] bg-[#0a0a0a] text-[#737373]">
+          <span className="b border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-dim)]">
             {confidence}
           </span>
         )}
@@ -70,24 +70,24 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
 
       {/* From → To */}
       <div className="text-[13px] leading-snug font-mono">
-        <span className="text-white font-semibold">{sourceName}</span>{' '}
-        <span className="text-[#737373]">→</span>{' '}
-        <span className="text-white font-semibold">{targetName}</span>
+        <span className="text-[var(--text-primary)] font-semibold">{sourceName}</span>{' '}
+        <span className="text-[var(--text-dim)]">→</span>{' '}
+        <span className="text-[var(--text-primary)] font-semibold">{targetName}</span>
       </div>
 
       {/* Verbatim Cited Quote Card */}
-      <div className="c p-4 border-l-[3px] !border-l-[#f97316] !rounded-md bg-[#0a0a0a] border border-[#262626]">
-        <div className="text-[13px] leading-relaxed text-[#e5e5e5] font-serif italic">
+      <div className="c p-4 border-l-[3px] !border-l-[#f97316] !rounded-md bg-[var(--card-bg)] border border-[var(--border-primary)]">
+        <div className="text-[13px] leading-relaxed text-[var(--text-primary)] font-serif italic">
           &ldquo;{quote}&rdquo;
         </div>
-        <div className="m text-[10px] text-[#737373] mt-3 border-t border-[#171717] pt-2">
+        <div className="m text-[10px] text-[var(--text-dim)] mt-3 border-t border-[var(--border-primary)] pt-2">
           PAGE {page} · CHUNK #{chunkNumber} · CHARS {charStart}–{charEnd}
         </div>
       </div>
 
       {/* Rationale */}
       <div className="l">AUDIT RATIONALE</div>
-      <div className="text-[12px] leading-relaxed text-[#a3a3a3] font-mono">
+      <div className="text-[12px] leading-relaxed text-[var(--text-muted)] font-mono">
         {rationale}
       </div>
 
@@ -98,7 +98,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           className={`flex-1 h-9 rounded font-mono uppercase text-xs font-bold transition flex items-center justify-center gap-1.5 ${
             isAccepted
               ? 'bg-[#f97316] text-black shadow-[0_0_15px_rgba(249,115,22,0.3)]'
-              : 'bg-white text-black hover:bg-neutral-200'
+              : 'bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-90'
           }`}
         >
           <Check className="h-3.5 w-3.5" />
@@ -108,8 +108,8 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           onClick={() => onUpdateStatus?.(edge.id, 'rejected')}
           className={`flex-1 h-9 rounded font-mono uppercase text-xs transition border flex items-center justify-center gap-1.5 ${
             isRejected
-              ? 'bg-[#171717] text-red-400 border-red-500'
-              : 'bg-[#0a0a0a] text-[#737373] border-[#262626] hover:text-white hover:border-[#404040]'
+              ? 'bg-[var(--bg-surface)] text-red-500 border-red-500'
+              : 'bg-[var(--bg-surface)] text-[var(--text-dim)] border-[var(--border-primary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]'
           }`}
         >
           <XIcon className="h-3.5 w-3.5" />

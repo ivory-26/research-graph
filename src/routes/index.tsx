@@ -99,8 +99,8 @@ function WorkspacePage() {
   };
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#000000] text-[#e5e5e5]">
-      {/* Prithvi Twin Global Navbar with Tri-color Accent Stripe */}
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors duration-200">
+      {/* Global Navbar with Theme Switcher & Tri-color Accent Stripe */}
       <Navbar
         activeTab={activeTab}
         onSelectTab={handleSelectTab}
@@ -131,13 +131,13 @@ function WorkspacePage() {
         )}
 
         {activeTab === 'runs' && (
-          <main className="flex-1 overflow-y-auto bg-[#000000]">
+          <main className="flex-1 overflow-y-auto bg-[var(--bg-primary)]">
             <ComparisonView />
           </main>
         )}
 
         {activeTab === 'dashboard' && (
-          <main className="flex-1 overflow-y-auto bg-[#000000]">
+          <main className="flex-1 overflow-y-auto bg-[var(--bg-primary)]">
             <StrategyDashboard />
           </main>
         )}
@@ -145,11 +145,11 @@ function WorkspacePage() {
 
       {/* Stream Terminal Drawer (E2B Sandbox Logs) */}
       {showLogDrawer && (
-        <aside className="border-t border-[#262626] bg-[#0a0a0a] p-4 font-mono text-xs shadow-2xl z-40">
-          <div className="flex items-center justify-between pb-2 border-b border-[#262626]">
+        <aside className="border-t border-[var(--border-primary)] bg-[var(--bg-surface)] p-4 font-mono text-xs shadow-2xl z-40 transition-colors duration-200">
+          <div className="flex items-center justify-between pb-2 border-b border-[var(--border-primary)]">
             <div className="flex items-center gap-2">
               <Terminal className="h-4 w-4 text-[#f97316]" />
-              <span className="font-bold text-white uppercase tracking-wider text-[11px]">
+              <span className="font-bold text-[var(--text-primary)] uppercase tracking-wider text-[11px]">
                 E2B Isolated Sandbox Output Stream
               </span>
               {isRunningPipeline && (
@@ -160,12 +160,12 @@ function WorkspacePage() {
             </div>
             <button
               onClick={() => setShowLogDrawer(false)}
-              className="text-[#737373] hover:text-white text-xs uppercase font-bold"
+              className="text-[var(--text-dim)] hover:text-[var(--text-primary)] text-xs uppercase font-bold"
             >
               Close
             </button>
           </div>
-          <div className="mt-2.5 max-h-40 overflow-y-auto space-y-1 text-[#a3a3a3]">
+          <div className="mt-2.5 max-h-40 overflow-y-auto space-y-1 text-[var(--text-muted)]">
             {executionLogs.map((log, index) => {
               const isMatch = log.includes('MATCH');
               return (
@@ -175,11 +175,11 @@ function WorkspacePage() {
                     isMatch
                       ? 'text-[#f97316] font-semibold'
                       : log.includes('Executing')
-                      ? 'text-white'
+                      ? 'text-[var(--text-primary)]'
                       : ''
                   }`}
                 >
-                  <span className="text-[#525252] select-none text-[10px] w-5">
+                  <span className="text-[var(--text-dim)] select-none text-[10px] w-5">
                     {String(index + 1).padStart(2, '0')}
                   </span>
                   <span>{log}</span>

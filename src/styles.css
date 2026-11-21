@@ -9,8 +9,9 @@
 
 :root {
   --bg-primary: #000000;
-  --bg-card: #0a0a0a;
-  --bg-card-hover: #121212;
+  --bg-surface: #0a0a0a;
+  --bg-surface-hover: #121212;
+  --bg-surface-elevated: #171717;
   --border-primary: #262626;
   --border-secondary: #404040;
   --text-primary: #ffffff;
@@ -20,8 +21,36 @@
   --accent-orange: #f97316;
   --accent-orange-hover: #ea580c;
   --accent-orange-glow: rgba(249, 115, 22, 0.35);
-  --accent-cyan: #38bdf8;
-  --accent-emerald: #22c55e;
+  --canvas-bg: #000000;
+  --grid-dot: #262626;
+  --minimap-mask: rgba(0, 0, 0, 0.85);
+  --header-bg: rgba(0, 0, 0, 0.95);
+  --card-bg: #0a0a0a;
+  --card-border: #262626;
+  --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+html.light {
+  --bg-primary: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #f1f5f9;
+  --bg-surface-elevated: #ffffff;
+  --border-primary: #e2e8f0;
+  --border-secondary: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+  --accent-orange: #ea580c;
+  --accent-orange-hover: #c2410c;
+  --accent-orange-glow: rgba(234, 88, 12, 0.2);
+  --canvas-bg: #f8fafc;
+  --grid-dot: #cbd5e1;
+  --minimap-mask: rgba(248, 250, 252, 0.85);
+  --header-bg: rgba(255, 255, 255, 0.95);
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 1);
 }
 
 * {
@@ -29,7 +58,7 @@
 }
 
 ::selection {
-  background-color: #f97316;
+  background-color: var(--accent-orange);
   color: #000000;
 }
 
@@ -38,13 +67,32 @@ body,
 #app {
   min-height: 100%;
   margin: 0;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-family: "Geist", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+html.dark,
+html.dark body,
+html.dark #app {
   background: #000000;
   color: #e5e5e5;
-  font-family: "Geist", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   background-image: 
     radial-gradient(at 0% 0%, rgba(249, 115, 22, 0.04) 0px, transparent 40%),
     radial-gradient(at 100% 100%, rgba(255, 255, 255, 0.02) 0px, transparent 40%),
     radial-gradient(at 50% 50%, rgba(249, 115, 22, 0.015) 0px, transparent 60%);
+  background-attachment: fixed;
+}
+
+html.light,
+html.light body,
+html.light #app {
+  background: #f8fafc;
+  color: #334155;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(249, 115, 22, 0.05) 0px, transparent 40%),
+    radial-gradient(at 100% 100%, rgba(15, 23, 42, 0.02) 0px, transparent 40%);
   background-attachment: fixed;
 }
 
@@ -68,22 +116,23 @@ body,
   gap: 4px;
 }
 
-/* Inverted Solid Badge (Prithvi style) */
+/* Inverted Solid Badge */
 .badge-solid-white {
-  background-color: #ffffff;
-  color: #000000;
-  border: 1px solid #ffffff;
+  background-color: var(--text-primary);
+  color: var(--bg-primary);
+  border: 1px solid var(--text-primary);
   font: 700 9px "Geist Mono", monospace;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: 1px 6px;
   border-radius: 3px;
+  transition: all 0.2s ease;
 }
 
 .badge-orange-outline {
   border: 1px solid rgba(249, 115, 22, 0.6);
   background-color: rgba(249, 115, 22, 0.08);
-  color: #f97316;
+  color: var(--accent-orange);
   font: 600 9px "Geist Mono", monospace;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -91,12 +140,13 @@ body,
   border-radius: 3px;
 }
 
-/* Deep Obsidian Technical Surface */
+/* Deep Obsidian or Clean White Technical Surface */
 .c {
-  background: #0a0a0a;
-  border: 1px solid #262626;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: 10px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 30px rgba(0, 0, 0, 0.8);
+  box-shadow: var(--card-shadow);
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .c-interactive {
@@ -104,18 +154,18 @@ body,
 }
 
 .c-interactive:hover {
-  border-color: #404040;
-  background: #101010;
+  border-color: var(--border-secondary);
+  background: var(--bg-surface-hover);
 }
 
 .l {
   font: 600 10px "Geist Mono", "JetBrains Mono", monospace;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #737373;
+  color: var(--text-dim);
 }
 
-/* Prithvi Twin Animated Lineage & Flow */
+/* Animations */
 @keyframes edgeFlow {
   from {
     stroke-dashoffset: 24;
@@ -164,13 +214,18 @@ body,
 .node-premium-card {
   position: relative;
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: var(--card-shadow);
   backdrop-filter: blur(16px);
-  background: #0a0a0a;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
 }
 
 .node-premium-card:hover {
   transform: translateY(-2px);
+  box-shadow: 0 10px 30px -4px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+html.dark .node-premium-card:hover {
   box-shadow: 0 10px 30px -4px rgba(0, 0, 0, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
@@ -207,8 +262,8 @@ body,
 }
 
 .react-flow__handle {
-  background-color: #f97316 !important;
-  border: 2px solid #000000 !important;
+  background-color: var(--accent-orange) !important;
+  border: 2px solid var(--bg-primary) !important;
   width: 8px !important;
   height: 8px !important;
   border-radius: 2px !important;
@@ -218,30 +273,30 @@ body,
 .react-flow__handle:hover {
   transform: scale(1.5);
   background-color: #fb923c !important;
-  box-shadow: 0 0 12px #f97316;
+  box-shadow: 0 0 12px var(--accent-orange);
 }
 
 .react-flow__controls {
-  background-color: #0a0a0a !important;
-  border: 1px solid #262626 !important;
+  background-color: var(--card-bg) !important;
+  border: 1px solid var(--card-border) !important;
   border-radius: 8px !important;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  box-shadow: var(--card-shadow) !important;
   backdrop-filter: blur(12px) !important;
   overflow: hidden;
 }
 
 .react-flow__controls-button {
   background-color: transparent !important;
-  border-bottom: 1px solid #262626 !important;
-  color: #a3a3a3 !important;
+  border-bottom: 1px solid var(--card-border) !important;
+  color: var(--text-muted) !important;
   width: 32px !important;
   height: 32px !important;
   transition: all 0.15s ease;
 }
 
 .react-flow__controls-button:hover {
-  background-color: #171717 !important;
-  color: #f97316 !important;
+  background-color: var(--bg-surface-hover) !important;
+  color: var(--accent-orange) !important;
 }
 
 .react-flow__controls-button svg {
@@ -249,15 +304,15 @@ body,
 }
 
 .react-flow__minimap {
-  background-color: #0a0a0a !important;
-  border: 1px solid #262626 !important;
+  background-color: var(--card-bg) !important;
+  border: 1px solid var(--card-border) !important;
   border-radius: 8px !important;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  box-shadow: var(--card-shadow) !important;
   backdrop-filter: blur(12px) !important;
 }
 
 .react-flow__minimap-mask {
-  fill: rgba(0, 0, 0, 0.85) !important;
+  fill: var(--minimap-mask) !important;
 }
 
 /* Custom Scrollbars */
@@ -267,14 +322,14 @@ body,
 }
 
 ::-webkit-scrollbar-track {
-  background: #000000;
+  background: var(--bg-primary);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #262626;
+  background: var(--border-primary);
   border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #404040;
+  background: var(--border-secondary);
 }

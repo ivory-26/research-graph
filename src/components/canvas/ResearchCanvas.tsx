@@ -24,6 +24,7 @@ import {
 } from './CustomNodes';
 import { CustomEvidenceEdge } from './CustomEdges';
 import type { WorkspaceNode, WorkspaceEdge } from '../../data/demoWorkspace';
+import { useTheme } from '../../context/ThemeContext';
 import {
   Search,
   Grid,
@@ -54,6 +55,7 @@ function CanvasInner({
   onSelectNode,
 }: ResearchCanvasProps) {
   const { setCenter, fitView } = useReactFlow();
+  const { theme } = useTheme();
 
   // Filter state for nodes
   const [activeFilter, setActiveFilter] = useState<string>('all');
@@ -246,8 +248,10 @@ function CanvasInner({
     return initialNodes.find((n) => n.id === selectedNodeId)?.title || selectedNodeId;
   }, [selectedNodeId, initialNodes]);
 
+  const gridDotColor = theme === 'dark' ? '#262626' : '#cbd5e1';
+
   return (
-    <div className="relative h-full w-full bg-[#000000] select-none">
+    <div className="relative h-full w-full bg-[var(--canvas-bg)] select-none transition-colors duration-200">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -266,14 +270,14 @@ function CanvasInner({
         maxZoom={1.8}
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={gridVariant} gap={20} size={1} color="#262626" />
+        <Background variant={gridVariant} gap={20} size={1} color={gridDotColor} />
 
         {/* TOP-LEFT PANEL: GRAPH STATS & JUMP SEARCH */}
         <Panel position="top-left" className="m-3 flex items-center gap-2">
           {/* Node Quick Search Dock */}
           <div className="relative">
-            <div className="flex items-center gap-1.5 rounded-md border border-[#262626] bg-[#0a0a0a] px-3 py-1.5 shadow-2xl backdrop-blur-md">
-              <Search className="h-3.5 w-3.5 text-[#737373]" />
+            <div className="flex items-center gap-1.5 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-3 py-1.5 shadow-xl backdrop-blur-md">
+              <Search className="h-3.5 w-3.5 text-[var(--text-dim)]" />
               <input
                 type="text"
                 placeholder="Jump to node (Gini, Strobl)..."
@@ -283,7 +287,7 @@ function CanvasInner({
                   setSearchQuery(e.target.value);
                   setIsSearchOpen(true);
                 }}
-                className="w-48 bg-transparent text-xs text-white placeholder-[#737373] outline-none font-mono"
+                className="w-48 bg-transparent text-xs text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none font-mono"
               />
               {searchQuery && (
                 <button
@@ -291,7 +295,7 @@ function CanvasInner({
                     setSearchQuery('');
                     setIsSearchOpen(false);
                   }}
-                  className="text-xs text-[#737373] hover:text-white"
+                  className="text-xs text-[var(--text-dim)] hover:text-[var(--text-primary)]"
                 >
                   ×
                 </button>
@@ -300,16 +304,16 @@ function CanvasInner({
 
             {/* Search Dropdown Results */}
             {isSearchOpen && matchingNodes.length > 0 && (
-              <div className="absolute left-0 top-11 z-50 w-72 rounded-lg border border-[#262626] bg-[#0a0a0a] p-2 shadow-2xl backdrop-blur-xl animate-fade-in space-y-1">
+              <div className="absolute left-0 top-11 z-50 w-72 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] p-2 shadow-2xl backdrop-blur-xl animate-fade-in space-y-1">
                 <div className="px-2 py-1 l text-[9px]">Matching Nodes</div>
                 {matchingNodes.map((n) => (
                   <div
                     key={n.id}
                     onClick={() => handleJumpToNode(n)}
-                    className="flex items-center justify-between rounded px-2.5 py-1.5 text-xs text-white hover:bg-[#171717] cursor-pointer transition"
+                    className="flex items-center justify-between rounded px-2.5 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer transition"
                   >
                     <div className="truncate font-medium">{n.title}</div>
-                    <span className="font-mono text-[9px] uppercase text-[#737373] ml-2">
+                    <span className="font-mono text-[9px] uppercase text-[var(--text-dim)] ml-2">
                       {n.type}
                     </span>
                   </div>
@@ -322,7 +326,7 @@ function CanvasInner({
           {hasLineage ? (
             <div className="flex items-center gap-2 rounded-md border border-[#f97316]/60 bg-[#f97316]/10 px-3 py-1.5 text-[11px] font-mono text-[#f97316] shadow-xl backdrop-blur-md animate-fade-in">
               <Zap className="h-3.5 w-3.5 text-[#f97316]" />
-              <span>Tracing: <strong className="text-white">{selectedNodeTitle}</strong> ({connectedNodeIds.size} nodes)</span>
+              <span>Tracing: <strong className="text-[var(--text-primary)]">{selectedNodeTitle}</strong> ({connectedNodeIds.size} nodes)</span>
               <button
                 onClick={() => onSelectNode(null)}
                 className="ml-1 rounded p-0.5 hover:bg-[#f97316]/20 text-[#f97316]"
@@ -332,8 +336,8 @@ function CanvasInner({
               </button>
             </div>
           ) : (
-            <div className="hidden md:flex items-center gap-2 rounded-md border border-[#262626] bg-[#0a0a0a] px-3 py-1.5 text-[11px] font-mono text-[#737373] shadow-xl backdrop-blur-md">
-              <Layers className="h-3.5 w-3.5 text-white" />
+            <div className="hidden md:flex items-center gap-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-3 py-1.5 text-[11px] font-mono text-[var(--text-dim)] shadow-xl backdrop-blur-md">
+              <Layers className="h-3.5 w-3.5 text-[var(--accent-orange)]" />
               <span>3 SOURCES · 1 CLAIM · 2 METHODS · 2 RUNS</span>
             </div>
           )}
@@ -342,13 +346,13 @@ function CanvasInner({
         {/* TOP-RIGHT PANEL: FILTER DOCK & GRID SWITCHER */}
         <Panel position="top-right" className="m-3 flex items-center gap-2">
           {/* Node Category Filters */}
-          <div className="flex items-center gap-1 rounded-md border border-[#262626] bg-[#0a0a0a] p-1 shadow-2xl backdrop-blur-md">
+          <div className="flex items-center gap-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] p-1 shadow-xl backdrop-blur-md">
             <button
               onClick={() => setActiveFilter('all')}
               className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'all'
-                  ? 'bg-white text-black font-bold'
-                  : 'text-[#737373] hover:text-white'
+                  ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold'
+                  : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
               }`}
             >
               All
@@ -357,8 +361,8 @@ function CanvasInner({
               onClick={() => setActiveFilter('sources')}
               className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'sources'
-                  ? 'bg-white text-black font-bold'
-                  : 'text-[#737373] hover:text-white'
+                  ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold'
+                  : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
               }`}
             >
               Sources
@@ -368,7 +372,7 @@ function CanvasInner({
               className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'claims'
                   ? 'bg-[#f97316] text-black font-bold'
-                  : 'text-[#737373] hover:text-white'
+                  : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
               }`}
             >
               Claims
@@ -377,8 +381,8 @@ function CanvasInner({
               onClick={() => setActiveFilter('methods')}
               className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'methods'
-                  ? 'bg-white text-black font-bold'
-                  : 'text-[#737373] hover:text-white'
+                  ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold'
+                  : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
               }`}
             >
               Methods
@@ -387,8 +391,8 @@ function CanvasInner({
               onClick={() => setActiveFilter('runs')}
               className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'runs'
-                  ? 'bg-white text-black font-bold'
-                  : 'text-[#737373] hover:text-white'
+                  ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold'
+                  : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
               }`}
             >
               Runs
@@ -402,7 +406,7 @@ function CanvasInner({
               else if (gridVariant === BackgroundVariant.Lines) setGridVariant(BackgroundVariant.Cross);
               else setGridVariant(BackgroundVariant.Dots);
             }}
-            className="flex items-center gap-1 rounded-md border border-[#262626] bg-[#0a0a0a] px-2.5 py-1.5 text-xs text-[#737373] shadow-2xl backdrop-blur-md hover:text-white transition"
+            className="flex items-center gap-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--text-dim)] shadow-xl backdrop-blur-md hover:text-[var(--text-primary)] transition"
             title="Toggle Grid Type"
           >
             <Grid className="h-3.5 w-3.5" />
@@ -414,8 +418,8 @@ function CanvasInner({
           {/* Minimap Toggle */}
           <button
             onClick={() => setShowMinimap(!showMinimap)}
-            className={`flex items-center gap-1 rounded-md border border-[#262626] bg-[#0a0a0a] px-2.5 py-1.5 text-xs transition shadow-2xl backdrop-blur-md ${
-              showMinimap ? 'text-[#f97316]' : 'text-[#737373] hover:text-white'
+            className={`flex items-center gap-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs transition shadow-xl backdrop-blur-md ${
+              showMinimap ? 'text-[#f97316]' : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
             }`}
             title="Toggle Map"
           >
@@ -424,7 +428,7 @@ function CanvasInner({
         </Panel>
 
         {/* CONTROLS DOCK */}
-        <Controls className="!bg-[#0a0a0a] !border-[#262626] !text-[#a3a3a3]">
+        <Controls>
           <ControlButton
             onClick={() => setIsLocked(!isLocked)}
             title={isLocked ? 'Unlock canvas navigation' : 'Lock canvas navigation'}
@@ -442,23 +446,41 @@ function CanvasInner({
             nodeStrokeWidth={2}
             zoomable
             pannable
-            className="!bg-[#0a0a0a] !border-[#262626] !rounded-lg"
             nodeColor={(n) => {
-              switch (n.type) {
-                case 'claim':
-                  return '#f97316';
-                case 'method':
-                  return '#e5e5e5';
-                case 'dataset':
-                  return '#737373';
-                case 'run':
-                  return '#f97316';
-                case 'result':
-                  return '#ffffff';
-                case 'source':
-                  return '#a3a3a3';
-                default:
-                  return '#262626';
+              if (theme === 'dark') {
+                switch (n.type) {
+                  case 'claim':
+                    return '#f97316';
+                  case 'method':
+                    return '#e5e5e5';
+                  case 'dataset':
+                    return '#737373';
+                  case 'run':
+                    return '#f97316';
+                  case 'result':
+                    return '#ffffff';
+                  case 'source':
+                    return '#a3a3a3';
+                  default:
+                    return '#262626';
+                }
+              } else {
+                switch (n.type) {
+                  case 'claim':
+                    return '#ea580c';
+                  case 'method':
+                    return '#475569';
+                  case 'dataset':
+                    return '#64748b';
+                  case 'run':
+                    return '#ea580c';
+                  case 'result':
+                    return '#0f172a';
+                  case 'source':
+                    return '#94a3b8';
+                  default:
+                    return '#cbd5e1';
+                }
               }
             }}
           />

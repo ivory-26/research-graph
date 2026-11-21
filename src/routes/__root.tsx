@@ -1,5 +1,6 @@
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router';
 import appCss from '../styles.css?url';
+import { ThemeProvider } from '../context/ThemeContext';
 
 export const Route = createRootRoute({
   head: () => ({
@@ -35,8 +36,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body className="h-full w-full overflow-hidden bg-slate-950 font-sans text-slate-100 antialiased">
-        {children}
+      <body className="h-full w-full overflow-hidden font-sans antialiased transition-colors duration-200">
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
         <Scripts />
       </body>
     </html>

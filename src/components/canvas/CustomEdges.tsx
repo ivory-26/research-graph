@@ -1,16 +1,7 @@
 import React from 'react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath } from '@xyflow/react';
 import type { EdgeProps } from '@xyflow/react';
-
-const RELATION_STROKES: Record<string, string> = {
-  supports: '#f97316',
-  contradicts: '#ef4444',
-  cites: '#ffffff',
-  uses_dataset: '#737373',
-  tests: '#e5e5e5',
-  produced: '#f97316',
-  derived_from: '#525252',
-};
+import { useTheme } from '../../context/ThemeContext';
 
 export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
   id,
@@ -25,6 +16,8 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
   markerEnd,
   selected,
 }) => {
+  const { theme } = useTheme();
+
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -37,7 +30,29 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
   const relation = (data?.relation as string) || 'cites';
   const status = (data?.status as string) || 'accepted';
   const isDashed = status === 'suggested' || relation === 'derived_from';
-  const strokeColor = RELATION_STROKES[relation] || '#262626';
+
+  const relationStrokesDark: Record<string, string> = {
+    supports: '#f97316',
+    contradicts: '#ef4444',
+    cites: '#ffffff',
+    uses_dataset: '#737373',
+    tests: '#e5e5e5',
+    produced: '#f97316',
+    derived_from: '#525252',
+  };
+
+  const relationStrokesLight: Record<string, string> = {
+    supports: '#ea580c',
+    contradicts: '#dc2626',
+    cites: '#475569',
+    uses_dataset: '#94a3b8',
+    tests: '#334155',
+    produced: '#ea580c',
+    derived_from: '#cbd5e1',
+  };
+
+  const currentStrokes = theme === 'dark' ? relationStrokesDark : relationStrokesLight;
+  const strokeColor = currentStrokes[relation] || (theme === 'dark' ? '#262626' : '#e2e8f0');
   const confidence = typeof data?.confidence === 'number' ? data.confidence : null;
 
   const isLineageActive = Boolean(data?.isLineageActive) || selected;
@@ -56,9 +71,9 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
           path={edgePath}
           className="edge-halo-pulse"
           style={{
-            stroke: strokeColor === '#262626' ? '#f97316' : strokeColor,
+            stroke: '#f97316',
             strokeWidth: 9,
-            opacity: 0.4,
+            opacity: theme === 'dark' ? 0.4 : 0.25,
           }}
         />
       )}
@@ -104,15 +119,15 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
           }}
         >
           <div
-            className={`group flex items-center gap-1 font-mono text-[9px] px-2 py-0.5 rounded transition-all duration-200 hover:scale-105 select-none shadow-xl ${
+            className={`group flex items-center gap-1 font-mono text-[9px] px-2 py-0.5 rounded transition-all duration-200 hover:scale-105 select-none shadow-md ${
               isLineageActive
-                ? 'bg-[#000000] text-[#f97316] border border-[#f97316] ring-1 ring-[#f97316]/50'
-                : 'bg-[#0a0a0a] text-[#a3a3a3] border border-[#262626] hover:border-[#404040] hover:text-white'
+                ? 'bg-[var(--bg-primary)] text-[#f97316] border border-[#f97316] ring-1 ring-[#f97316]/50'
+                : 'bg-[var(--bg-surface)] text-[var(--text-muted)] border border-[var(--border-primary)] hover:border-[var(--border-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             <span className="uppercase tracking-wider">{displayLabel}</span>
             {confidence && (
-              <span className="text-[8px] opacity-75 font-mono text-[#737373]">
+              <span className="text-[8px] opacity-75 font-mono text-[var(--text-dim)]">
                 {Math.round(confidence * 100)}%
               </span>
             )}
