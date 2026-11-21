@@ -143,9 +143,9 @@ function WorkspacePage() {
         )}
       </div>
 
-      {/* Stream Terminal Drawer (E2B Sandbox Logs) */}
+      {/* Stream Terminal Drawer with Sharp Corners */}
       {showLogDrawer && (
-        <aside className="border-t border-[var(--border-primary)] bg-[var(--bg-surface)] p-4 font-mono text-xs shadow-2xl z-40 transition-colors duration-200">
+        <aside className="border-t border-[var(--border-primary)] bg-[var(--bg-surface)] p-4 font-mono text-xs shadow-2xl z-40 transition-colors duration-200 rounded-none">
           <div className="flex items-center justify-between pb-2 border-b border-[var(--border-primary)]">
             <div className="flex items-center gap-2">
               <Terminal className="h-4 w-4 text-[#f97316]" />
@@ -153,7 +153,7 @@ function WorkspacePage() {
                 E2B Isolated Sandbox Output Stream
               </span>
               {isRunningPipeline && (
-                <span className="badge-orange-outline animate-pulse">
+                <span className="badge-orange-outline animate-pulse rounded-none">
                   EXECUTING IN SANDBOX
                 </span>
               )}

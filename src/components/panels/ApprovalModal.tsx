@@ -19,11 +19,11 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md animate-fade-in">
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] text-[var(--text-secondary)] shadow-2xl">
-        {/* Header */}
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-none border border-[var(--border-primary)] bg-[var(--bg-primary)] text-[var(--text-secondary)] shadow-2xl">
+        {/* Header with Sharp Corners */}
         <div className="flex items-center justify-between border-b border-[var(--border-primary)] p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded bg-[#f97316]/10 p-2 text-[#f97316] border border-[#f97316]/30">
+            <div className="rounded-none bg-[#f97316]/10 p-2 text-[#f97316] border border-[#f97316]/30">
               <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
@@ -31,7 +31,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
                 <h2 className="text-base font-bold text-[var(--text-primary)] font-mono uppercase tracking-tight">
                   Human Approval Gate: Experiment Plan
                 </h2>
-                <span className="badge-orange-outline">
+                <span className="badge-orange-outline rounded-none">
                   AWAIT_APPROVAL
                 </span>
               </div>
@@ -42,7 +42,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="rounded p-1.5 text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
+            className="rounded-none p-1.5 text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
           >
             <X className="h-4 w-4" />
           </button>
@@ -50,9 +50,9 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          {/* Resource & Isolation Boundary Cards */}
+          {/* Resource & Isolation Boundary Cards with Sharp Corners */}
           <div className="grid grid-cols-3 gap-3">
-            <div className="c p-3 flex items-center gap-3 bg-[var(--card-bg)] border border-[var(--border-primary)]">
+            <div className="c p-3 flex items-center gap-3 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
               <WifiOff className="h-5 w-5 text-[#f97316]" />
               <div>
                 <div className="l text-[9px] text-[#f97316]">
@@ -64,7 +64,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
               </div>
             </div>
 
-            <div className="c p-3 flex items-center gap-3 bg-[var(--card-bg)] border border-[var(--border-primary)]">
+            <div className="c p-3 flex items-center gap-3 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
               <Cpu className="h-5 w-5 text-[var(--text-primary)]" />
               <div>
                 <div className="l text-[9px]">
@@ -76,7 +76,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
               </div>
             </div>
 
-            <div className="c p-3 flex items-center gap-3 bg-[var(--card-bg)] border border-[var(--border-primary)]">
+            <div className="c p-3 flex items-center gap-3 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
               <HardDrive className="h-5 w-5 text-[var(--text-primary)]" />
               <div>
                 <div className="l text-[9px]">
@@ -90,7 +90,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
           </div>
 
           {/* Dataset Lock & Spec */}
-          <div className="c p-4 bg-[var(--card-bg)] border border-[var(--border-primary)] text-xs space-y-1.5">
+          <div className="c p-4 bg-[var(--card-bg)] border border-[var(--border-primary)] text-xs space-y-1.5 rounded-none">
             <div className="flex items-center justify-between">
               <span className="l">Dataset Reference:</span>
               <span className="m text-[var(--text-primary)] font-bold">openml:52350 (breast-w)</span>
@@ -105,29 +105,29 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
             </div>
           </div>
 
-          {/* Generated Code Preview */}
+          {/* Generated Code Preview with Sharp Corners */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="l">Generated Entrypoint: main.py</span>
               <span className="font-mono text-[10px] text-[var(--text-dim)]">Deterministic seed = 42</span>
             </div>
-            <pre className="max-h-60 overflow-y-auto rounded-lg border border-[var(--border-primary)] bg-[var(--card-bg)] p-4 font-mono text-[11px] text-[var(--text-primary)] leading-relaxed">
+            <pre className="max-h-60 overflow-y-auto rounded-none border border-[var(--border-primary)] bg-[var(--card-bg)] p-4 font-mono text-[11px] text-[var(--text-primary)] leading-relaxed">
               <code>{HERO_PYTHON_SCRIPT}</code>
             </pre>
           </div>
         </div>
 
-        {/* Footer Actions */}
+        {/* Footer Actions with Sharp Corners */}
         <div className="flex items-center justify-end gap-3 border-t border-[var(--border-primary)] p-4 bg-[var(--bg-surface)]">
           <button
             onClick={onReject}
-            className="h-8 px-4 rounded border border-[var(--border-primary)] bg-transparent text-xs font-mono uppercase text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition"
+            className="h-8 px-4 rounded-none border border-[var(--border-primary)] bg-transparent text-xs font-mono uppercase text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition"
           >
             Reject Plan
           </button>
           <button
             onClick={onApprove}
-            className="h-8 px-4 rounded bg-[#f97316] text-black font-mono uppercase text-xs font-bold hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)]"
+            className="h-8 px-4 rounded-none bg-[#f97316] text-black font-mono uppercase text-xs font-bold hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)]"
           >
             Approve &amp; Dispatch to E2B
           </button>

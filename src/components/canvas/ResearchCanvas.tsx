@@ -274,9 +274,9 @@ function CanvasInner({
 
         {/* TOP-LEFT PANEL: GRAPH STATS & JUMP SEARCH */}
         <Panel position="top-left" className="m-3 flex items-center gap-2">
-          {/* Node Quick Search Dock */}
+          {/* Node Quick Search Dock with Sharp Corners */}
           <div className="relative">
-            <div className="flex items-center gap-1.5 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-3 py-1.5 shadow-xl backdrop-blur-md">
+            <div className="flex items-center gap-1.5 rounded-none border border-[var(--border-primary)] bg-[var(--bg-surface)] px-3 py-1.5 shadow-xl backdrop-blur-md">
               <Search className="h-3.5 w-3.5 text-[var(--text-dim)]" />
               <input
                 type="text"
@@ -302,15 +302,15 @@ function CanvasInner({
               )}
             </div>
 
-            {/* Search Dropdown Results */}
+            {/* Search Dropdown Results with Sharp Corners */}
             {isSearchOpen && matchingNodes.length > 0 && (
-              <div className="absolute left-0 top-11 z-50 w-72 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] p-2 shadow-2xl backdrop-blur-xl animate-fade-in space-y-1">
+              <div className="absolute left-0 top-11 z-50 w-72 rounded-none border border-[var(--border-primary)] bg-[var(--bg-surface)] p-2 shadow-2xl backdrop-blur-xl animate-fade-in space-y-1">
                 <div className="px-2 py-1 l text-[9px]">Matching Nodes</div>
                 {matchingNodes.map((n) => (
                   <div
                     key={n.id}
                     onClick={() => handleJumpToNode(n)}
-                    className="flex items-center justify-between rounded px-2.5 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer transition"
+                    className="flex items-center justify-between rounded-none px-2.5 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer transition"
                   >
                     <div className="truncate font-medium">{n.title}</div>
                     <span className="font-mono text-[9px] uppercase text-[var(--text-dim)] ml-2">
@@ -322,21 +322,21 @@ function CanvasInner({
             )}
           </div>
 
-          {/* Lineage Focus Badge or Quick Stats Pill */}
+          {/* Lineage Focus Badge with Sharp Corners */}
           {hasLineage ? (
-            <div className="flex items-center gap-2 rounded-md border border-[#f97316]/60 bg-[#f97316]/10 px-3 py-1.5 text-[11px] font-mono text-[#f97316] shadow-xl backdrop-blur-md animate-fade-in">
+            <div className="flex items-center gap-2 rounded-none border border-[#f97316]/60 bg-[#f97316]/10 px-3 py-1.5 text-[11px] font-mono text-[#f97316] shadow-xl backdrop-blur-md animate-fade-in">
               <Zap className="h-3.5 w-3.5 text-[#f97316]" />
               <span>Tracing: <strong className="text-[var(--text-primary)]">{selectedNodeTitle}</strong> ({connectedNodeIds.size} nodes)</span>
               <button
                 onClick={() => onSelectNode(null)}
-                className="ml-1 rounded p-0.5 hover:bg-[#f97316]/20 text-[#f97316]"
+                className="ml-1 rounded-none p-0.5 hover:bg-[#f97316]/20 text-[#f97316]"
                 title="Clear lineage focus"
               >
                 <X className="h-3 w-3" />
               </button>
             </div>
           ) : (
-            <div className="hidden md:flex items-center gap-2 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-3 py-1.5 text-[11px] font-mono text-[var(--text-dim)] shadow-xl backdrop-blur-md">
+            <div className="hidden md:flex items-center gap-2 rounded-none border border-[var(--border-primary)] bg-[var(--bg-surface)] px-3 py-1.5 text-[11px] font-mono text-[var(--text-dim)] shadow-xl backdrop-blur-md">
               <Layers className="h-3.5 w-3.5 text-[var(--accent-orange)]" />
               <span>3 SOURCES · 1 CLAIM · 2 METHODS · 2 RUNS</span>
             </div>
@@ -345,11 +345,11 @@ function CanvasInner({
 
         {/* TOP-RIGHT PANEL: FILTER DOCK & GRID SWITCHER */}
         <Panel position="top-right" className="m-3 flex items-center gap-2">
-          {/* Node Category Filters */}
-          <div className="flex items-center gap-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] p-1 shadow-xl backdrop-blur-md">
+          {/* Node Category Filters with Sharp Corners */}
+          <div className="flex items-center gap-1 rounded-none border border-[var(--border-primary)] bg-[var(--bg-surface)] p-1 shadow-xl backdrop-blur-md">
             <button
               onClick={() => setActiveFilter('all')}
-              className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
+              className={`rounded-none px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'all'
                   ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold'
                   : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
@@ -359,7 +359,7 @@ function CanvasInner({
             </button>
             <button
               onClick={() => setActiveFilter('sources')}
-              className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
+              className={`rounded-none px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'sources'
                   ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold'
                   : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
@@ -369,7 +369,7 @@ function CanvasInner({
             </button>
             <button
               onClick={() => setActiveFilter('claims')}
-              className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
+              className={`rounded-none px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'claims'
                   ? 'bg-[#f97316] text-black font-bold'
                   : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
@@ -379,7 +379,7 @@ function CanvasInner({
             </button>
             <button
               onClick={() => setActiveFilter('methods')}
-              className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
+              className={`rounded-none px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'methods'
                   ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold'
                   : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
@@ -389,7 +389,7 @@ function CanvasInner({
             </button>
             <button
               onClick={() => setActiveFilter('runs')}
-              className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
+              className={`rounded-none px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'runs'
                   ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold'
                   : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
@@ -399,14 +399,14 @@ function CanvasInner({
             </button>
           </div>
 
-          {/* Grid Mode Switcher */}
+          {/* Grid Mode Switcher with Sharp Corners */}
           <button
             onClick={() => {
               if (gridVariant === BackgroundVariant.Dots) setGridVariant(BackgroundVariant.Lines);
               else if (gridVariant === BackgroundVariant.Lines) setGridVariant(BackgroundVariant.Cross);
               else setGridVariant(BackgroundVariant.Dots);
             }}
-            className="flex items-center gap-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--text-dim)] shadow-xl backdrop-blur-md hover:text-[var(--text-primary)] transition"
+            className="flex items-center gap-1 rounded-none border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--text-dim)] shadow-xl backdrop-blur-md hover:text-[var(--text-primary)] transition"
             title="Toggle Grid Type"
           >
             <Grid className="h-3.5 w-3.5" />
@@ -415,10 +415,10 @@ function CanvasInner({
             </span>
           </button>
 
-          {/* Minimap Toggle */}
+          {/* Minimap Toggle with Sharp Corners */}
           <button
             onClick={() => setShowMinimap(!showMinimap)}
-            className={`flex items-center gap-1 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs transition shadow-xl backdrop-blur-md ${
+            className={`flex items-center gap-1 rounded-none border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs transition shadow-xl backdrop-blur-md ${
               showMinimap ? 'text-[#f97316]' : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
             }`}
             title="Toggle Map"
@@ -427,7 +427,7 @@ function CanvasInner({
           </button>
         </Panel>
 
-        {/* CONTROLS DOCK */}
+        {/* CONTROLS DOCK with Sharp Corners */}
         <Controls>
           <ControlButton
             onClick={() => setIsLocked(!isLocked)}
@@ -440,12 +440,13 @@ function CanvasInner({
           </ControlButton>
         </Controls>
 
-        {/* MINIMAP */}
+        {/* MINIMAP with Sharp Corners */}
         {showMinimap && (
           <MiniMap
             nodeStrokeWidth={2}
             zoomable
             pannable
+            className="!rounded-none"
             nodeColor={(n) => {
               if (theme === 'dark') {
                 switch (n.type) {

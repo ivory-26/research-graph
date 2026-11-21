@@ -90,11 +90,11 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md animate-fade-in">
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] text-[var(--text-secondary)] shadow-2xl">
-        {/* Header */}
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-none border border-[var(--border-primary)] bg-[var(--bg-primary)] text-[var(--text-secondary)] shadow-2xl">
+        {/* Header with Sharp Corners */}
         <div className="flex items-center justify-between border-b border-[var(--border-primary)] p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded bg-[#f97316]/10 p-2 text-[#f97316] border border-[#f97316]/30">
+            <div className="rounded-none bg-[#f97316]/10 p-2 text-[#f97316] border border-[#f97316]/30">
               <BookOpen className="h-5 w-5" />
             </div>
             <div>
@@ -102,7 +102,7 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
                 <h2 className="text-base font-bold text-[var(--text-primary)] font-mono uppercase tracking-tight">
                   Export Self-Contained Notebook (.ipynb)
                 </h2>
-                <span className="badge-solid-white">COLAB READY</span>
+                <span className="badge-solid-white rounded-none">COLAB READY</span>
               </div>
               <p className="text-xs text-[var(--text-dim)] mt-0.5 font-mono">
                 One-click executable reproduction notebook with verified packages and pinned SHA-256 data.
@@ -111,7 +111,7 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="rounded p-1.5 text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
+            className="rounded-none p-1.5 text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
           >
             <X className="h-4 w-4" />
           </button>
@@ -119,7 +119,7 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div className="c p-4 bg-[var(--card-bg)] border border-[var(--border-primary)] text-xs space-y-1.5 font-mono">
+          <div className="c p-4 bg-[var(--card-bg)] border border-[var(--border-primary)] text-xs space-y-1.5 font-mono rounded-none">
             <div className="flex items-center justify-between">
               <span className="l">Target Paper:</span>
               <span className="text-[var(--text-primary)] font-bold">Strobl et al. 2007 (BMC Bioinformatics)</span>
@@ -139,24 +139,24 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
               <span className="l">Notebook JSON Preview</span>
               <span className="font-mono text-[10px] text-[var(--text-dim)]">Valid Jupyter nbformat 4.5</span>
             </div>
-            <pre className="max-h-64 overflow-y-auto rounded-lg border border-[var(--border-primary)] bg-[var(--card-bg)] p-4 font-mono text-[10px] text-[var(--text-muted)] leading-relaxed">
+            <pre className="max-h-64 overflow-y-auto rounded-none border border-[var(--border-primary)] bg-[var(--card-bg)] p-4 font-mono text-[10px] text-[var(--text-muted)] leading-relaxed">
               <code>{formattedJson.slice(0, 1800)}...</code>
             </pre>
           </div>
         </div>
 
-        {/* Footer Actions */}
+        {/* Footer Actions with Sharp Corners */}
         <div className="flex items-center justify-end gap-3 border-t border-[var(--border-primary)] p-4 bg-[var(--bg-surface)]">
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1.5 h-8 px-3 rounded border border-[var(--border-primary)] bg-transparent text-xs font-mono uppercase text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition"
+            className="flex items-center gap-1.5 h-8 px-3 rounded-none border border-[var(--border-primary)] bg-transparent text-xs font-mono uppercase text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition"
           >
             {copied ? <Check className="h-3.5 w-3.5 text-[#f97316]" /> : <Copy className="h-3.5 w-3.5" />}
             <span>{copied ? 'Copied' : 'Copy JSON'}</span>
           </button>
           <button
             onClick={handleDownload}
-            className="flex items-center gap-1.5 h-8 px-4 rounded bg-[#f97316] text-black font-mono uppercase text-xs font-bold hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)]"
+            className="flex items-center gap-1.5 h-8 px-4 rounded-none bg-[#f97316] text-black font-mono uppercase text-xs font-bold hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)]"
           >
             <Download className="h-3.5 w-3.5" />
             <span>Download .ipynb</span>

@@ -42,16 +42,16 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="l">CITATION EVIDENCE</div>
-        <span className="badge-solid-white">AUDITED</span>
+        <span className="badge-solid-white rounded-none">AUDITED</span>
       </div>
 
-      {/* Badges */}
+      {/* Badges with Sharp Corners */}
       <div className="flex gap-2 flex-wrap">
-        <span className="badge-orange-outline">
+        <span className="badge-orange-outline rounded-none">
           {relation}
         </span>
         <span
-          className={`b ${
+          className={`b rounded-none ${
             isAccepted
               ? 'border-[var(--text-primary)] bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold'
               : isRejected
@@ -62,7 +62,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           {status}
         </span>
         {confidence && (
-          <span className="b border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-dim)]">
+          <span className="b rounded-none border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-dim)]">
             {confidence}
           </span>
         )}
@@ -75,8 +75,8 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         <span className="text-[var(--text-primary)] font-semibold">{targetName}</span>
       </div>
 
-      {/* Verbatim Cited Quote Card */}
-      <div className="c p-4 border-l-[3px] !border-l-[#f97316] !rounded-md bg-[var(--card-bg)] border border-[var(--border-primary)]">
+      {/* Verbatim Cited Quote Card with Sharp Corners */}
+      <div className="c p-4 border-l-[3px] !border-l-[#f97316] !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)]">
         <div className="text-[13px] leading-relaxed text-[var(--text-primary)] font-serif italic">
           &ldquo;{quote}&rdquo;
         </div>
@@ -91,11 +91,11 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         {rationale}
       </div>
 
-      {/* Accept / Reject actions */}
+      {/* Accept / Reject actions with Sharp Corners */}
       <div className="flex gap-2 mt-auto pt-4">
         <button
           onClick={() => onUpdateStatus?.(edge.id, 'accepted')}
-          className={`flex-1 h-9 rounded font-mono uppercase text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+          className={`flex-1 h-9 rounded-none font-mono uppercase text-xs font-bold transition flex items-center justify-center gap-1.5 ${
             isAccepted
               ? 'bg-[#f97316] text-black shadow-[0_0_15px_rgba(249,115,22,0.3)]'
               : 'bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-90'
@@ -106,7 +106,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         </button>
         <button
           onClick={() => onUpdateStatus?.(edge.id, 'rejected')}
-          className={`flex-1 h-9 rounded font-mono uppercase text-xs transition border flex items-center justify-center gap-1.5 ${
+          className={`flex-1 h-9 rounded-none font-mono uppercase text-xs transition border flex items-center justify-center gap-1.5 ${
             isRejected
               ? 'bg-[var(--bg-surface)] text-red-500 border-red-500'
               : 'bg-[var(--bg-surface)] text-[var(--text-dim)] border-[var(--border-primary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]'

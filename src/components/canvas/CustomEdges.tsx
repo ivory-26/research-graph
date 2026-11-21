@@ -101,7 +101,7 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
         }}
       />
 
-      {/* Interactive Relation Pill / Label */}
+      {/* Interactive Relation Pill / Label with Sharp Corners */}
       <EdgeLabelRenderer>
         <div
           style={{
@@ -119,7 +119,7 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
           }}
         >
           <div
-            className={`group flex items-center gap-1 font-mono text-[9px] px-2 py-0.5 rounded transition-all duration-200 hover:scale-105 select-none shadow-md ${
+            className={`group flex items-center gap-1 font-mono text-[9px] px-2 py-0.5 rounded-none transition-all duration-200 hover:scale-105 select-none shadow-md ${
               isLineageActive
                 ? 'bg-[var(--bg-primary)] text-[#f97316] border border-[#f97316] ring-1 ring-[#f97316]/50'
                 : 'bg-[var(--bg-surface)] text-[var(--text-muted)] border border-[var(--border-primary)] hover:border-[var(--border-secondary)] hover:text-[var(--text-primary)]'

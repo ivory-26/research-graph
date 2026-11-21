@@ -27,26 +27,26 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
         {isModal && onClose && (
           <button
             onClick={onClose}
-            className="rounded p-2 text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
+            className="rounded-none p-2 text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
           >
             <X className="h-5 w-5" />
           </button>
         )}
       </div>
 
-      {/* 1 Parameter Changed Banner */}
-      <div className="c px-5 py-3.5 flex items-center gap-4 flex-wrap bg-[var(--card-bg)] border border-[var(--border-primary)]">
-        <span className="badge-solid-white">1 PARAMETER CHANGED</span>
+      {/* 1 Parameter Changed Banner with Sharp Corners */}
+      <div className="c px-5 py-3.5 flex items-center gap-4 flex-wrap bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
+        <span className="badge-solid-white rounded-none">1 PARAMETER CHANGED</span>
         <span className="m text-[13px] text-[var(--text-primary)] font-semibold">importance_method</span>
         <span className="m text-[13px] text-[#f97316] font-semibold">impurity</span>
         <ArrowRight className="h-4 w-4 text-[var(--text-dim)]" />
         <span className="m text-[13px] text-[var(--text-primary)] font-semibold">permutation</span>
       </div>
 
-      {/* Side-by-Side Run Cards */}
+      {/* Side-by-Side Run Cards with Sharp Corners */}
       <div className="flex gap-5 flex-wrap">
         {/* Run A · Root */}
-        <div className="c flex-1 min-w-[320px] p-6 flex flex-col gap-4 bg-[var(--card-bg)] border border-[var(--border-primary)]">
+        <div className="c flex-1 min-w-[320px] p-6 flex flex-col gap-4 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="flex justify-between items-center flex-wrap gap-2">
             <div>
               <div className="l">Run A · root</div>
@@ -55,10 +55,10 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               </div>
             </div>
             <div className="flex gap-2">
-              <span className="badge-orange-outline">
+              <span className="badge-orange-outline rounded-none">
                 adapted
               </span>
-              <span className="badge-solid-white">
+              <span className="badge-solid-white rounded-none">
                 match
               </span>
             </div>
@@ -66,28 +66,28 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
 
           <div className="l text-[9px]">Feature rank · lower # = more important</div>
 
-          {/* Feature rank bars */}
+          {/* Feature rank bars with Sharp 0px Corners */}
           <div className="space-y-3">
             <div className="flex items-center gap-3">
               <span className="m text-[12px] text-[#f97316] w-20 font-semibold">noise_20</span>
-              <div className="flex-1 h-2 rounded bg-[var(--border-primary)] overflow-hidden">
-                <div className="h-full bg-[#f97316] rounded" style={{ width: '97%' }} />
+              <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
+                <div className="h-full bg-[#f97316] rounded-none" style={{ width: '97%' }} />
               </div>
               <span className="m text-[12px] text-[#f97316] w-9 text-right font-bold">#2</span>
             </div>
 
             <div className="flex items-center gap-3">
               <span className="m text-[12px] text-[var(--text-muted)] w-20">noise_5</span>
-              <div className="flex-1 h-2 rounded bg-[var(--border-primary)] overflow-hidden">
-                <div className="h-full bg-[var(--text-dim)] rounded" style={{ width: '70%' }} />
+              <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
+                <div className="h-full bg-[var(--text-dim)] rounded-none" style={{ width: '70%' }} />
               </div>
               <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-medium">#11</span>
             </div>
 
             <div className="flex items-center gap-3">
               <span className="m text-[12px] text-[var(--text-muted)] w-20">noise_2</span>
-              <div className="flex-1 h-2 rounded bg-[var(--border-primary)] overflow-hidden">
-                <div className="h-full bg-[var(--text-dim)] rounded" style={{ width: '30%' }} />
+              <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
+                <div className="h-full bg-[var(--text-dim)] rounded-none" style={{ width: '30%' }} />
               </div>
               <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-medium">#24</span>
             </div>
@@ -101,7 +101,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
         </div>
 
         {/* Run B · What-If Child */}
-        <div className="c flex-1 min-w-[320px] p-6 flex flex-col gap-4 bg-[var(--card-bg)] border border-[var(--border-primary)]">
+        <div className="c flex-1 min-w-[320px] p-6 flex flex-col gap-4 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="flex justify-between items-center flex-wrap gap-2">
             <div>
               <div className="l">Run B · what-if child of A</div>
@@ -110,10 +110,10 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               </div>
             </div>
             <div className="flex gap-2">
-              <span className="badge-orange-outline">
+              <span className="badge-orange-outline rounded-none">
                 adapted
               </span>
-              <span className="badge-solid-white">
+              <span className="badge-solid-white rounded-none">
                 match
               </span>
             </div>
@@ -121,28 +121,28 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
 
           <div className="l text-[9px]">Feature rank · lower # = more important</div>
 
-          {/* Feature rank bars */}
+          {/* Feature rank bars with Sharp 0px Corners */}
           <div className="space-y-3">
             <div className="flex items-center gap-3">
               <span className="m text-[12px] text-[var(--text-primary)] w-20 font-semibold">noise_20</span>
-              <div className="flex-1 h-2 rounded bg-[var(--border-primary)] overflow-hidden">
-                <div className="h-full bg-[var(--text-primary)] rounded" style={{ width: '15%' }} />
+              <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
+                <div className="h-full bg-[var(--text-primary)] rounded-none" style={{ width: '15%' }} />
               </div>
               <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-bold">#29</span>
             </div>
 
             <div className="flex items-center gap-3">
               <span className="m text-[12px] text-[var(--text-muted)] w-20">noise_5</span>
-              <div className="flex-1 h-2 rounded bg-[var(--border-primary)] overflow-hidden">
-                <div className="h-full bg-[var(--text-dim)] rounded" style={{ width: '9%' }} />
+              <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
+                <div className="h-full bg-[var(--text-dim)] rounded-none" style={{ width: '9%' }} />
               </div>
               <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-medium">#31</span>
             </div>
 
             <div className="flex items-center gap-3">
               <span className="m text-[12px] text-[var(--text-muted)] w-20">noise_2</span>
-              <div className="flex-1 h-2 rounded bg-[var(--border-primary)] overflow-hidden">
-                <div className="h-full bg-[var(--text-dim)] rounded" style={{ width: '3%' }} />
+              <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
+                <div className="h-full bg-[var(--text-dim)] rounded-none" style={{ width: '3%' }} />
               </div>
               <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-medium">#33</span>
             </div>
@@ -156,10 +156,10 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
         </div>
       </div>
 
-      {/* Delta Verdict Card */}
-      <div className="c p-5 bg-[var(--card-bg)] border border-[var(--border-primary)]">
+      {/* Delta Verdict Card with Sharp Corners */}
+      <div className="c p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded bg-[#f97316]/10 border border-[#f97316]/40 text-[#f97316]">
+          <div className="flex h-8 w-8 items-center justify-center rounded-none bg-[#f97316]/10 border border-[#f97316]/40 text-[#f97316]">
             <CheckCircle2 className="h-4 w-4" />
           </div>
           <div>
@@ -178,7 +178,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
   if (isModal) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md animate-fade-in overflow-y-auto">
-        <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] shadow-2xl">
+        <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-none border border-[var(--border-primary)] bg-[var(--bg-primary)] shadow-2xl">
           {content}
         </div>
       </div>

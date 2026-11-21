@@ -13,7 +13,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
   isOpen = true,
   onClose,
 }) => {
-  if (isModal && !isOpen) return null;
+  if (!isOpen) return null;
 
   const content = (
     <div className="w-full max-w-[1200px] mx-auto p-6 flex flex-col gap-5 text-[var(--text-secondary)]">
@@ -28,36 +28,36 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
         {isModal && onClose && (
           <button
             onClick={onClose}
-            className="rounded p-2 text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
+            className="rounded-none p-2 text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
           >
             <X className="h-5 w-5" />
           </button>
         )}
       </div>
 
-      {/* KPI Cards */}
+      {/* KPI Cards with Sharp Corners */}
       <div className="flex gap-4 flex-wrap">
-        <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)]">
+        <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Tasks Recorded</div>
           <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">29</div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">100% verified E2B runs</div>
         </div>
 
-        <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)]">
+        <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Total Cost</div>
           <div className="text-[32px] font-bold mt-2 text-[#f97316] font-mono">$0.04</div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">Gemini 2.0 Flash + Embeddings</div>
         </div>
 
-        <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)]">
+        <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Median Latency</div>
           <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">2.1 s</div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">Isolated compute execution</div>
         </div>
       </div>
 
-      {/* Leaderboard Table */}
-      <div className="c overflow-x-auto bg-[var(--card-bg)] border border-[var(--border-primary)]">
+      {/* Leaderboard Table with Sharp Corners */}
+      <div className="c overflow-x-auto bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
         <table className="w-full border-collapse text-[13px] min-w-[640px]">
           <thead>
             <tr className="l border-b border-[var(--border-primary)] bg-[var(--bg-surface-hover)]">
@@ -80,7 +80,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
                   <td className="p-3.5 text-[var(--text-primary)]">
                     <span className="font-mono text-[13px]">{strat.name}</span>
                     {isPreferred && (
-                      <span className="badge-orange-outline ml-2.5">
+                      <span className="badge-orange-outline ml-2.5 rounded-none">
                         PREFERRED
                       </span>
                     )}
@@ -89,9 +89,9 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
                   <td className="p-3.5 text-right m text-[var(--text-primary)] font-bold">{strat.successes}</td>
                   <td className="p-3.5 min-w-[180px]">
                     <div className="flex items-center gap-2.5">
-                      <div className="flex-1 h-2 rounded bg-[var(--border-primary)] overflow-hidden">
+                      <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
                         <div
-                          className="h-full rounded transition-all duration-500"
+                          className="h-full rounded-none transition-all duration-500"
                           style={{
                             width: `${percent}%`,
                             backgroundColor: barColor,
@@ -120,7 +120,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
   if (isModal) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md animate-fade-in overflow-y-auto">
-        <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-lg border border-[var(--border-primary)] bg-[var(--bg-primary)] shadow-2xl">
+        <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-none border border-[var(--border-primary)] bg-[var(--bg-primary)] shadow-2xl">
           {content}
         </div>
       </div>
