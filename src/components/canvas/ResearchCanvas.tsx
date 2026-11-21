@@ -247,7 +247,7 @@ function CanvasInner({
   }, [selectedNodeId, initialNodes]);
 
   return (
-    <div className="relative h-full w-full bg-[#0E1116] select-none">
+    <div className="relative h-full w-full bg-[#000000] select-none">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -266,24 +266,24 @@ function CanvasInner({
         maxZoom={1.8}
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={gridVariant} gap={20} size={1} color="#252C36" />
+        <Background variant={gridVariant} gap={20} size={1} color="#262626" />
 
         {/* TOP-LEFT PANEL: GRAPH STATS & JUMP SEARCH */}
         <Panel position="top-left" className="m-3 flex items-center gap-2">
           {/* Node Quick Search Dock */}
           <div className="relative">
-            <div className="flex items-center gap-1.5 rounded-xl border border-[#252C36] bg-[#161B22]/95 px-3 py-1.5 shadow-2xl backdrop-blur-md">
-              <Search className="h-3.5 w-3.5 text-[#9AA4B2]" />
+            <div className="flex items-center gap-1.5 rounded-md border border-[#262626] bg-[#0a0a0a] px-3 py-1.5 shadow-2xl backdrop-blur-md">
+              <Search className="h-3.5 w-3.5 text-[#737373]" />
               <input
                 type="text"
-                placeholder="Jump to node (e.g. Gini, Strobl)..."
+                placeholder="Jump to node (Gini, Strobl)..."
                 value={searchQuery}
                 onFocus={() => setIsSearchOpen(true)}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
                   setIsSearchOpen(true);
                 }}
-                className="w-48 bg-transparent text-xs text-[#E6EAF0] placeholder-[#9AA4B2] outline-none"
+                className="w-48 bg-transparent text-xs text-white placeholder-[#737373] outline-none font-mono"
               />
               {searchQuery && (
                 <button
@@ -291,7 +291,7 @@ function CanvasInner({
                     setSearchQuery('');
                     setIsSearchOpen(false);
                   }}
-                  className="text-xs text-[#9AA4B2] hover:text-[#E6EAF0]"
+                  className="text-xs text-[#737373] hover:text-white"
                 >
                   ×
                 </button>
@@ -300,16 +300,16 @@ function CanvasInner({
 
             {/* Search Dropdown Results */}
             {isSearchOpen && matchingNodes.length > 0 && (
-              <div className="absolute left-0 top-11 z-50 w-72 rounded-xl border border-[#252C36] bg-[#161B22] p-2 shadow-2xl backdrop-blur-xl animate-fade-in space-y-1">
-                <div className="px-2 py-1 l text-[9px] text-[#9AA4B2]">Matching Nodes</div>
+              <div className="absolute left-0 top-11 z-50 w-72 rounded-lg border border-[#262626] bg-[#0a0a0a] p-2 shadow-2xl backdrop-blur-xl animate-fade-in space-y-1">
+                <div className="px-2 py-1 l text-[9px]">Matching Nodes</div>
                 {matchingNodes.map((n) => (
                   <div
                     key={n.id}
                     onClick={() => handleJumpToNode(n)}
-                    className="flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs text-[#E6EAF0] hover:bg-[#252C36] cursor-pointer transition"
+                    className="flex items-center justify-between rounded px-2.5 py-1.5 text-xs text-white hover:bg-[#171717] cursor-pointer transition"
                   >
                     <div className="truncate font-medium">{n.title}</div>
-                    <span className="font-mono text-[9px] uppercase text-[#9AA4B2] ml-2">
+                    <span className="font-mono text-[9px] uppercase text-[#737373] ml-2">
                       {n.type}
                     </span>
                   </div>
@@ -320,21 +320,21 @@ function CanvasInner({
 
           {/* Lineage Focus Badge or Quick Stats Pill */}
           {hasLineage ? (
-            <div className="flex items-center gap-2 rounded-xl border border-[#3DD6B5]/40 bg-[#3DD6B5]/10 px-3 py-1.5 text-[11px] font-mono text-[#3DD6B5] shadow-xl backdrop-blur-md animate-fade-in">
-              <Zap className="h-3.5 w-3.5 text-[#3DD6B5]" />
+            <div className="flex items-center gap-2 rounded-md border border-[#f97316]/60 bg-[#f97316]/10 px-3 py-1.5 text-[11px] font-mono text-[#f97316] shadow-xl backdrop-blur-md animate-fade-in">
+              <Zap className="h-3.5 w-3.5 text-[#f97316]" />
               <span>Tracing: <strong className="text-white">{selectedNodeTitle}</strong> ({connectedNodeIds.size} nodes)</span>
               <button
                 onClick={() => onSelectNode(null)}
-                className="ml-1 rounded p-0.5 hover:bg-[#3DD6B5]/20 text-[#3DD6B5]"
+                className="ml-1 rounded p-0.5 hover:bg-[#f97316]/20 text-[#f97316]"
                 title="Clear lineage focus"
               >
                 <X className="h-3 w-3" />
               </button>
             </div>
           ) : (
-            <div className="hidden md:flex items-center gap-2 rounded-xl border border-[#252C36] bg-[#161B22]/90 px-3 py-1.5 text-[11px] font-mono text-[#9AA4B2] shadow-xl backdrop-blur-md">
-              <Layers className="h-3.5 w-3.5 text-[#3DD6B5]" />
-              <span>3 Sources · 1 Claim · 2 Methods · 2 Runs</span>
+            <div className="hidden md:flex items-center gap-2 rounded-md border border-[#262626] bg-[#0a0a0a] px-3 py-1.5 text-[11px] font-mono text-[#737373] shadow-xl backdrop-blur-md">
+              <Layers className="h-3.5 w-3.5 text-white" />
+              <span>3 SOURCES · 1 CLAIM · 2 METHODS · 2 RUNS</span>
             </div>
           )}
         </Panel>
@@ -342,53 +342,53 @@ function CanvasInner({
         {/* TOP-RIGHT PANEL: FILTER DOCK & GRID SWITCHER */}
         <Panel position="top-right" className="m-3 flex items-center gap-2">
           {/* Node Category Filters */}
-          <div className="flex items-center gap-1 rounded-xl border border-[#252C36] bg-[#161B22]/95 p-1 shadow-2xl backdrop-blur-md">
+          <div className="flex items-center gap-1 rounded-md border border-[#262626] bg-[#0a0a0a] p-1 shadow-2xl backdrop-blur-md">
             <button
               onClick={() => setActiveFilter('all')}
-              className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition ${
+              className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'all'
-                  ? 'bg-[#252C36] text-[#E6EAF0]'
-                  : 'text-[#9AA4B2] hover:text-[#E6EAF0]'
+                  ? 'bg-white text-black font-bold'
+                  : 'text-[#737373] hover:text-white'
               }`}
             >
               All
             </button>
             <button
               onClick={() => setActiveFilter('sources')}
-              className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition ${
+              className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'sources'
-                  ? 'bg-[#6EA8FE]/20 text-[#6EA8FE] font-semibold'
-                  : 'text-[#9AA4B2] hover:text-[#E6EAF0]'
+                  ? 'bg-white text-black font-bold'
+                  : 'text-[#737373] hover:text-white'
               }`}
             >
               Sources
             </button>
             <button
               onClick={() => setActiveFilter('claims')}
-              className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition ${
+              className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'claims'
-                  ? 'bg-[#3DD6B5]/20 text-[#3DD6B5] font-semibold'
-                  : 'text-[#9AA4B2] hover:text-[#E6EAF0]'
+                  ? 'bg-[#f97316] text-black font-bold'
+                  : 'text-[#737373] hover:text-white'
               }`}
             >
               Claims
             </button>
             <button
               onClick={() => setActiveFilter('methods')}
-              className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition ${
+              className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'methods'
-                  ? 'bg-[#A78BFA]/20 text-[#A78BFA] font-semibold'
-                  : 'text-[#9AA4B2] hover:text-[#E6EAF0]'
+                  ? 'bg-white text-black font-bold'
+                  : 'text-[#737373] hover:text-white'
               }`}
             >
               Methods
             </button>
             <button
               onClick={() => setActiveFilter('runs')}
-              className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition ${
+              className={`rounded px-2.5 py-1 text-[11px] font-mono uppercase tracking-wider transition ${
                 activeFilter === 'runs'
-                  ? 'bg-[#F5A524]/20 text-[#F5A524] font-semibold'
-                  : 'text-[#9AA4B2] hover:text-[#E6EAF0]'
+                  ? 'bg-white text-black font-bold'
+                  : 'text-[#737373] hover:text-white'
               }`}
             >
               Runs
@@ -402,8 +402,8 @@ function CanvasInner({
               else if (gridVariant === BackgroundVariant.Lines) setGridVariant(BackgroundVariant.Cross);
               else setGridVariant(BackgroundVariant.Dots);
             }}
-            className="flex items-center gap-1 rounded-xl border border-[#252C36] bg-[#161B22]/95 px-2.5 py-1.5 text-xs text-[#9AA4B2] shadow-2xl backdrop-blur-md hover:text-[#E6EAF0] transition"
-            title="Toggle Grid Type (Dots, Lines, Cross)"
+            className="flex items-center gap-1 rounded-md border border-[#262626] bg-[#0a0a0a] px-2.5 py-1.5 text-xs text-[#737373] shadow-2xl backdrop-blur-md hover:text-white transition"
+            title="Toggle Grid Type"
           >
             <Grid className="h-3.5 w-3.5" />
             <span className="font-mono text-[10px] uppercase">
@@ -414,8 +414,8 @@ function CanvasInner({
           {/* Minimap Toggle */}
           <button
             onClick={() => setShowMinimap(!showMinimap)}
-            className={`flex items-center gap-1 rounded-xl border border-[#252C36] bg-[#161B22]/95 px-2.5 py-1.5 text-xs transition shadow-2xl backdrop-blur-md ${
-              showMinimap ? 'text-[#3DD6B5]' : 'text-[#9AA4B2] hover:text-[#E6EAF0]'
+            className={`flex items-center gap-1 rounded-md border border-[#262626] bg-[#0a0a0a] px-2.5 py-1.5 text-xs transition shadow-2xl backdrop-blur-md ${
+              showMinimap ? 'text-[#f97316]' : 'text-[#737373] hover:text-white'
             }`}
             title="Toggle Map"
           >
@@ -424,15 +424,15 @@ function CanvasInner({
         </Panel>
 
         {/* CONTROLS DOCK */}
-        <Controls className="!bg-[#161B22] !border-[#252C36] !text-[#9AA4B2]">
+        <Controls className="!bg-[#0a0a0a] !border-[#262626] !text-[#a3a3a3]">
           <ControlButton
             onClick={() => setIsLocked(!isLocked)}
             title={isLocked ? 'Unlock canvas navigation' : 'Lock canvas navigation'}
           >
-            {isLocked ? <Lock className="h-3.5 w-3.5 text-[#F5A524]" /> : <Unlock className="h-3.5 w-3.5" />}
+            {isLocked ? <Lock className="h-3.5 w-3.5 text-[#f97316]" /> : <Unlock className="h-3.5 w-3.5" />}
           </ControlButton>
           <ControlButton onClick={() => fitView({ padding: 0.18, duration: 500 })} title="Reset View">
-            <Sparkles className="h-3.5 w-3.5 text-[#3DD6B5]" />
+            <Sparkles className="h-3.5 w-3.5 text-[#f97316]" />
           </ControlButton>
         </Controls>
 
@@ -442,23 +442,23 @@ function CanvasInner({
             nodeStrokeWidth={2}
             zoomable
             pannable
-            className="!bg-[#161B22] !border-[#252C36] !rounded-xl"
+            className="!bg-[#0a0a0a] !border-[#262626] !rounded-lg"
             nodeColor={(n) => {
               switch (n.type) {
                 case 'claim':
-                  return '#3DD6B5';
+                  return '#f97316';
                 case 'method':
-                  return '#A78BFA';
+                  return '#e5e5e5';
                 case 'dataset':
-                  return '#F472B6';
+                  return '#737373';
                 case 'run':
-                  return '#E6EAF0';
+                  return '#f97316';
                 case 'result':
-                  return '#3DD6B5';
+                  return '#ffffff';
                 case 'source':
-                  return '#6EA8FE';
+                  return '#a3a3a3';
                 default:
-                  return '#252C36';
+                  return '#262626';
               }
             }}
           />

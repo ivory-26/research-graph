@@ -1,5 +1,6 @@
 import React from 'react';
 import type { WorkspaceEdge } from '../../data/demoWorkspace';
+import { Check, X as XIcon } from 'lucide-react';
 
 interface EvidencePanelProps {
   edge: WorkspaceEdge | null;
@@ -12,9 +13,9 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
 }) => {
   if (!edge) {
     return (
-      <aside className="w-[340px] border-l border-[#252C36] bg-[#0E1116] p-5 flex flex-col gap-4 text-[#E6EAF0]">
-        <div className="l">Evidence</div>
-        <div className="text-xs text-[#9AA4B2] italic">
+      <aside className="w-[350px] border-l border-[#262626] bg-[#000000] p-5 flex flex-col gap-4 text-[#e5e5e5]">
+        <div className="l">CITATION EVIDENCE</div>
+        <div className="text-xs text-[#737373] italic font-mono">
           Select any edge or relation pill on the canvas to inspect its auditable citation evidence.
         </div>
       </aside>
@@ -37,53 +38,56 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
   const isRejected = status === 'rejected';
 
   return (
-    <aside className="w-[340px] flex-shrink-0 border-l border-[#252C36] bg-[#0E1116] p-5 flex flex-col gap-4 text-[#E6EAF0] overflow-y-auto">
+    <aside className="w-[350px] flex-shrink-0 border-l border-[#262626] bg-[#000000] p-5 flex flex-col gap-4 text-[#e5e5e5] overflow-y-auto">
       {/* Header */}
-      <div className="l">Evidence</div>
+      <div className="flex items-center justify-between">
+        <div className="l">CITATION EVIDENCE</div>
+        <span className="badge-solid-white">AUDITED</span>
+      </div>
 
       {/* Badges */}
       <div className="flex gap-2 flex-wrap">
-        <span className="b text-[#3DD6B5] border-[#3DD6B5]/40 bg-[#3DD6B5]/10">
+        <span className="badge-orange-outline">
           {relation}
         </span>
         <span
           className={`b ${
             isAccepted
-              ? 'text-[#3DD6B5] border-[#3DD6B5]/40 bg-[#3DD6B5]/10'
+              ? 'border-white bg-white text-black font-bold'
               : isRejected
-              ? 'text-[#F5A524] border-[#F5A524]/40 bg-[#F5A524]/10'
-              : 'text-[#9AA4B2] border-[#252C36]'
+              ? 'border-red-500/50 bg-red-500/10 text-red-400'
+              : 'border-[#262626] bg-[#0a0a0a] text-[#737373]'
           }`}
         >
           {status}
         </span>
         {confidence && (
-          <span className="b text-[#9AA4B2] border-[#252C36]">
+          <span className="b border-[#262626] bg-[#0a0a0a] text-[#737373]">
             {confidence}
           </span>
         )}
       </div>
 
       {/* From → To */}
-      <div className="text-[14px] leading-snug">
-        <span className="text-[#E6EAF0] font-medium">{sourceName}</span>{' '}
-        <span className="text-[#9AA4B2]">→</span>{' '}
-        <span className="text-[#E6EAF0] font-medium">{targetName}</span>
+      <div className="text-[13px] leading-snug font-mono">
+        <span className="text-white font-semibold">{sourceName}</span>{' '}
+        <span className="text-[#737373]">→</span>{' '}
+        <span className="text-white font-semibold">{targetName}</span>
       </div>
 
       {/* Verbatim Cited Quote Card */}
-      <div className="c p-4 border-l-[3px] !border-l-[#3DD6B5] !rounded-lg bg-[#161B22]">
-        <div className="text-[14px] leading-relaxed text-[#E6EAF0]">
+      <div className="c p-4 border-l-[3px] !border-l-[#f97316] !rounded-md bg-[#0a0a0a] border border-[#262626]">
+        <div className="text-[13px] leading-relaxed text-[#e5e5e5] font-serif italic">
           &ldquo;{quote}&rdquo;
         </div>
-        <div className="m text-[11px] text-[#9AA4B2] mt-3">
-          p. {page} · chunk #{chunkNumber} · chars {charStart}–{charEnd}
+        <div className="m text-[10px] text-[#737373] mt-3 border-t border-[#171717] pt-2">
+          PAGE {page} · CHUNK #{chunkNumber} · CHARS {charStart}–{charEnd}
         </div>
       </div>
 
       {/* Rationale */}
-      <div className="l">Rationale</div>
-      <div className="text-[13px] leading-relaxed text-[#9AA4B2]">
+      <div className="l">AUDIT RATIONALE</div>
+      <div className="text-[12px] leading-relaxed text-[#a3a3a3] font-mono">
         {rationale}
       </div>
 
@@ -91,23 +95,25 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
       <div className="flex gap-2 mt-auto pt-4">
         <button
           onClick={() => onUpdateStatus?.(edge.id, 'accepted')}
-          className={`flex-1 h-10 rounded-lg font-medium text-[13px] transition ${
+          className={`flex-1 h-9 rounded font-mono uppercase text-xs font-bold transition flex items-center justify-center gap-1.5 ${
             isAccepted
-              ? 'bg-[#3DD6B5] text-[#0E1116] font-semibold ring-2 ring-[#3DD6B5]/40'
-              : 'bg-[#3DD6B5] text-[#0E1116] hover:bg-[#34c4a4]'
+              ? 'bg-[#f97316] text-black shadow-[0_0_15px_rgba(249,115,22,0.3)]'
+              : 'bg-white text-black hover:bg-neutral-200'
           }`}
         >
-          Accept
+          <Check className="h-3.5 w-3.5" />
+          <span>Accept</span>
         </button>
         <button
           onClick={() => onUpdateStatus?.(edge.id, 'rejected')}
-          className={`flex-1 h-10 rounded-lg font-medium text-[13px] transition border ${
+          className={`flex-1 h-9 rounded font-mono uppercase text-xs transition border flex items-center justify-center gap-1.5 ${
             isRejected
-              ? 'bg-[#252C36] text-[#F5A524] border-[#F5A524]'
-              : 'bg-transparent text-[#E6EAF0] border-[#3A4452] hover:bg-[#161B22]'
+              ? 'bg-[#171717] text-red-400 border-red-500'
+              : 'bg-[#0a0a0a] text-[#737373] border-[#262626] hover:text-white hover:border-[#404040]'
           }`}
         >
-          Reject
+          <XIcon className="h-3.5 w-3.5" />
+          <span>Reject</span>
         </button>
       </div>
     </aside>

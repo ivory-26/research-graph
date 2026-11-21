@@ -89,31 +89,29 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-fade-in">
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border border-[#252C36] bg-[#0E1116] text-[#E6EAF0] shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-fade-in">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-lg border border-[#262626] bg-[#000000] text-[#e5e5e5] shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[#252C36] p-5">
+        <div className="flex items-center justify-between border-b border-[#262626] p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-[#F5A524]/10 p-2 text-[#F5A524]">
+            <div className="rounded bg-[#f97316]/10 p-2 text-[#f97316] border border-[#f97316]/30">
               <BookOpen className="h-5 w-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold text-[#E6EAF0]">
-                  Share: Jupyter Notebook (.ipynb) Export
+                <h2 className="text-base font-bold text-white font-mono uppercase tracking-tight">
+                  Export Self-Contained Notebook (.ipynb)
                 </h2>
-                <span className="b text-[#3DD6B5] border-[#3DD6B5]/40 bg-[#3DD6B5]/10">
-                  nbformat v4
-                </span>
+                <span className="badge-solid-white">COLAB READY</span>
               </div>
-              <p className="text-xs text-[#9AA4B2] mt-0.5">
-                Self-contained, runnable in Google Colab with pre-pinned seeds and dataset hash.
+              <p className="text-xs text-[#737373] mt-0.5 font-mono">
+                One-click executable reproduction notebook with verified packages and pinned SHA-256 data.
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-[#9AA4B2] hover:text-[#E6EAF0] hover:bg-[#161B22] transition"
+            className="rounded p-1.5 text-[#737373] hover:text-white hover:bg-[#171717] transition"
           >
             <X className="h-4 w-4" />
           </button>
@@ -121,55 +119,48 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div className="c p-4 bg-[#161B22] text-xs space-y-2">
+          <div className="c p-4 bg-[#0a0a0a] border border-[#262626] text-xs space-y-1.5 font-mono">
             <div className="flex items-center justify-between">
-              <span className="l">Kernel Specification:</span>
-              <span className="m text-[#E6EAF0]">python3 (Python 3.12)</span>
+              <span className="l">Target Paper:</span>
+              <span className="text-white font-bold">Strobl et al. 2007 (BMC Bioinformatics)</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="l">Dependencies:</span>
-              <span className="m text-[#3DD6B5]">scikit-learn==1.9.1, numpy==2.5.5, pandas==2.3.4</span>
+              <span className="l">Kernel:</span>
+              <span className="text-white">Python 3.12 (scikit-learn 1.9.1)</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="l">Colab 1-Click Ready:</span>
-              <span className="b text-[#3DD6B5] border-[#3DD6B5]/40 text-[10px]">Verified</span>
+              <span className="l">Reproduction Criteria:</span>
+              <span className="text-[#f97316]">rank_impurity(noise_20) ≤ 5 &amp; rank_permutation(noise_20) &gt; 15</span>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="l">Preview ipynb schema structure</span>
-              <span className="m text-[10px] text-[#9AA4B2]">{formattedJson.length} bytes</span>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="l">Notebook JSON Preview</span>
+              <span className="font-mono text-[10px] text-[#737373]">Valid Jupyter nbformat 4.5</span>
             </div>
-            <div className="c max-h-60 overflow-y-auto p-4 bg-[#0E1116] border-[#252C36]">
-              <pre className="font-mono text-[11px] leading-relaxed text-[#9AA4B2]">
-                <code>{formattedJson.slice(0, 1200)}...</code>
-              </pre>
-            </div>
+            <pre className="max-h-64 overflow-y-auto rounded-lg border border-[#262626] bg-[#0a0a0a] p-4 font-mono text-[10px] text-[#a3a3a3] leading-relaxed">
+              <code>{formattedJson.slice(0, 1800)}...</code>
+            </pre>
           </div>
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between border-t border-[#252C36] p-5">
-          <div className="text-[11px] text-[#9AA4B2]">
-            Target: Open directly in Google Colab or JupyterLab.
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={handleCopy}
-              className="flex items-center gap-1.5 h-9 px-3.5 rounded-lg border border-[#3A4452] bg-transparent text-[#E6EAF0] text-xs font-medium hover:bg-[#161B22] transition"
-            >
-              {copied ? <Check className="h-3.5 w-3.5 text-[#3DD6B5]" /> : <Copy className="h-3.5 w-3.5" />}
-              <span>{copied ? 'Copied' : 'Copy JSON'}</span>
-            </button>
-            <button
-              onClick={handleDownload}
-              className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[#3DD6B5] text-[#0E1116] text-xs font-semibold hover:bg-[#34c4a4] transition"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>Download .ipynb</span>
-            </button>
-          </div>
+        <div className="flex items-center justify-end gap-3 border-t border-[#262626] p-4 bg-[#0a0a0a]">
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 h-8 px-3 rounded border border-[#262626] bg-transparent text-xs font-mono uppercase text-[#e5e5e5] hover:text-white hover:border-[#404040] transition"
+          >
+            {copied ? <Check className="h-3.5 w-3.5 text-[#f97316]" /> : <Copy className="h-3.5 w-3.5" />}
+            <span>{copied ? 'Copied' : 'Copy JSON'}</span>
+          </button>
+          <button
+            onClick={handleDownload}
+            className="flex items-center gap-1.5 h-8 px-4 rounded bg-[#f97316] text-black font-mono uppercase text-xs font-bold hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)]"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Download .ipynb</span>
+          </button>
         </div>
       </div>
     </div>
