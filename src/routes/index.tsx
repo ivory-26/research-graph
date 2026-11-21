@@ -29,6 +29,8 @@ function WorkspacePage() {
 
   // Selected Edge for Evidence Sidebar (default to hero edge)
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>('e-src1-claim');
+  // Selected Node for Dynamic Lineage Path Tracing
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   // Modals & Panels state
   const [isIngestOpen, setIsIngestOpen] = useState(false);
@@ -120,7 +122,15 @@ function WorkspacePage() {
                   initialNodes={nodes}
                   initialEdges={edges}
                   selectedEdgeId={selectedEdgeId}
+                  selectedNodeId={selectedNodeId}
                   onSelectEdge={(edgeId) => setSelectedEdgeId(edgeId)}
+                  onSelectNode={(nodeId) => {
+                    setSelectedNodeId(nodeId);
+                    if (nodeId) {
+                      const rel = edges.find((e) => e.source === nodeId || e.target === nodeId);
+                      if (rel) setSelectedEdgeId(rel.id);
+                    }
+                  }}
                 />
 
                 {/* Quick Status Floating Pill */}

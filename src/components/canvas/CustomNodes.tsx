@@ -16,6 +16,8 @@ import {
 
 export const SourceNode: React.FC<NodeProps> = ({ data, selected }) => {
   const isHero = Boolean(data.isHero);
+  const isDimmed = Boolean(data.isDimmed);
+  const isHighlighted = Boolean(data.isHighlighted) || selected;
   const [copied, setCopied] = useState(false);
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -29,9 +31,11 @@ export const SourceNode: React.FC<NodeProps> = ({ data, selected }) => {
 
   return (
     <div
-      className={`node-premium-card w-[180px] rounded-[10px] bg-[#161B22] p-3 transition-all ${
-        selected
-          ? 'border-2 border-[#6EA8FE] shadow-[0_0_20px_rgba(110,168,254,0.35)]'
+      className={`node-premium-card w-[180px] rounded-[10px] bg-[#161B22]/95 p-3 transition-all ${
+        isDimmed ? 'node-dimmed' : ''
+      } ${
+        isHighlighted
+          ? 'border-2 border-[#6EA8FE] shadow-[0_0_25px_rgba(110,168,254,0.4)] node-highlighted'
           : isHero
           ? 'border border-[#6EA8FE]/80 hover:border-[#6EA8FE]'
           : 'border border-[#252C36] hover:border-[#3A4452]'
@@ -87,11 +91,16 @@ export const SourceNode: React.FC<NodeProps> = ({ data, selected }) => {
 };
 
 export const ClaimNode: React.FC<NodeProps> = ({ data, selected }) => {
+  const isDimmed = Boolean(data.isDimmed);
+  const isHighlighted = Boolean(data.isHighlighted) || selected;
+
   return (
     <div
-      className={`node-premium-card w-[220px] rounded-[12px] bg-[#13201F] p-3.5 transition-all ${
-        selected
-          ? 'border-2 border-[#3DD6B5] shadow-[0_0_25px_rgba(61,214,181,0.4)]'
+      className={`node-premium-card w-[220px] rounded-[12px] bg-[#13201F]/95 p-3.5 transition-all ${
+        isDimmed ? 'node-dimmed' : ''
+      } ${
+        isHighlighted
+          ? 'border-2 border-[#3DD6B5] shadow-[0_0_30px_rgba(61,214,181,0.5)] node-highlighted'
           : 'border-[1.5px] border-[#3DD6B5]'
       }`}
     >
@@ -135,11 +144,16 @@ export const ClaimNode: React.FC<NodeProps> = ({ data, selected }) => {
 };
 
 export const MethodNode: React.FC<NodeProps> = ({ data, selected }) => {
+  const isDimmed = Boolean(data.isDimmed);
+  const isHighlighted = Boolean(data.isHighlighted) || selected;
+
   return (
     <div
-      className={`node-premium-card w-[190px] rounded-[10px] bg-[#161B22] p-3 transition-all ${
-        selected
-          ? 'border-2 border-[#A78BFA] shadow-[0_0_20px_rgba(167,139,250,0.35)]'
+      className={`node-premium-card w-[190px] rounded-[10px] bg-[#161B22]/95 p-3 transition-all ${
+        isDimmed ? 'node-dimmed' : ''
+      } ${
+        isHighlighted
+          ? 'border-2 border-[#A78BFA] shadow-[0_0_25px_rgba(167,139,250,0.4)] node-highlighted'
           : 'border border-[#A78BFA]'
       }`}
     >
@@ -182,11 +196,16 @@ export const MethodNode: React.FC<NodeProps> = ({ data, selected }) => {
 };
 
 export const DatasetNode: React.FC<NodeProps> = ({ data, selected }) => {
+  const isDimmed = Boolean(data.isDimmed);
+  const isHighlighted = Boolean(data.isHighlighted) || selected;
+
   return (
     <div
-      className={`node-premium-card w-[190px] rounded-[10px] bg-[#161B22] p-3 transition-all ${
-        selected
-          ? 'border-2 border-[#F472B6] shadow-[0_0_20px_rgba(244,114,182,0.35)]'
+      className={`node-premium-card w-[190px] rounded-[10px] bg-[#161B22]/95 p-3 transition-all ${
+        isDimmed ? 'node-dimmed' : ''
+      } ${
+        isHighlighted
+          ? 'border-2 border-[#F472B6] shadow-[0_0_25px_rgba(244,114,182,0.4)] node-highlighted'
           : 'border border-[#F472B6]'
       }`}
     >
@@ -232,12 +251,16 @@ export const DatasetNode: React.FC<NodeProps> = ({ data, selected }) => {
 
 export const RunNode: React.FC<NodeProps> = ({ data, selected }) => {
   const isWhatIf = Boolean(data.parentRunId);
+  const isDimmed = Boolean(data.isDimmed);
+  const isHighlighted = Boolean(data.isHighlighted) || selected;
 
   return (
     <div
-      className={`node-premium-card w-[190px] rounded-[10px] bg-[#161B22] p-3 transition-all ${
-        selected
-          ? 'border-2 border-[#3DD6B5] shadow-[0_0_20px_rgba(61,214,181,0.35)]'
+      className={`node-premium-card w-[190px] rounded-[10px] bg-[#161B22]/95 p-3 transition-all ${
+        isDimmed ? 'node-dimmed' : ''
+      } ${
+        isHighlighted
+          ? 'border-2 border-[#3DD6B5] shadow-[0_0_25px_rgba(61,214,181,0.4)] node-highlighted'
           : 'border border-[#E6EAF0]'
       }`}
     >
@@ -294,11 +317,16 @@ export const RunNode: React.FC<NodeProps> = ({ data, selected }) => {
 };
 
 export const ResultNode: React.FC<NodeProps> = ({ data, selected }) => {
+  const isDimmed = Boolean(data.isDimmed);
+  const isHighlighted = Boolean(data.isHighlighted) || selected;
+
   return (
     <div
-      className={`node-premium-card w-[190px] rounded-[10px] bg-[#161B22] p-3 transition-all ${
-        selected
-          ? 'border-2 border-[#3DD6B5] shadow-[0_0_20px_rgba(61,214,181,0.35)]'
+      className={`node-premium-card w-[190px] rounded-[10px] bg-[#161B22]/95 p-3 transition-all ${
+        isDimmed ? 'node-dimmed' : ''
+      } ${
+        isHighlighted
+          ? 'border-2 border-[#3DD6B5] shadow-[0_0_25px_rgba(61,214,181,0.4)] node-highlighted'
           : 'border border-[#3DD6B5]'
       }`}
     >
@@ -333,11 +361,16 @@ export const ResultNode: React.FC<NodeProps> = ({ data, selected }) => {
 };
 
 export const NoteNode: React.FC<NodeProps> = ({ data, selected }) => {
+  const isDimmed = Boolean(data.isDimmed);
+  const isHighlighted = Boolean(data.isHighlighted) || selected;
+
   return (
     <div
-      className={`node-premium-card w-[190px] rounded-[10px] bg-[#161B22] p-3 transition-all ${
-        selected
-          ? 'border-2 border-[#F5A524] shadow-[0_0_20px_rgba(245,165,36,0.35)]'
+      className={`node-premium-card w-[190px] rounded-[10px] bg-[#161B22]/95 p-3 transition-all ${
+        isDimmed ? 'node-dimmed' : ''
+      } ${
+        isHighlighted
+          ? 'border-2 border-[#F5A524] shadow-[0_0_25px_rgba(245,165,36,0.4)] node-highlighted'
           : 'border border-[#F5A524]/60'
       }`}
     >

@@ -21,25 +21,27 @@ export const Navbar: React.FC<NavbarProps> = ({
   logCount = 0,
 }) => {
   return (
-    <header className="flex min-h-[64px] w-full flex-wrap items-center gap-6 border-b border-[#252C36] bg-[#0E1116] px-6 text-[#E6EAF0] z-30 select-none">
+    <header className="flex min-h-[64px] w-full flex-wrap items-center gap-6 border-b border-[#252C36] bg-[#0E1116]/85 px-6 text-[#E6EAF0] z-30 select-none backdrop-blur-xl shadow-sm">
       {/* Brand */}
       <div
-        className="flex items-center gap-2.5 font-semibold text-base cursor-pointer"
+        className="flex items-center gap-2.5 font-semibold text-base cursor-pointer group"
         onClick={() => onSelectTab('graph')}
       >
-        <svg
-          width="22"
-          height="22"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#3DD6B5"
-          strokeWidth="1.8"
-          aria-hidden="true"
-        >
-          <path d="M12 2l9 5v10l-9 5-9-5V7z" />
-          <circle cx="12" cy="12" r="2.5" />
-        </svg>
-        <span>ResearchGraph</span>
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#3DD6B5]/10 border border-[#3DD6B5]/30 group-hover:border-[#3DD6B5] transition shadow-[0_0_12px_rgba(61,214,181,0.2)]">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#3DD6B5"
+            strokeWidth="1.8"
+            aria-hidden="true"
+          >
+            <path d="M12 2l9 5v10l-9 5-9-5V7z" />
+            <circle cx="12" cy="12" r="2.5" />
+          </svg>
+        </div>
+        <span className="tracking-tight text-[15px] font-semibold text-white">ResearchGraph</span>
       </div>
 
       {/* Navigation View Tabs */}

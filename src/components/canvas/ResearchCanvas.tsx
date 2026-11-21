@@ -32,20 +32,24 @@ import {
   Unlock,
   Layers,
   Sparkles,
+  Zap,
+  X,
 } from 'lucide-react';
 
 interface ResearchCanvasProps {
   initialNodes: WorkspaceNode[];
   initialEdges: WorkspaceEdge[];
   selectedEdgeId: string | null;
+  selectedNodeId: string | null;
   onSelectEdge: (edgeId: string) => void;
-  onSelectNode?: (nodeId: string) => void;
+  onSelectNode: (nodeId: string | null) => void;
 }
 
 function CanvasInner({
   initialNodes,
   initialEdges,
   selectedEdgeId,
+  selectedNodeId,
   onSelectEdge,
   onSelectNode,
 }: ResearchCanvasProps) {
@@ -79,62 +83,127 @@ function CanvasInner({
     []
   );
 
-  // Compute node opacity/dimming based on filter
+  // Dynamic Lineage Path Tracing (BFS upstream & downstream traversal)
+  const { connectedNodeIds, connectedEdgeIds } = useMemo(() => {
+    if (!selectedNodeId) {
+      return {
+        connectedNodeIds: new Set<string>(),
+        connectedEdgeIds: new Set<string>(),
+      };
+    }
+
+    const nodeSet = new Set<string>([selectedNodeId]);
+    const edgeSet = new Set<string>();
+
+    // Upstream traversal (find parent sources / claims)
+    let queue = [selectedNodeId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const e of initialEdges) {
+        if (e.target === current) {
+          edgeSet.add(e.id);
+          if (!nodeSet.has(e.source)) {
+            nodeSet.add(e.source);
+            queue.push(e.source);
+          }
+        }
+      }
+    }
+
+    // Downstream traversal (find dependent runs / results)
+    queue = [selectedNodeId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const e of initialEdges) {
+        if (e.source === current) {
+          edgeSet.add(e.id);
+          if (!nodeSet.has(e.target)) {
+            nodeSet.add(e.target);
+            queue.push(e.target);
+          }
+        }
+      }
+    }
+
+    return { connectedNodeIds: nodeSet, connectedEdgeIds: edgeSet };
+  }, [selectedNodeId, initialEdges]);
+
+  const hasLineage = connectedNodeIds.size > 0;
+
+  // Transform workspace nodes to ReactFlow nodes with lineage states
   const rfNodes: Node[] = useMemo(() => {
     return initialNodes.map((n) => {
-      let isDimmed = false;
-      if (activeFilter === 'sources' && n.type !== 'source') isDimmed = true;
-      if (activeFilter === 'claims' && n.type !== 'claim') isDimmed = true;
-      if (activeFilter === 'methods' && n.type !== 'method') isDimmed = true;
-      if (activeFilter === 'runs' && n.type !== 'run' && n.type !== 'result') isDimmed = true;
+      let isCategoryDimmed = false;
+      if (activeFilter === 'sources' && n.type !== 'source') isCategoryDimmed = true;
+      if (activeFilter === 'claims' && n.type !== 'claim') isCategoryDimmed = true;
+      if (activeFilter === 'methods' && n.type !== 'method') isCategoryDimmed = true;
+      if (activeFilter === 'runs' && n.type !== 'run' && n.type !== 'result') isCategoryDimmed = true;
+
+      const isLineageNode = hasLineage ? connectedNodeIds.has(n.id) : false;
+      const isDimmed = isCategoryDimmed || (hasLineage && !isLineageNode);
+      const isHighlighted = hasLineage ? isLineageNode : false;
 
       return {
         id: n.id,
         type: n.type,
         position: n.position,
-        data: n.data,
-        style: {
-          opacity: isDimmed ? 0.25 : 1,
-          transition: 'opacity 0.25s ease',
+        selected: n.id === selectedNodeId,
+        data: {
+          ...n.data,
+          isDimmed,
+          isHighlighted,
         },
       };
     });
-  }, [initialNodes, activeFilter]);
+  }, [initialNodes, activeFilter, hasLineage, connectedNodeIds, selectedNodeId]);
 
+  // Transform workspace edges to ReactFlow edges with lineage states
   const rfEdges: Edge[] = useMemo(() => {
-    return initialEdges.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      type: 'customEvidenceEdge',
-      selected: e.id === selectedEdgeId,
-      data: {
-        relation: e.relation,
-        status: e.status,
-        confidence: e.confidence,
-        quote: e.quote,
-        page: e.page,
-        charStart: e.charStart,
-        charEnd: e.charEnd,
-        chunkNumber: e.chunkNumber,
-        sourceTitle: e.sourceTitle,
-        targetTitle: e.targetTitle,
-        rationale: e.rationale,
-        onSelectEdge,
-      },
-    }));
-  }, [initialEdges, selectedEdgeId, onSelectEdge]);
+    return initialEdges.map((e) => {
+      const isLineageEdge = hasLineage ? connectedEdgeIds.has(e.id) : false;
+      const isSelected = e.id === selectedEdgeId;
+      const isLineageActive = isLineageEdge || isSelected;
+      const isDimmed = hasLineage && !isLineageEdge;
+
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        type: 'customEvidenceEdge',
+        selected: isSelected,
+        data: {
+          relation: e.relation,
+          status: e.status,
+          confidence: e.confidence,
+          quote: e.quote,
+          page: e.page,
+          charStart: e.charStart,
+          charEnd: e.charEnd,
+          chunkNumber: e.chunkNumber,
+          sourceTitle: e.sourceTitle,
+          targetTitle: e.targetTitle,
+          rationale: e.rationale,
+          isLineageActive,
+          isDimmed,
+          onSelectEdge,
+        },
+      };
+    });
+  }, [initialEdges, hasLineage, connectedEdgeIds, selectedEdgeId, onSelectEdge]);
 
   const [nodes, , onNodesChange] = useNodesState(rfNodes);
   const [edges, , onEdgesChange] = useEdgesState(rfEdges);
 
+  // Click on node toggles lineage lighting
   const handleNodeClick = useCallback(
     (_: any, node: Node) => {
-      if (onSelectNode) {
+      if (selectedNodeId === node.id) {
+        onSelectNode(null); // toggle off
+      } else {
         onSelectNode(node.id);
       }
     },
-    [onSelectNode]
+    [selectedNodeId, onSelectNode]
   );
 
   const handleEdgeClick = useCallback(
@@ -143,6 +212,12 @@ function CanvasInner({
     },
     [onSelectEdge]
   );
+
+  const handlePaneClick = useCallback(() => {
+    if (selectedNodeId) {
+      onSelectNode(null);
+    }
+  }, [selectedNodeId, onSelectNode]);
 
   // Search filtering
   const matchingNodes = useMemo(() => {
@@ -161,12 +236,15 @@ function CanvasInner({
       zoom: 1.25,
       duration: 600,
     });
-    if (onSelectNode) {
-      onSelectNode(node.id);
-    }
+    onSelectNode(node.id);
     setSearchQuery('');
     setIsSearchOpen(false);
   };
+
+  const selectedNodeTitle = useMemo(() => {
+    if (!selectedNodeId) return null;
+    return initialNodes.find((n) => n.id === selectedNodeId)?.title || selectedNodeId;
+  }, [selectedNodeId, initialNodes]);
 
   return (
     <div className="relative h-full w-full bg-[#0E1116] select-none">
@@ -179,6 +257,7 @@ function CanvasInner({
         edgeTypes={edgeTypes}
         onNodeClick={handleNodeClick}
         onEdgeClick={handleEdgeClick}
+        onPaneClick={handlePaneClick}
         panOnDrag={!isLocked}
         zoomOnScroll={!isLocked}
         fitView
@@ -239,11 +318,25 @@ function CanvasInner({
             )}
           </div>
 
-          {/* Quick Stats Pill */}
-          <div className="hidden md:flex items-center gap-2 rounded-xl border border-[#252C36] bg-[#161B22]/90 px-3 py-1.5 text-[11px] font-mono text-[#9AA4B2] shadow-xl backdrop-blur-md">
-            <Layers className="h-3.5 w-3.5 text-[#3DD6B5]" />
-            <span>3 Sources · 1 Claim · 2 Methods · 2 Runs</span>
-          </div>
+          {/* Lineage Focus Badge or Quick Stats Pill */}
+          {hasLineage ? (
+            <div className="flex items-center gap-2 rounded-xl border border-[#3DD6B5]/40 bg-[#3DD6B5]/10 px-3 py-1.5 text-[11px] font-mono text-[#3DD6B5] shadow-xl backdrop-blur-md animate-fade-in">
+              <Zap className="h-3.5 w-3.5 text-[#3DD6B5]" />
+              <span>Tracing: <strong className="text-white">{selectedNodeTitle}</strong> ({connectedNodeIds.size} nodes)</span>
+              <button
+                onClick={() => onSelectNode(null)}
+                className="ml-1 rounded p-0.5 hover:bg-[#3DD6B5]/20 text-[#3DD6B5]"
+                title="Clear lineage focus"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ) : (
+            <div className="hidden md:flex items-center gap-2 rounded-xl border border-[#252C36] bg-[#161B22]/90 px-3 py-1.5 text-[11px] font-mono text-[#9AA4B2] shadow-xl backdrop-blur-md">
+              <Layers className="h-3.5 w-3.5 text-[#3DD6B5]" />
+              <span>3 Sources · 1 Claim · 2 Methods · 2 Runs</span>
+            </div>
+          )}
         </Panel>
 
         {/* TOP-RIGHT PANEL: FILTER DOCK & GRID SWITCHER */}

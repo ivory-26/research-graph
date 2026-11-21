@@ -40,47 +40,53 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
   const strokeColor = RELATION_STROKES[relation] || '#252C36';
   const confidence = typeof data?.confidence === 'number' ? data.confidence : null;
 
+  const isLineageActive = Boolean(data?.isLineageActive) || selected;
+  const isDimmed = Boolean(data?.isDimmed);
+
   let displayLabel = relation.replace('_', ' ');
   if (relation === 'derived_from') displayLabel = 'what-if';
   if (relation === 'contradicts') displayLabel = 'contradicts?';
 
   return (
     <>
-      {/* Selected Edge Teal Halo */}
-      {selected && (
+      {/* Electric Halo along Edge Path for Selected / Lineage Active Edges */}
+      {isLineageActive && (
         <BaseEdge
           id={`${id}-halo`}
           path={edgePath}
+          className="edge-halo-pulse"
           style={{
-            stroke: '#3DD6B5',
-            strokeWidth: 8,
-            opacity: 0.25,
+            stroke: strokeColor,
+            strokeWidth: 9,
+            opacity: 0.35,
           }}
         />
       )}
 
-      {/* Main Edge Path */}
+      {/* Main Edge Path with Particle Flow on Active Lineage */}
       <BaseEdge
         id={id}
         path={edgePath}
         markerEnd={markerEnd}
-        className={selected ? 'edge-flow-active' : undefined}
+        className={`${isLineageActive ? 'edge-flow-active edge-highlighted' : ''} ${
+          isDimmed ? 'edge-dimmed' : ''
+        }`}
         style={{
           ...style,
           stroke: strokeColor,
-          strokeWidth: selected ? 2.5 : 1.5,
-          strokeDasharray: selected
+          strokeWidth: isLineageActive ? 2.5 : 1.5,
+          strokeDasharray: isLineageActive
             ? '6 6'
             : isDashed
             ? relation === 'derived_from'
               ? '3 4'
               : '5 4'
             : undefined,
-          opacity: selected ? 1 : 0.85,
+          opacity: isDimmed ? 0.08 : isLineageActive ? 1 : 0.85,
         }}
       />
 
-      {/* Relation Pill / Label */}
+      {/* Interactive Relation Pill / Label */}
       <EdgeLabelRenderer>
         <div
           style={{
@@ -88,7 +94,9 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
             pointerEvents: 'all',
           }}
-          className="nodrag nopan cursor-pointer"
+          className={`nodrag nopan cursor-pointer transition-opacity duration-300 ${
+            isDimmed ? 'opacity-20' : 'opacity-100'
+          }`}
           onClick={() => {
             if (data?.onSelectEdge && typeof data.onSelectEdge === 'function') {
               data.onSelectEdge(id);
@@ -96,10 +104,10 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
           }}
         >
           <div
-            className={`group flex items-center gap-1 font-mono text-[9px] px-2 py-0.5 rounded-full transition-all duration-200 hover:scale-110 select-none shadow-md ${
-              selected
-                ? 'bg-[#161B22] text-[#3DD6B5] border border-[#3DD6B5] ring-2 ring-[#3DD6B5]/20'
-                : 'bg-[#161B22]/90 text-[#9AA4B2] border border-[#252C36] hover:border-[#3A4452] hover:text-[#E6EAF0]'
+            className={`group flex items-center gap-1 font-mono text-[9px] px-2 py-0.5 rounded-full transition-all duration-200 hover:scale-110 select-none shadow-lg ${
+              isLineageActive
+                ? 'bg-[#161B22] text-[#3DD6B5] border border-[#3DD6B5] ring-2 ring-[#3DD6B5]/30'
+                : 'bg-[#161B22]/95 text-[#9AA4B2] border border-[#252C36] hover:border-[#3A4452] hover:text-[#E6EAF0]'
             }`}
           >
             <span>{displayLabel}</span>
