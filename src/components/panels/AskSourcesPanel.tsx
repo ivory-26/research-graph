@@ -21,7 +21,6 @@ export const AskSourcesPanel: React.FC<AskSourcesPanelProps> = ({ isOpen, onClos
   const handleSearch = (q: string) => {
     setIsSearching(true);
     setTimeout(() => {
-      // Deterministic semantic retrieval across the 3 ingested demo sources
       if (q.toLowerCase().includes('gini') || q.toLowerCase().includes('cardinality') || q.toLowerCase().includes('noise')) {
         setActiveResults([
           {
@@ -61,120 +60,115 @@ export const AskSourcesPanel: React.FC<AskSourcesPanelProps> = ({ isOpen, onClos
         ]);
       }
       setIsSearching(false);
-    }, 400);
+    }, 450);
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-xl border-l border-slate-200 bg-white/95 p-6 shadow-2xl backdrop-blur-xl transition-all dark:border-slate-800 dark:bg-slate-900/95">
+    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-xl border-l border-[#252C36] bg-[#0E1116] p-6 text-[#E6EAF0] shadow-2xl backdrop-blur-xl transition-all">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
+      <div className="flex items-center justify-between border-b border-[#252C36] pb-4">
         <div className="flex items-center gap-2.5">
-          <div className="rounded-xl bg-cyan-500/10 p-2 text-cyan-600 dark:text-cyan-400">
+          <div className="rounded-lg bg-[#3DD6B5]/10 p-2 text-[#3DD6B5]">
             <Sparkles className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              Ask Across Sources (pgvector RAG)
+            <h3 className="text-sm font-semibold text-[#E6EAF0]">
+              Ask Across Ingested Sources
             </h3>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Embedded passages at 768 dimensions across 3 verified research papers.
+            <p className="text-[11px] text-[#9AA4B2]">
+              768-dim vector RAG with mandatory passage citation
             </p>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="rounded-lg p-1.5 text-[#9AA4B2] hover:text-[#E6EAF0] hover:bg-[#161B22] transition"
         >
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      {/* Query Bar */}
-      <div className="mt-5 space-y-3">
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch(query)}
-              placeholder="Ask a scientific query across papers..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-xs text-slate-900 outline-none focus:border-cyan-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
-            />
-          </div>
+      <div className="mt-5 space-y-4">
+        {/* Search Input Bar */}
+        <div className="relative">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch(query)}
+            placeholder="Search cross-paper claims and methodologies..."
+            className="w-full rounded-xl border border-[#252C36] bg-[#161B22] py-2.5 pl-10 pr-24 text-xs text-[#E6EAF0] placeholder-[#9AA4B2] outline-none focus:border-[#3DD6B5]"
+          />
+          <Search className="absolute left-3.5 top-3 h-4 w-4 text-[#9AA4B2]" />
           <button
             onClick={() => handleSearch(query)}
             disabled={isSearching}
-            className="flex items-center gap-1.5 rounded-xl bg-cyan-600 px-4 py-2 text-xs font-bold text-white hover:bg-cyan-700 transition disabled:opacity-50"
+            className="absolute right-1.5 top-1.5 h-7 rounded-lg bg-[#3DD6B5] px-3 text-xs font-semibold text-[#0E1116] hover:bg-[#34c4a4] transition disabled:opacity-50"
           >
-            {isSearching ? 'Retrieving...' : 'Query'}
+            {isSearching ? 'Querying...' : 'Search'}
           </button>
         </div>
 
-        {/* Preset Chips */}
+        {/* Preset Prompt Pills */}
         <div className="flex flex-wrap gap-1.5">
-          {PRESET_QUERIES.map((preset, idx) => (
+          {PRESET_QUERIES.map((pq, i) => (
             <button
-              key={idx}
+              key={i}
               onClick={() => {
-                setQuery(preset);
-                handleSearch(preset);
+                setQuery(pq);
+                handleSearch(pq);
               }}
-              className="rounded-full border border-slate-200/80 bg-slate-100/60 px-2.5 py-1 text-[10px] text-slate-600 hover:bg-cyan-50 hover:text-cyan-700 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400 dark:hover:bg-cyan-950/40 dark:hover:text-cyan-300 transition text-left"
+              className="b text-[10px] text-[#9AA4B2] border-[#252C36] bg-[#161B22] hover:border-[#3DD6B5] hover:text-[#E6EAF0] transition text-left"
             >
-              {preset}
+              {pq}
             </button>
           ))}
         </div>
-      </div>
 
-      {/* Search Results */}
-      <div className="mt-6 max-h-[calc(100vh-250px)] overflow-y-auto space-y-4 pr-1">
-        {activeResults ? (
-          activeResults.map((res, i) => (
-            <div
-              key={i}
-              className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950 space-y-3"
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
-                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate max-w-[260px]">
-                    {res.source.title}
+        {/* Results Stream */}
+        <div className="max-h-[calc(100vh-250px)] overflow-y-auto space-y-4 pr-1">
+          {activeResults ? (
+            activeResults.map((res, i) => (
+              <div key={i} className="c p-4 bg-[#161B22] space-y-3">
+                <div className="flex items-center justify-between border-b border-[#252C36] pb-2">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-[#E6EAF0]">
+                    <BookOpen className="h-3.5 w-3.5 text-[#6EA8FE]" />
+                    <span>{res.source.title}</span>
+                  </div>
+                  <span className="b text-[#3DD6B5] border-[#3DD6B5]/40 text-[10px]">
+                    cos sim: {(res.similarity * 100).toFixed(0)}%
                   </span>
                 </div>
-                <span className="font-mono text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                  Cosine: {(res.similarity * 100).toFixed(0)}%
-                </span>
-              </div>
 
-              <p className="text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-medium">
-                {res.synthesis}
-              </p>
+                {/* Synthesis */}
+                <p className="text-xs leading-relaxed text-[#E6EAF0]">
+                  {res.synthesis}
+                </p>
 
-              {/* Cited Chunk */}
-              <div className="rounded-lg border border-amber-200/60 bg-amber-50/50 p-3 text-[11px] leading-relaxed text-slate-700 dark:border-amber-800/30 dark:bg-amber-950/20 dark:text-slate-300">
-                <div className="flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-400 mb-1">
-                  <Quote className="h-3 w-3" />
-                  Cited Passage (Page {res.chunk.page})
+                {/* Grounding Cited Chunk */}
+                <div className="c p-3 bg-[#0E1116] border-[#252C36] border-l-[3px] !border-l-[#3DD6B5] text-[11px] leading-relaxed text-[#9AA4B2]">
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-[#3DD6B5] mb-1">
+                    <span className="flex items-center gap-1">
+                      <Quote className="h-3 w-3" />
+                      Cited Passage Grounding
+                    </span>
+                    <span className="m text-[#9AA4B2]">Page {res.chunk.page}</span>
+                  </div>
+                  &ldquo;{res.chunk.text}&rdquo;
                 </div>
-                &quot;{res.chunk.text}&quot;
               </div>
-
-              <div className="text-[10px] text-slate-400 flex justify-between">
-                <span>{res.source.authors} ({res.source.year})</span>
-                <span className="font-mono">{res.source.doi}</span>
-              </div>
+            ))
+          ) : (
+            <div className="c p-8 text-center bg-[#161B22]">
+              <div className="l text-xs">Vector Search Grounding</div>
+              <p className="text-xs text-[#9AA4B2] mt-2">
+                Click &ldquo;Search&rdquo; or pick a preset query to perform semantic retrieval across the 3 ingested research papers.
+              </p>
             </div>
-          ))
-        ) : (
-          <div className="text-center py-12 text-slate-400 text-xs">
-            Enter a question or click a preset query to perform cross-source vector search.
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

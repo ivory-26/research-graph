@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
 import { ResearchCanvas } from '../components/canvas/ResearchCanvas';
-import { Navbar } from '../components/layout/Navbar';
+import { Navbar, type ActiveTab } from '../components/layout/Navbar';
 import { EvidencePanel } from '../components/panels/EvidencePanel';
 import { ApprovalModal } from '../components/panels/ApprovalModal';
 import { ComparisonView } from '../components/panels/ComparisonView';
@@ -14,7 +14,7 @@ import {
   DEMO_EDGES,
 } from '../data/demoWorkspace';
 import type { WorkspaceNode, WorkspaceEdge } from '../data/demoWorkspace';
-import { Terminal } from 'lucide-react';
+import { Terminal, ArrowRight } from 'lucide-react';
 
 export const Route = createFileRoute('/')({
   component: WorkspacePage,
@@ -24,24 +24,35 @@ function WorkspacePage() {
   const [nodes] = useState<WorkspaceNode[]>(DEMO_NODES);
   const [edges, setEdges] = useState<WorkspaceEdge[]>(DEMO_EDGES);
 
-  // Active Selected Edge for Evidence Drawer
-  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  // Active View Tab matching the 3 mockup screens
+  const [activeTab, setActiveTab] = useState<ActiveTab>('graph');
 
-  // Modals & Drawers state
+  // Selected Edge for Evidence Sidebar (default to hero edge)
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>('e-src1-claim');
+
+  // Modals & Panels state
   const [isIngestOpen, setIsIngestOpen] = useState(false);
   const [isAskOpen, setIsAskOpen] = useState(false);
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
-  const [isCompareOpen, setIsCompareOpen] = useState(false);
-  const [isDashboardOpen, setIsDashboardOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
 
-  // Pipeline simulation state
-  const currentBeat = 6;
+  // E2B execution simulation
   const [isRunningPipeline, setIsRunningPipeline] = useState(false);
-  const [executionLogs, setExecutionLogs] = useState<string[]>([]);
+  const [executionLogs, setExecutionLogs] = useState<string[]>([
+    '[E2B] Initialized isolated sandbox (allowInternetAccess: false)...',
+    '[E2B] Fetched & pinned dataset breast-w.arff (SHA-256 match)...',
+    '[E2B] Executing entrypoint: python main.py...',
+    '[E2B] RandomForestClassifier(n_estimators=100) training complete.',
+    '[E2B] Gini impurity ranking computed: noise_20 = Rank 2.',
+    '[E2B] Permutation importance ranking computed: noise_20 = Rank 29.',
+    '[E2B] Wrote /output/metrics.json with verified metrics.',
+    '[EVALUATE] rank_impurity(noise_20) <= 5 -> 2 <= 5 (MATCH).',
+    '[EVALUATE] rank_permutation(noise_20) > 15 -> 29 > 15 (MATCH).',
+    '[SANDBOX] Sandbox terminated with exitCode 0 in 3420ms.',
+  ]);
   const [showLogDrawer, setShowLogDrawer] = useState(false);
 
-  const selectedEdge = edges.find((e) => e.id === selectedEdgeId) || null;
+  const selectedEdge = edges.find((e) => e.id === selectedEdgeId) || edges[0] || null;
 
   const handleUpdateEdgeStatus = (edgeId: string, status: 'accepted' | 'rejected') => {
     setEdges((prev) =>
@@ -64,117 +75,151 @@ function WorkspacePage() {
       setExecutionLogs((prev) => [
         ...prev,
         '[E2B] RandomForestClassifier(n_estimators=100) training complete.',
-        '[E2B] Gini impurity ranking computed: noise_20 = Rank 1.',
+        '[E2B] Gini impurity ranking computed: noise_20 = Rank 2.',
         '[E2B] Permutation importance ranking computed: noise_20 = Rank 29.',
         '[E2B] Wrote /output/metrics.json with 6 metric keys.',
         '[EVALUATE] Evaluating criteria: rank_impurity(noise_20) <= 5 -> MATCH.',
+        '[EVALUATE] Evaluating criteria: rank_permutation(noise_20) > 15 -> MATCH.',
         '[SANDBOX] Process completed with exitCode 0 in 3420ms. Sandbox killed.',
       ]);
       setIsRunningPipeline(false);
     }, 1500);
   };
 
+  const handleSelectTab = (tab: ActiveTab) => {
+    if (tab === 'sources') {
+      setIsIngestOpen(true);
+    } else if (tab === 'ask') {
+      setIsAskOpen(true);
+    } else {
+      setActiveTab(tab);
+    }
+  };
+
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-slate-950 font-sans">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#0E1116] text-[#E6EAF0] font-sans select-none">
       {/* Top Navbar */}
       <Navbar
-        onOpenIngest={() => setIsIngestOpen(true)}
-        onOpenAsk={() => setIsAskOpen(true)}
+        activeTab={activeTab}
+        onSelectTab={handleSelectTab}
         onOpenApproval={() => setIsApprovalOpen(true)}
-        onOpenCompare={() => setIsCompareOpen(true)}
-        onOpenDashboard={() => setIsDashboardOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
-        currentBeat={currentBeat}
+        onToggleLogs={() => setShowLogDrawer(!showLogDrawer)}
+        logCount={executionLogs.length}
       />
 
-      {/* Main Workspace Canvas */}
-      <main className="relative flex-1 w-full h-[calc(100vh-64px)]">
-        <ResearchCanvas
-          initialNodes={nodes}
-          initialEdges={edges}
-          onSelectEdge={(edgeId) => setSelectedEdgeId(edgeId)}
-        />
+      {/* Main Body depending on activeTab */}
+      <div className="relative flex-1 w-full overflow-hidden flex flex-col">
+        {/* VIEW 1: GRAPH WORKSPACE */}
+        {activeTab === 'graph' && (
+          <div className="relative flex flex-1 h-full w-full overflow-hidden">
+            {/* Left Canvas Section */}
+            <div className="flex flex-1 flex-col min-w-0 h-full p-4 gap-3">
+              <div className="relative flex-1 rounded-[14px] border border-[#252C36] overflow-hidden bg-[#0E1116]">
+                <ResearchCanvas
+                  initialNodes={nodes}
+                  initialEdges={edges}
+                  selectedEdgeId={selectedEdgeId}
+                  onSelectEdge={(edgeId) => setSelectedEdgeId(edgeId)}
+                />
 
-        {/* Floating Quick Action / Status Banner */}
-        <div className="absolute top-4 left-4 z-20 flex items-center gap-3">
-          <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/90 px-3.5 py-2 shadow-xl backdrop-blur-md">
-            <div
-              className={`h-2 w-2 rounded-full ${
-                isRunningPipeline
-                  ? 'bg-cyan-500 animate-ping'
-                  : 'bg-emerald-500 animate-pulse'
-              }`}
-            />
-            <div className="text-xs">
-              <span className="font-bold text-white">
-                {isRunningPipeline ? 'Executing in E2B: ' : 'Hero Claim Verified: '}
-              </span>
-              <span className="text-emerald-400 font-mono">
-                {isRunningPipeline ? 'python main.py' : 'Run A (Match) · Run B (Match)'}
-              </span>
+                {/* Quick Status Floating Pill */}
+                <div className="absolute top-4 left-4 z-20 flex items-center gap-3">
+                  <div className="c flex items-center gap-2.5 px-3.5 py-2 bg-[#161B22]/90 backdrop-blur shadow-xl border-[#252C36]">
+                    <div
+                      className={`h-2 w-2 rounded-full ${
+                        isRunningPipeline
+                          ? 'bg-[#3DD6B5] animate-ping'
+                          : 'bg-[#3DD6B5]'
+                      }`}
+                    />
+                    <div className="text-xs">
+                      <span className="font-semibold text-[#E6EAF0]">
+                        {isRunningPipeline ? 'Executing in E2B: ' : 'Hero Claim Verified: '}
+                      </span>
+                      <span className="text-[#3DD6B5] font-mono">
+                        {isRunningPipeline ? 'python main.py' : 'Run A (Match) · Run B (Match)'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('runs')}
+                      className="ml-2 flex items-center gap-1 rounded bg-[#252C36] px-2 py-0.5 text-[11px] font-medium text-[#E6EAF0] hover:text-[#3DD6B5] transition border border-[#3A4452]"
+                    >
+                      <span>View Delta</span>
+                      <ArrowRight className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Canvas Bottom Legend matching Mockup Screen 1 */}
+              <div className="flex items-center gap-4 flex-wrap l text-[10px] text-[#9AA4B2] px-1">
+                <span>solid = accepted</span>
+                <span>dashed = suggested</span>
+                <span>teal halo = selected edge</span>
+              </div>
             </div>
-            <button
-              onClick={() => setIsCompareOpen(true)}
-              className="ml-2 rounded-md bg-purple-600/30 px-2 py-0.5 text-[11px] font-bold text-purple-300 hover:bg-purple-600/50 transition border border-purple-500/30"
-            >
-              View Delta
-            </button>
-          </div>
 
-          {/* Log Console Trigger */}
-          <button
-            onClick={() => setShowLogDrawer(!showLogDrawer)}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/90 px-3 py-2 text-xs font-semibold text-slate-300 shadow-xl backdrop-blur-md hover:bg-slate-800 transition"
-          >
-            <Terminal className="h-3.5 w-3.5 text-cyan-400" />
-            <span>Sandbox Logs</span>
-            {executionLogs.length > 0 && (
-              <span className="rounded-full bg-cyan-950 px-1.5 text-[10px] font-bold text-cyan-400">
-                {executionLogs.length}
-              </span>
-            )}
-          </button>
-        </div>
+            {/* Right Evidence Sidebar matching Mockup Screen 1 */}
+            <EvidencePanel
+              edge={selectedEdge}
+              onUpdateStatus={handleUpdateEdgeStatus}
+            />
+          </div>
+        )}
+
+        {/* VIEW 2: RUN A VS RUN B (MOCKUP SCREEN 2) */}
+        {activeTab === 'runs' && (
+          <div className="flex-1 w-full h-full overflow-y-auto">
+            <ComparisonView isModal={false} />
+          </div>
+        )}
+
+        {/* VIEW 3: AGENT STRATEGIES DASHBOARD (MOCKUP SCREEN 3) */}
+        {activeTab === 'dashboard' && (
+          <div className="flex-1 w-full h-full overflow-y-auto">
+            <StrategyDashboard isModal={false} />
+          </div>
+        )}
 
         {/* Live Execution Logs Drawer */}
         {showLogDrawer && (
-          <div className="absolute bottom-4 left-4 right-4 z-20 max-w-2xl rounded-2xl border border-slate-800 bg-slate-900/95 p-4 shadow-2xl backdrop-blur-md animate-fade-in">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
-                <Terminal className="h-4 w-4 text-cyan-400" />
-                E2B Sandbox Execution Stream
+          <div className="absolute bottom-4 left-4 right-4 z-30 max-w-2xl rounded-2xl border border-[#252C36] bg-[#161B22]/95 p-4 shadow-2xl backdrop-blur-md animate-fade-in">
+            <div className="flex items-center justify-between border-b border-[#252C36] pb-2 mb-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[#E6EAF0]">
+                <Terminal className="h-4 w-4 text-[#3DD6B5]" />
+                <span>E2B Sandbox Execution Stream (network: none)</span>
               </div>
               <button
                 onClick={() => setShowLogDrawer(false)}
-                className="text-xs text-slate-500 hover:text-slate-300"
+                className="text-xs text-[#9AA4B2] hover:text-[#E6EAF0]"
               >
                 Hide
               </button>
             </div>
-            <div className="max-h-40 overflow-y-auto font-mono text-[11px] leading-relaxed text-slate-300 space-y-1">
-              {executionLogs.length === 0 ? (
-                <div className="text-slate-500 italic">No active execution. Click &quot;Plan &amp; Run&quot; to test.</div>
-              ) : (
-                executionLogs.map((log, i) => (
-                  <div key={i} className="flex gap-2">
-                    <span className="text-slate-600 select-none">&gt;</span>
-                    <span>{log}</span>
-                  </div>
-                ))
-              )}
+            <div className="max-h-44 overflow-y-auto font-mono text-[11px] leading-relaxed text-[#E6EAF0] space-y-1">
+              {executionLogs.map((log, i) => (
+                <div key={i} className="flex gap-2">
+                  <span className="text-[#9AA4B2] select-none">&gt;</span>
+                  <span>{log}</span>
+                </div>
+              ))}
             </div>
           </div>
         )}
-      </main>
+      </div>
 
-      {/* Slide-over Evidence Panel */}
-      <EvidencePanel
-        edge={selectedEdge}
-        onClose={() => setSelectedEdgeId(null)}
-        onUpdateStatus={handleUpdateEdgeStatus}
+      {/* Slide-over Drawers & Modals */}
+      <IngestionPanel
+        isOpen={isIngestOpen}
+        onClose={() => setIsIngestOpen(false)}
       />
 
-      {/* Experiment Approval Gate Modal */}
+      <AskSourcesPanel
+        isOpen={isAskOpen}
+        onClose={() => setIsAskOpen(false)}
+      />
+
       <ApprovalModal
         isOpen={isApprovalOpen}
         onClose={() => setIsApprovalOpen(false)}
@@ -182,31 +227,6 @@ function WorkspacePage() {
         onReject={() => setIsApprovalOpen(false)}
       />
 
-      {/* What-If Run A vs Run B Comparison Modal */}
-      <ComparisonView
-        isOpen={isCompareOpen}
-        onClose={() => setIsCompareOpen(false)}
-      />
-
-      {/* Ask Across Sources (RAG) Drawer */}
-      <AskSourcesPanel
-        isOpen={isAskOpen}
-        onClose={() => setIsAskOpen(false)}
-      />
-
-      {/* Collect / Ingestion Panel */}
-      <IngestionPanel
-        isOpen={isIngestOpen}
-        onClose={() => setIsIngestOpen(false)}
-      />
-
-      {/* Strategy Leaderboard Modal */}
-      <StrategyDashboard
-        isOpen={isDashboardOpen}
-        onClose={() => setIsDashboardOpen(false)}
-      />
-
-      {/* Jupyter Notebook Export Modal */}
       <NotebookExportModal
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}

@@ -1,157 +1,185 @@
 import React from 'react';
-import { X, GitBranch, ArrowRight, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { X } from 'lucide-react';
 
 interface ComparisonViewProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isModal?: boolean;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export const ComparisonView: React.FC<ComparisonViewProps> = ({ isOpen, onClose }) => {
-  if (!isOpen) return null;
+export const ComparisonView: React.FC<ComparisonViewProps> = ({
+  isModal = false,
+  isOpen = true,
+  onClose,
+}) => {
+  if (isModal && !isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in">
-      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 p-5 dark:border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-purple-500/10 p-2.5 text-purple-600 dark:text-purple-400">
-              <GitBranch className="h-6 w-6" />
-            </div>
+  const content = (
+    <div className="w-full max-w-[1200px] mx-auto p-6 flex flex-col gap-5 text-[#E6EAF0]">
+      {/* Title Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="l">Compare runs</div>
+          <div className="text-[22px] font-semibold mt-1.5 leading-snug text-[#E6EAF0]">
+            Gini importance is biased toward high-cardinality features; permutation importance is not.
+          </div>
+        </div>
+        {isModal && onClose && (
+          <button
+            onClick={onClose}
+            className="rounded-lg p-2 text-[#9AA4B2] hover:text-[#E6EAF0] hover:bg-[#161B22] transition"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        )}
+      </div>
+
+      {/* 1 Parameter Changed Banner */}
+      <div className="c px-5 py-3.5 flex items-center gap-4 flex-wrap">
+        <span className="l">1 parameter changed</span>
+        <span className="m text-[14px] text-[#E6EAF0]">importance_method</span>
+        <span className="m text-[14px] text-[#F5A524]">impurity</span>
+        <span className="text-[#9AA4B2]">→</span>
+        <span className="m text-[14px] text-[#3DD6B5]">permutation</span>
+      </div>
+
+      {/* Side-by-Side Run Cards */}
+      <div className="flex gap-5 flex-wrap">
+        {/* Run A · Root */}
+        <div className="c flex-1 min-w-[320px] p-6 flex flex-col gap-4.5 bg-[#161B22]">
+          <div className="flex justify-between items-center flex-wrap gap-2">
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  What-If Comparison: Lineage Delta
-                </h2>
-                <span className="rounded-full bg-purple-100 dark:bg-purple-950 px-2.5 py-0.5 text-[10px] font-bold text-purple-800 dark:text-purple-300">
-                  Run A ➔ Run B
-                </span>
+              <div className="l">Run A · root</div>
+              <div className="text-[20px] font-semibold mt-1 text-[#E6EAF0]">
+                Impurity importance
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Single parameter variation test: verifying Strobl et al. (2007) proposed permutation remedy.
-              </p>
             </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Comparison Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Single Parameter Variation Banner */}
-          <div className="rounded-xl border border-purple-200/80 bg-purple-50/50 p-4 dark:border-purple-800/40 dark:bg-purple-950/20">
-            <div className="text-xs font-bold text-purple-900 dark:text-purple-200 mb-1 flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-              Verified Invariant: Exactly One Parameter Modified
-            </div>
-            <div className="flex items-center gap-3 font-mono text-xs text-slate-800 dark:text-slate-200">
-              <span className="rounded bg-rose-100 dark:bg-rose-950/60 px-2 py-1 text-rose-800 dark:text-rose-300">
-                importance_method = &quot;impurity&quot;
+            <div className="flex gap-2">
+              <span className="b text-[#F5A524] border-[#F5A524]/40 bg-[#F5A524]/10">
+                adapted
               </span>
-              <ArrowRight className="h-4 w-4 text-purple-500" />
-              <span className="rounded bg-emerald-100 dark:bg-emerald-950/60 px-2 py-1 text-emerald-800 dark:text-emerald-300">
-                importance_method = &quot;permutation&quot;
+              <span className="b text-[#3DD6B5] border-[#3DD6B5]/40 bg-[#3DD6B5]/10">
+                match
               </span>
             </div>
           </div>
 
-          {/* Side by Side Run Cards */}
-          <div className="grid grid-cols-2 gap-5">
-            {/* Run A Column */}
-            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-950/40 space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2 dark:border-slate-800">
-                <div>
-                  <div className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                    Run A (Baseline Impurity)
-                  </div>
-                  <div className="text-[10px] text-slate-400 font-mono">ID: run-1 · Mode: adapted</div>
-                </div>
-                <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                  MATCH
-                </span>
-              </div>
+          <div className="l">Feature rank · lower # = more important</div>
 
-              <div className="space-y-2 text-xs font-mono">
-                <div className="flex justify-between bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200/50 dark:border-slate-800">
-                  <span className="text-slate-500">rank_impurity(noise_20):</span>
-                  <span className="font-bold text-rose-600 dark:text-rose-400">Rank #1 (Highest)</span>
-                </div>
-                <div className="flex justify-between bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200/50 dark:border-slate-800">
-                  <span className="text-slate-500">Noise in Top 5:</span>
-                  <span className="font-bold text-rose-600 dark:text-rose-400">Yes (True)</span>
-                </div>
-                <div className="flex justify-between bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200/50 dark:border-slate-800">
-                  <span className="text-slate-500">Criterion:</span>
-                  <span className="text-slate-700 dark:text-slate-300">rank &lt;= 5</span>
-                </div>
+          {/* Feature rank bars */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <span className="m text-[12px] text-[#F5A524] w-20">noise_20</span>
+              <div className="flex-1 h-2.5 rounded-full bg-[#252C36] overflow-hidden">
+                <div className="h-full bg-[#F5A524] rounded-full" style={{ width: '97%' }} />
               </div>
-
-              <p className="text-[11px] text-slate-600 dark:text-slate-400 italic">
-                Impurity importance selects high-cardinality noise above genuine biological features. The paper&apos;s reported bias is reproduced.
-              </p>
+              <span className="m text-[12px] text-[#E6EAF0] w-9 text-right font-medium">#2</span>
             </div>
 
-            {/* Run B Column */}
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-4 dark:border-emerald-800/40 dark:bg-emerald-950/20 space-y-3">
-              <div className="flex items-center justify-between border-b border-emerald-200/60 pb-2 dark:border-emerald-800/40">
-                <div>
-                  <div className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                    Run B (Permutation What-If)
-                  </div>
-                  <div className="text-[10px] text-slate-400 font-mono">ID: run-2 · Mode: adapted</div>
-                </div>
-                <span className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                  MATCH
-                </span>
+            <div className="flex items-center gap-3">
+              <span className="m text-[12px] text-[#E6EAF0] w-20">noise_5</span>
+              <div className="flex-1 h-2.5 rounded-full bg-[#252C36] overflow-hidden">
+                <div className="h-full bg-[#8B97A8] rounded-full" style={{ width: '70%' }} />
               </div>
+              <span className="m text-[12px] text-[#E6EAF0] w-9 text-right font-medium">#11</span>
+            </div>
 
-              <div className="space-y-2 text-xs font-mono">
-                <div className="flex justify-between bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200/50 dark:border-slate-800">
-                  <span className="text-slate-500">rank_permutation(noise_20):</span>
-                  <span className="font-bold text-emerald-600 dark:text-emerald-400">Rank #29 (Bottom)</span>
-                </div>
-                <div className="flex justify-between bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200/50 dark:border-slate-800">
-                  <span className="text-slate-500">Noise in Top 5:</span>
-                  <span className="font-bold text-emerald-600 dark:text-emerald-400">No (False)</span>
-                </div>
-                <div className="flex justify-between bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200/50 dark:border-slate-800">
-                  <span className="text-slate-500">Criterion:</span>
-                  <span className="text-slate-700 dark:text-slate-300">rank &gt; 15</span>
-                </div>
+            <div className="flex items-center gap-3">
+              <span className="m text-[12px] text-[#E6EAF0] w-20">noise_2</span>
+              <div className="flex-1 h-2.5 rounded-full bg-[#252C36] overflow-hidden">
+                <div className="h-full bg-[#8B97A8] rounded-full" style={{ width: '30%' }} />
               </div>
-
-              <p className="text-[11px] text-slate-600 dark:text-slate-400 italic">
-                Permutation importance drops the uninformative noise variable to the bottom quartile (Rank 29 of 33). The proposed solution holds.
-              </p>
+              <span className="m text-[12px] text-[#E6EAF0] w-9 text-right font-medium">#24</span>
             </div>
           </div>
 
-          {/* Delta Conclusion */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
-            <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-1 flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              Empirical Conclusion
-            </h4>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Delta is strictly attributable to the importance calculation algorithm. Gini impurity creates spurious split preference on high-cardinality noise, whereas permutation testing provides an unbiased, scale-invariant evaluation.
-            </p>
+          {/* Assertion Footer */}
+          <div className="border-t border-[#252C36] pt-3.5 text-[13px] flex justify-between gap-2 flex-wrap items-center mt-2">
+            <span className="m text-[#9AA4B2]">rank_impurity(noise_20) ≤ 5</span>
+            <span className="m text-[#3DD6B5] font-semibold">2 · pass</span>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex justify-end border-t border-slate-100 p-5 dark:border-slate-800">
-          <button
-            onClick={onClose}
-            className="rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-bold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200 transition"
-          >
-            Close Comparison
-          </button>
+        {/* Run B · What-If Child */}
+        <div className="c flex-1 min-w-[320px] p-6 flex flex-col gap-4.5 bg-[#161B22]">
+          <div className="flex justify-between items-center flex-wrap gap-2">
+            <div>
+              <div className="l">Run B · what-if child of A</div>
+              <div className="text-[20px] font-semibold mt-1 text-[#E6EAF0]">
+                Permutation importance
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <span className="b text-[#F5A524] border-[#F5A524]/40 bg-[#F5A524]/10">
+                adapted
+              </span>
+              <span className="b text-[#3DD6B5] border-[#3DD6B5]/40 bg-[#3DD6B5]/10">
+                match
+              </span>
+            </div>
+          </div>
+
+          <div className="l">Feature rank · lower # = more important</div>
+
+          {/* Feature rank bars */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <span className="m text-[12px] text-[#3DD6B5] w-20">noise_20</span>
+              <div className="flex-1 h-2.5 rounded-full bg-[#252C36] overflow-hidden">
+                <div className="h-full bg-[#3DD6B5] rounded-full" style={{ width: '15%' }} />
+              </div>
+              <span className="m text-[12px] text-[#E6EAF0] w-9 text-right font-medium">#29</span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="m text-[12px] text-[#E6EAF0] w-20">noise_5</span>
+              <div className="flex-1 h-2.5 rounded-full bg-[#252C36] overflow-hidden">
+                <div className="h-full bg-[#8B97A8] rounded-full" style={{ width: '9%' }} />
+              </div>
+              <span className="m text-[12px] text-[#E6EAF0] w-9 text-right font-medium">#31</span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="m text-[12px] text-[#E6EAF0] w-20">noise_2</span>
+              <div className="flex-1 h-2.5 rounded-full bg-[#252C36] overflow-hidden">
+                <div className="h-full bg-[#8B97A8] rounded-full" style={{ width: '3%' }} />
+              </div>
+              <span className="m text-[12px] text-[#E6EAF0] w-9 text-right font-medium">#33</span>
+            </div>
+          </div>
+
+          {/* Assertion Footer */}
+          <div className="border-t border-[#252C36] pt-3.5 text-[13px] flex justify-between gap-2 flex-wrap items-center mt-2">
+            <span className="m text-[#9AA4B2]">rank_permutation(noise_20) &gt; 15</span>
+            <span className="m text-[#3DD6B5] font-semibold">29 · pass</span>
+          </div>
         </div>
+      </div>
+
+      {/* Post-hoc Explanation Box */}
+      <div className="c px-5 py-4 flex flex-col gap-2">
+        <div className="l">Explanation · written after the verdict, cannot change it</div>
+        <div className="text-[14px] leading-relaxed text-[#9AA4B2]">
+          When features vary in cardinality, Gini splits favor those with many splits by chance. Permutation importance breaks the relationship with y, showing noise_20 has zero genuine signal.
+        </div>
+      </div>
+
+      {/* Disclaimer Subtext */}
+      <div className="text-[12px] leading-relaxed text-[#9AA4B2] max-w-[760px]">
+        Adapted run: the paper’s method on our data subset and library versions. A mismatch would say our adaptation did not land where the paper did, not that the paper is wrong.
       </div>
     </div>
   );
+
+  if (isModal) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-fade-in overflow-y-auto">
+        <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-[#252C36] bg-[#0E1116] shadow-2xl">
+          {content}
+        </div>
+      </div>
+    );
+  }
+
+  return <div className="h-full w-full overflow-y-auto bg-[#0E1116]">{content}</div>;
 };

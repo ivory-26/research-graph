@@ -18,31 +18,31 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in">
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-fade-in">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl border border-[#252C36] bg-[#0E1116] text-[#E6EAF0] shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 p-5 dark:border-slate-800">
+        <div className="flex items-center justify-between border-b border-[#252C36] p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-amber-500/10 p-2.5 text-amber-600 dark:text-amber-400">
-              <ShieldCheck className="h-6 w-6" />
+            <div className="rounded-xl bg-[#F5A524]/10 p-2 text-[#F5A524]">
+              <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                <h2 className="text-base font-semibold text-[#E6EAF0]">
                   Human Approval Gate: Experiment Plan
                 </h2>
-                <span className="rounded-full bg-cyan-100 dark:bg-cyan-950 px-2.5 py-0.5 text-[10px] font-bold uppercase text-cyan-800 dark:text-cyan-300">
-                  Stage 5: AWAIT_APPROVAL
+                <span className="b text-[#3DD6B5] border-[#3DD6B5]/40 bg-[#3DD6B5]/10">
+                  AWAIT_APPROVAL
                 </span>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Inspect generated Python script and resource boundary before dispatching to E2B sandbox.
+              <p className="text-xs text-[#9AA4B2] mt-0.5">
+                Inspect generated Python script and resource sandbox boundary before dispatching to E2B.
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="rounded-lg p-1.5 text-[#9AA4B2] hover:text-[#E6EAF0] hover:bg-[#161B22] transition"
           >
             <X className="h-4 w-4" />
           </button>
@@ -52,88 +52,91 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {/* Resource & Isolation Boundary Cards */}
           <div className="grid grid-cols-3 gap-3">
-            <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 dark:border-emerald-800/40 dark:bg-emerald-950/20">
-              <WifiOff className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            <div className="c p-3 flex items-center gap-3 bg-[#161B22]">
+              <WifiOff className="h-5 w-5 text-[#3DD6B5]" />
               <div>
-                <div className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-400">
-                  Network Security
+                <div className="l text-[9px] text-[#3DD6B5]">
+                  Network Policy
                 </div>
-                <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                  network: &apos;none&apos; (Strict)
+                <div className="m text-xs font-semibold text-[#E6EAF0]">
+                  none (isolated)
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-800 dark:bg-slate-800/40">
-              <Cpu className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+            <div className="c p-3 flex items-center gap-3 bg-[#161B22]">
+              <Cpu className="h-5 w-5 text-[#6EA8FE]" />
               <div>
-                <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">
-                  CPU Allocation
+                <div className="l text-[9px]">
+                  Compute Limit
                 </div>
-                <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                  1 Core · 60s timeout
+                <div className="m text-xs font-semibold text-[#E6EAF0]">
+                  1 vCPU · 2GB RAM
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-800 dark:bg-slate-800/40">
-              <HardDrive className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+            <div className="c p-3 flex items-center gap-3 bg-[#161B22]">
+              <HardDrive className="h-5 w-5 text-[#A78BFA]" />
               <div>
-                <div className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400">
-                  Memory Ceiling
+                <div className="l text-[9px]">
+                  Storage Pinned
                 </div>
-                <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                  2048 MB Limit
+                <div className="m text-xs font-semibold text-[#E6EAF0]">
+                  SHA-256 match
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Dataset SHA-256 Pin Verification */}
-          <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 dark:border-slate-800 dark:bg-slate-950/40 text-xs space-y-1.5">
+          {/* Dataset Lock & Spec */}
+          <div className="c p-4 bg-[#161B22] text-xs space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-slate-700 dark:text-slate-300">
-                Pinned Dataset: breast-w.arff (OpenML 52350)
-              </span>
-              <span className="rounded bg-emerald-100 dark:bg-emerald-950 px-2 py-0.5 text-[10px] font-mono text-emerald-800 dark:text-emerald-300">
-                19.4 KB · Verified Hash Match
-              </span>
+              <span className="l">Dataset Reference:</span>
+              <span className="m text-[#E6EAF0]">openml:52350 (breast-w)</span>
             </div>
-            <div className="font-mono text-[10px] text-slate-500 truncate">
-              SHA256: 7f83b1657ff185023908bf287cba6848419f44
+            <div className="flex items-center justify-between">
+              <span className="l">Dataset SHA-256:</span>
+              <span className="m text-[#3DD6B5]">7f83b1657ff185023908bf287cba6848419f44...</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="l">Execution Engine:</span>
+              <span className="m text-[#E6EAF0]">E2B Sandbox (allowInternetAccess: false)</span>
             </div>
           </div>
 
-          {/* Generated Code Window */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300">
-              <span>Executable Spec: main.py</span>
-              <span className="text-[10px] text-slate-400">Writes to /output/metrics.json</span>
+          {/* Generated Code Preview */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="l">Generated Entrypoint: main.py</span>
+              <span className="m text-[10px] text-[#9AA4B2]">518 bytes · deterministic seed</span>
             </div>
-            <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-slate-950 p-4 font-mono text-[11px] leading-relaxed text-slate-200 dark:border-slate-800">
-              <pre>{HERO_PYTHON_SCRIPT}</pre>
+            <div className="c max-h-64 overflow-y-auto p-4 bg-[#0E1116] border-[#252C36]">
+              <pre className="font-mono text-[11px] leading-relaxed text-[#E6EAF0]">
+                <code>{HERO_PYTHON_SCRIPT}</code>
+              </pre>
             </div>
           </div>
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between border-t border-slate-100 p-5 dark:border-slate-800">
-          <div className="text-[11px] text-slate-500 dark:text-slate-400">
-            Approval state is stored synchronously in Postgres.
+        <div className="flex items-center justify-between border-t border-[#252C36] p-5">
+          <div className="text-[11px] text-[#9AA4B2]">
+            Verdict will be computed by code, not written by an LLM.
           </div>
           <div className="flex gap-3">
             <button
               onClick={onReject}
-              className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 transition"
+              className="h-9 px-4 rounded-lg border border-[#3A4452] bg-transparent text-[#E6EAF0] text-xs font-medium hover:bg-[#161B22] transition"
             >
               Reject Plan
             </button>
             <button
               onClick={onApprove}
-              className="flex items-center gap-2 rounded-xl bg-cyan-600 px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-cyan-600/20 hover:bg-cyan-700 transition"
+              className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[#3DD6B5] text-[#0E1116] text-xs font-semibold hover:bg-[#34c4a4] transition"
             >
               <CheckCircle2 className="h-4 w-4" />
-              Approve &amp; Dispatch to E2B
+              <span>Approve &amp; Launch Sandbox</span>
             </button>
           </div>
         </div>
