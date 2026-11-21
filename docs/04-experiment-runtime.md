@@ -122,7 +122,7 @@ The refusal matters. A dataset URL that starts serving different bytes silently 
 ## E2B adapter
 
 ```ts
-import { Sandbox } from 'e2b';
+import { Sandbox, CommandExitError } from 'e2b';
 
 export class E2BRunner implements ExperimentRunner {
   async run(spec: ExperimentSpec, onStdout: (c: string) => void): Promise<ExperimentResult> {
@@ -130,6 +130,7 @@ export class E2BRunner implements ExperimentRunner {
     const sandbox = await Sandbox.create(spec.image, {
       timeoutMs: spec.timeoutSeconds * 1000,
       metadata: { claim: spec.claimNodeId },
+      allowInternetAccess: false,
     });
 
     try {
@@ -147,10 +148,19 @@ export class E2BRunner implements ExperimentRunner {
       }
 
       // 3. run
-      const proc = await sandbox.commands.run(spec.entrypoint, {
-        timeoutMs: spec.timeoutSeconds * 1000,
-        onStdout,
-      });
+      let proc: { exitCode: number; stdout: string; stderr: string };
+      try {
+        proc = await sandbox.commands.run(spec.entrypoint, {
+          timeoutMs: spec.timeoutSeconds * 1000,
+          onStdout,
+        });
+      } catch (err) {
+        if (err instanceof CommandExitError) {
+          proc = { exitCode: err.exitCode, stdout: err.stdout, stderr: err.stderr };
+        } else {
+          throw err;
+        }
+      }
 
       const metricsRaw = await sandbox.files.read('/output/metrics.json').catch(() => null);
       const metrics = metricsRaw ? JSON.parse(metricsRaw) : {};
