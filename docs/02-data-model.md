@@ -89,7 +89,7 @@ export const edges = pgTable('edges', {
   targetNodeId: uuid('target_node_id').references(() => nodes.id, { onDelete: 'cascade' }).notNull(),
   relation: edgeRelation('relation').notNull(),
   evidenceChunkId: uuid('evidence_chunk_id').references(() => sourceChunks.id, { onDelete: 'restrict' }),
-  evidenceRunId: uuid('evidence_run_id'),
+  evidenceRunId: uuid('evidence_run_id').references((): AnyPgColumn => runs.id, { onDelete: 'restrict' }), // forward reference to runs
   confidence: real('confidence'),
   status: edgeStatus('status').notNull().default('suggested'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -217,4 +217,4 @@ type ReportedValue = {
 | A run's specification is immutable once executed | `runs.spec` is a frozen copy |
 | A what-if changes exactly one parameter | validated in `branch`, compared against `parentRunId` |
 | Every model call is accounted for | one `agent_tasks` row per call, success or failure |
-| Deleting a source cannot silently orphan an edge | `ON DELETE RESTRICT` on `evidence_chunk_id` |
+| Deleting a source or run cannot silently orphan an edge | `ON DELETE RESTRICT` on `evidence_chunk_id` and `evidence_run_id` |

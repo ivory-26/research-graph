@@ -17,7 +17,7 @@ Deterministic. No model call.
 
 - PDF → text with `unpdf`, reconstructing reading order from text-item coordinates.
 - Split into ~800-token chunks with 15% overlap; record `page`, `charStart`, `charEnd`.
-- Embed with `gemini-embedding-2` at 768 dimensions, one call per batch of 20 chunks.
+- Embed with `gemini-embedding-2` at 768 dimensions. Passing multiple strings in a single request produces one aggregated vector, so each chunk must be sent as its own `Content` item via the batch endpoint (or sequentially through the rate-limiter) to get one 768-dim vector per chunk. Note that `gemini-embedding-2` does not support `task_type` and auto-normalizes 768-dim outputs.
 - Store `sources` and `source_chunks`.
 
 Failure handling: if a chunk contains no alphanumeric content it is dropped, not embedded. If a page yields fewer than 40 characters, the PDF is probably scanned — mark the source `needs_ocr` and stop, rather than pretending.
@@ -138,6 +138,7 @@ function pickStrategy(kind: TaskKind, rows: StrategyStat[]): Strategy {
     ...s,
     score: (s.successes + 1) / (s.attempts + 2),
   }));
+  scored.sort((a, b) => b.score - a.score);
 
   const floor = 0.10;
   const explore = Math.random() < floor;
