@@ -252,6 +252,18 @@ html.dark .node-premium-card:hover {
   transition: opacity 0.3s ease;
 }
 
+/* Round Network Nodes (Image 2 style) */
+.node-circle-container .react-flow__handle {
+  border-radius: 9999px !important;
+  width: 8px !important;
+  height: 8px !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.node-circle-container .react-flow__handle:hover {
+  transform: scale(1.6);
+}
+
 /* React Flow Canvas Customization with Sharp 0px Corners */
 .react-flow__renderer {
   background-color: transparent !important;

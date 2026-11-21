@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -35,6 +35,8 @@ import {
   Sparkles,
   Zap,
   X,
+  LayoutGrid,
+  CircleDot,
 } from 'lucide-react';
 
 interface ResearchCanvasProps {
@@ -64,6 +66,19 @@ function CanvasInner({
   const [isLocked, setIsLocked] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  // Switchable node shape: 'cards' (Image 1) or 'circles' (Image 2)
+  const [nodeShape, setNodeShape] = useState<'cards' | 'circles'>(() => {
+    return (localStorage.getItem('rg_node_shape') as 'cards' | 'circles') || 'cards';
+  });
+
+  const handleToggleNodeShape = (shape: 'cards' | 'circles') => {
+    setNodeShape(shape);
+    localStorage.setItem('rg_node_shape', shape);
+    setTimeout(() => {
+      fitView({ padding: 0.18, duration: 400 });
+    }, 50);
+  };
 
   const nodeTypes = useMemo(
     () => ({
@@ -132,7 +147,7 @@ function CanvasInner({
 
   const hasLineage = connectedNodeIds.size > 0;
 
-  // Transform workspace nodes to ReactFlow nodes with lineage states
+  // Transform workspace nodes to ReactFlow nodes with lineage states and shape mode
   const rfNodes: Node[] = useMemo(() => {
     return initialNodes.map((n) => {
       let isCategoryDimmed = false;
@@ -152,12 +167,13 @@ function CanvasInner({
         selected: n.id === selectedNodeId,
         data: {
           ...n.data,
+          nodeShape,
           isDimmed,
           isHighlighted,
         },
       };
     });
-  }, [initialNodes, activeFilter, hasLineage, connectedNodeIds, selectedNodeId]);
+  }, [initialNodes, activeFilter, hasLineage, connectedNodeIds, selectedNodeId, nodeShape]);
 
   // Transform workspace edges to ReactFlow edges with lineage states
   const rfEdges: Edge[] = useMemo(() => {
@@ -193,8 +209,25 @@ function CanvasInner({
     });
   }, [initialEdges, hasLineage, connectedEdgeIds, selectedEdgeId, onSelectEdge]);
 
-  const [nodes, , onNodesChange] = useNodesState(rfNodes);
-  const [edges, , onEdgesChange] = useEdgesState(rfEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState(rfNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(rfEdges);
+
+  // Synchronize state when filters, lineage, or node shape change
+  useEffect(() => {
+    setNodes((currentNodes) => {
+      return rfNodes.map((rfNode) => {
+        const match = currentNodes.find((cn) => cn.id === rfNode.id);
+        return {
+          ...rfNode,
+          position: match ? match.position : rfNode.position,
+        };
+      });
+    });
+  }, [rfNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(rfEdges);
+  }, [rfEdges, setEdges]);
 
   // Click on node toggles lineage lighting
   const handleNodeClick = useCallback(
@@ -341,10 +374,50 @@ function CanvasInner({
               <span>3 SOURCES · 1 CLAIM · 2 METHODS · 2 RUNS</span>
             </div>
           )}
+
+          {/* Image 2 Citation Network Badges when in Round Nodes mode */}
+          {nodeShape === 'circles' && (
+            <div className="hidden lg:flex items-center gap-1 font-mono text-[10px] animate-fade-in">
+              <span className="border border-sky-500/40 bg-sky-950/30 px-2 py-1 text-sky-300 shadow-md">
+                PAPERS: <strong className="text-white ml-0.5">{initialNodes.filter((n) => n.type === 'source').length}</strong>
+              </span>
+              <span className="border border-emerald-500/40 bg-emerald-950/30 px-2 py-1 text-emerald-300 shadow-md">
+                LINKS: <strong className="text-white ml-0.5">{initialEdges.length}</strong>
+              </span>
+            </div>
+          )}
         </Panel>
 
-        {/* TOP-RIGHT PANEL: FILTER DOCK & GRID SWITCHER */}
+        {/* TOP-RIGHT PANEL: SWITCHABLE VIEW SHAPE, FILTER DOCK & GRID SWITCHER */}
         <Panel position="top-right" className="m-3 flex items-center gap-2">
+          {/* Switchable View Mode: Cards (Image 1) vs Round Nodes (Image 2) */}
+          <div className="flex items-center gap-0.5 rounded-none border border-[var(--border-primary)] bg-[var(--bg-surface)] p-1 shadow-xl backdrop-blur-md">
+            <button
+              onClick={() => handleToggleNodeShape('cards')}
+              className={`flex items-center gap-1.5 rounded-none px-2.5 py-1 text-[11px] font-mono tracking-wider transition ${
+                nodeShape === 'cards'
+                  ? 'bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold shadow-sm'
+                  : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Detailed Sharp Cards View (Image 1)"
+            >
+              <LayoutGrid className="h-3 w-3" />
+              <span>CARDS</span>
+            </button>
+            <button
+              onClick={() => handleToggleNodeShape('circles')}
+              className={`flex items-center gap-1.5 rounded-none px-2.5 py-1 text-[11px] font-mono tracking-wider transition ${
+                nodeShape === 'circles'
+                  ? 'bg-[#f97316] text-black font-bold shadow-[0_0_12px_rgba(249,115,22,0.5)]'
+                  : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Round Network Nodes View (Image 2)"
+            >
+              <CircleDot className="h-3 w-3" />
+              <span>ROUND NODES</span>
+            </button>
+          </div>
+
           {/* Node Category Filters with Sharp Corners */}
           <div className="flex items-center gap-1 rounded-none border border-[var(--border-primary)] bg-[var(--bg-surface)] p-1 shadow-xl backdrop-blur-md">
             <button
@@ -426,6 +499,21 @@ function CanvasInner({
             <MapPin className="h-3.5 w-3.5" />
           </button>
         </Panel>
+
+        {/* BOTTOM-LEFT: CITATION NETWORK OVERLAY (Image 2 style) */}
+        {nodeShape === 'circles' && (
+          <Panel position="bottom-left" className="m-3 ml-14 mb-3 select-none pointer-events-none animate-fade-in">
+            <div className="space-y-1 font-mono text-xs backdrop-blur-md bg-[var(--bg-surface)]/90 border border-[var(--border-primary)] px-3 py-2 shadow-2xl">
+              <div className="flex items-center gap-2 text-emerald-400 font-semibold tracking-wide">
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" />
+                <span>Network: {initialNodes.length} nodes · {initialEdges.length} connections</span>
+              </div>
+              <div className="text-[10px] text-[var(--text-dim)] truncate max-w-xs md:max-w-md">
+                <span className="text-[var(--text-muted)]">Query:</span> "External validation of sepsis prediction models in multicenter ICU datasets"
+              </div>
+            </div>
+          </Panel>
+        )}
 
         {/* CONTROLS DOCK with Sharp Corners */}
         <Controls>
