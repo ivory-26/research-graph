@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   extractEntrypointFile,
-  stripPythonComments,
+  hasProhibitedPipInstall,
+  stripPythonLiteralsAndComments,
   validateExperimentSpec,
   validateScriptMetricsOutput,
 } from './planner'
@@ -19,25 +20,43 @@ describe('extractEntrypointFile', () => {
   })
 })
 
-describe('validateScriptMetricsOutput & stripPythonComments', () => {
-  it('rejects a script where metrics.json or /output is only in a comment', () => {
-    const fakeScript = `
-# This comment mentions /output/metrics.json
-# and json.dump(metrics, f)
-print("Done without writing metrics!")
-`
-    expect(stripPythonComments(fakeScript)).not.toContain('/output/metrics.json')
-    expect(validateScriptMetricsOutput(fakeScript)).toBe(false)
+describe('validateScriptMetricsOutput & probe regressions', () => {
+  // Probe 1: print("json.dump({}, open('/output/metrics.json','w'))") -> Must be REJECTED
+  it('probe 1: rejects script where json.dump is inside a string literal print statement', () => {
+    const probe1 = 'print("json.dump({}, open(\'/output/metrics.json\', \'w\'))")'
+    expect(validateScriptMetricsOutput(probe1)).toBe(false)
   })
 
-  it('accepts executable code that calls json.dump into /output/metrics.json', () => {
-    const validScript = `
-import json, pathlib
-out = pathlib.Path("/output")
-with open(out / "metrics.json", "w") as f:
-    json.dump({"accuracy": 0.95}, f)
-`
-    expect(validateScriptMetricsOutput(validScript)).toBe(true)
+  // Probe 2: the same pattern inside a docstring -> Must be REJECTED
+  it('probe 2: rejects script where json.dump is inside a docstring', () => {
+    const probe2 = '"""\njson.dump({}, open(\'/output/metrics.json\', \'w\'))\n"""\nprint("hello")'
+    expect(validateScriptMetricsOutput(probe2)).toBe(false)
+  })
+
+  // Probe 3: os.system('pip3 install torch') -> Must be FLAGGED as pip install
+  it('probe 3: flags pip3 install inside os.system or scripts', () => {
+    const probe3 = "import os\nos.system('pip3 install torch')"
+    expect(hasProhibitedPipInstall(probe3)).toBe(true)
+  })
+
+  // Probe 4: main.py prints only; an unused helper.py contains the dump -> Spec rejected
+  it('probe 4: rejects spec where main.py prints only and helper.py has dump', () => {
+    const spec: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      entrypoint: 'python main.py',
+      files: {
+        'main.py': 'print("Done without writing metrics!")',
+        'helper.py': 'import json\nwith open("/output/metrics.json", "w") as f:\n    json.dump({}, f)',
+      },
+    }
+    const result = validateExperimentSpec(spec)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.includes("Entrypoint file 'main.py' must write metrics"))).toBe(true)
+  })
+
+  it('accepts valid executable json.dump into /output/metrics.json', () => {
+    const valid = 'import json\nwith open("/output/metrics.json", "w") as f:\n    json.dump({"a": 1}, f)'
+    expect(validateScriptMetricsOutput(valid)).toBe(true)
   })
 })
 
@@ -68,7 +87,7 @@ describe('validateExperimentSpec', () => {
     expect(result.errors.some((e) => e.includes("references file 'missing.py'"))).toBe(true)
   })
 
-  it('rejects script containing pip install in executable code', () => {
+  it('rejects script containing pip install', () => {
     const spec: ExperimentSpec = {
       ...HERO_EXPERIMENT_SPEC_RUN_A,
       files: {
@@ -80,26 +99,40 @@ describe('validateExperimentSpec', () => {
     expect(result.errors.some((e) => e.includes('pip install'))).toBe(true)
   })
 
-  it('rejects script that does not write to /output/metrics.json via json.dump', () => {
+  it('rejects estimatedRuntimeSeconds >= 60', () => {
     const spec: ExperimentSpec = {
       ...HERO_EXPERIMENT_SPEC_RUN_A,
-      files: {
-        'main.py': `print('Done!')`,
+      parameters: {
+        ...HERO_EXPERIMENT_SPEC_RUN_A.parameters,
+        estimatedRuntimeSeconds: 65,
       },
     }
     const result = validateExperimentSpec(spec)
     expect(result.valid).toBe(false)
-    expect(result.errors.some((e) => e.includes('Script must write metrics as json.dump to /output/metrics.json'))).toBe(true)
+    expect(result.errors.some((e) => e.includes('under 60 seconds'))).toBe(true)
   })
 
-  it('rejects timeoutSeconds exceeding 60 seconds (Issue #23 rule)', () => {
+  it('rejects timeoutSeconds > 120 (docs/04 contract bound)', () => {
     const spec: ExperimentSpec = {
       ...HERO_EXPERIMENT_SPEC_RUN_A,
-      timeoutSeconds: 61,
+      timeoutSeconds: 150,
     }
     const result = validateExperimentSpec(spec)
     expect(result.valid).toBe(false)
-    expect(result.errors.some((e) => e.includes('60 seconds'))).toBe(true)
+    expect(result.errors.some((e) => e.includes('120 seconds'))).toBe(true)
+  })
+
+  it('accepts timeoutSeconds of 90 with estimatedRuntimeSeconds under 60', () => {
+    const spec: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      timeoutSeconds: 90,
+      parameters: {
+        ...HERO_EXPERIMENT_SPEC_RUN_A.parameters,
+        estimatedRuntimeSeconds: 30,
+      },
+    }
+    const result = validateExperimentSpec(spec)
+    expect(result.valid).toBe(true)
   })
 
   it('rejects unresolvable or invalid dataset URLs', () => {

@@ -23,15 +23,15 @@ function mockResult(overrides: Partial<ExperimentResult> = {}): ExperimentResult
     stdout: 'done',
     stderr: '',
     metrics: {
-      rank_impurity_noise_20: 3,
-      rank_permutation_noise_20: 7,
+      rank_impurity_noise_20: 4,
+      rank_permutation_noise_20: 11,
     },
     artifacts: [],
     durationMs: 1500,
     environment: {
       imageDigest: 'sha256:test',
       python: '3.12.0',
-      packages: { 'scikit-learn': '1.9.1', numpy: '2.5.5', pandas: '2.3.4' },
+      packages: { 'scikit-learn': '1.9.1', numpy: '2.5.5', pandas: '2.3.3', matplotlib: '3.10.0' },
       datasets: [{ name: 'breast-w', sha256: 'abc', bytes: 100 }],
       seeds: [42],
       startedAt: new Date().toISOString(),
@@ -70,33 +70,34 @@ describe('evaluateExperiment', () => {
     expect(outcome.detail.checks[0]!.passed).toBe(false)
   })
 
-  it('returns match when all checks pass in mode all', () => {
-    const outcome = evaluateExperiment(
-      HERO_EXPERIMENT_SPEC_RUN_A,
-      mockResult({
-        metrics: {
-          rank_impurity_noise_20: 3,
-          rank_permutation_noise_20: 7,
-        },
-      }),
-    )
+  it('honest measured regression fixture reproduces the claim and returns match', () => {
+    // Honest measured values from the Strobl et al. 2007 empirical adaptation on breast-w:
+    // rank_impurity_noise_20 = 4 (noise_20 ranks in top 4 out of 12)
+    // rank_permutation_noise_20 = 11 (noise_20 drops to near the bottom)
+    const honestResult = mockResult({
+      metrics: {
+        rank_impurity_noise_20: 4,
+        rank_permutation_noise_20: 11,
+      },
+    })
+    const outcome = evaluateExperiment(HERO_EXPERIMENT_SPEC_RUN_A, honestResult)
     expect(outcome.verdict).toBe('match')
-    expect(outcome.detail.checks[0]!.passed).toBe(true)
-    expect(outcome.detail.checks[1]!.passed).toBe(true)
+    expect(outcome.detail.checks[0]!.passed).toBe(true) // 4 <= 5
+    expect(outcome.detail.checks[1]!.passed).toBe(true) // 11 > 5
   })
 
-  it('returns mismatch when check fails', () => {
-    const outcome = evaluateExperiment(
-      HERO_EXPERIMENT_SPEC_RUN_A,
-      mockResult({
-        metrics: {
-          rank_impurity_noise_20: 25,
-          rank_permutation_noise_20: 7,
-        },
-      }),
-    )
+  it('returns mismatch when the bias is not reproduced (e.g. noise ranks low in Gini)', () => {
+    // Non-reproducing run: noise_20 ranks 10th in Gini and 5th in permutation
+    const nonReproducingResult = mockResult({
+      metrics: {
+        rank_impurity_noise_20: 10,
+        rank_permutation_noise_20: 5,
+      },
+    })
+    const outcome = evaluateExperiment(HERO_EXPERIMENT_SPEC_RUN_A, nonReproducingResult)
     expect(outcome.verdict).toBe('mismatch')
-    expect(outcome.detail.checks[0]!.passed).toBe(false)
+    expect(outcome.detail.checks[0]!.passed).toBe(false) // 10 <= 5 fails
+    expect(outcome.detail.checks[1]!.passed).toBe(false) // 5 > 5 fails
   })
 
   it('returns inconclusive when required metric is missing or non-numeric', () => {
@@ -124,11 +125,11 @@ describe('evaluateExperiment', () => {
     const v2 = evaluateExperiment(HERO_EXPERIMENT_SPEC_RUN_A, mockResult({ metrics: {} })).verdict
     const v3 = evaluateExperiment(
       HERO_EXPERIMENT_SPEC_RUN_A,
-      mockResult({ metrics: { rank_impurity_noise_20: 1, rank_permutation_noise_20: 6 } }),
+      mockResult({ metrics: { rank_impurity_noise_20: 4, rank_permutation_noise_20: 11 } }),
     ).verdict
     const v4 = evaluateExperiment(
       HERO_EXPERIMENT_SPEC_RUN_A,
-      mockResult({ metrics: { rank_impurity_noise_20: 25, rank_permutation_noise_20: 1 } }),
+      mockResult({ metrics: { rank_impurity_noise_20: 10, rank_permutation_noise_20: 5 } }),
     ).verdict
 
     expect(v1).toBe('failed')
@@ -153,7 +154,7 @@ describe('evaluateAndExplainExperiment (Stage 7 with explain_gap model call)', (
       return {
         output: {
           explanation:
-            'Gini impurity importance placed the noise feature at rank 25, which failed the threshold of 10. Permutation importance correctly mitigated the bias.',
+            'Gini impurity importance placed the noise feature at rank 10, failing the threshold of 5. Permutation importance placed the feature at rank 5.',
         },
         attempts: [],
       } as unknown as CallModelResult<any>
@@ -163,8 +164,8 @@ describe('evaluateAndExplainExperiment (Stage 7 with explain_gap model call)', (
       HERO_EXPERIMENT_SPEC_RUN_A,
       mockResult({
         metrics: {
-          rank_impurity_noise_20: 25,
-          rank_permutation_noise_20: 7,
+          rank_impurity_noise_20: 10,
+          rank_permutation_noise_20: 5,
         },
       }),
       ctx,

@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   E2BRunner,
   MetricsExtractionError,
+  PINNED_IMAGE_PACKAGES,
   SANDBOX_METRICS_PATH,
+  SandboxTimeoutError,
   fetchDataset,
+  runnerErrorToFailedResult,
   validateMetricsPayload,
   verifyEnvironmentPackages,
 } from './runner'
@@ -31,12 +34,8 @@ describe('validateMetricsPayload', () => {
 })
 
 describe('verifyEnvironmentPackages', () => {
-  it('validates matching packages', () => {
-    const discovered = {
-      numpy: '2.5.5',
-      pandas: '2.3.4',
-      'scikit-learn': '1.9.1',
-    }
+  it('validates matching packages including matplotlib', () => {
+    const discovered = { ...PINNED_IMAGE_PACKAGES }
     const result = verifyEnvironmentPackages(discovered)
     expect(result.valid).toBe(true)
     expect(result.missing).toHaveLength(0)
@@ -46,13 +45,37 @@ describe('verifyEnvironmentPackages', () => {
   it('detects missing and mismatched package versions', () => {
     const discovered = {
       numpy: '2.0.0', // mismatched
-      pandas: '2.3.4',
+      pandas: '2.3.3',
       // scikit-learn missing
+      // matplotlib missing
     }
     const result = verifyEnvironmentPackages(discovered)
     expect(result.valid).toBe(false)
     expect(result.missing).toContain('scikit-learn')
+    expect(result.missing).toContain('matplotlib')
     expect(result.mismatched.some((m) => m.includes('numpy'))).toBe(true)
+  })
+})
+
+describe('runnerErrorToFailedResult mapping', () => {
+  it('maps MetricsExtractionError into a failed ExperimentResult with exit code and error detail', () => {
+    const err = new MetricsExtractionError('metrics.json was missing', 0, 'stdout output', 'stderr output', 1200)
+    const failedResult = runnerErrorToFailedResult(err, HERO_EXPERIMENT_SPEC_RUN_A)
+
+    expect(failedResult.exitCode).toBe(1) // Mapped to non-zero failure
+    expect(failedResult.stdout).toBe('stdout output')
+    expect(failedResult.stderr).toContain('metrics.json was missing')
+    expect(failedResult.durationMs).toBe(1200)
+    expect(failedResult.metrics).toEqual({})
+  })
+
+  it('maps SandboxTimeoutError into a failed ExperimentResult with exit code 124', () => {
+    const err = new SandboxTimeoutError('Execution timed out after 60s', 60, '', 'DeadlineExceeded', 60000)
+    const failedResult = runnerErrorToFailedResult(err, HERO_EXPERIMENT_SPEC_RUN_A)
+
+    expect(failedResult.exitCode).toBe(124) // Standard timeout exit code
+    expect(failedResult.stderr).toContain('timed out')
+    expect(failedResult.durationMs).toBe(60000)
   })
 })
 
@@ -110,7 +133,7 @@ describe('E2BRunner with mocked sandbox', () => {
         }),
         read: vi.fn(async (path: string) => {
           if (path === SANDBOX_METRICS_PATH) {
-            return JSON.stringify({ rank_impurity_noise_20: 1, rank_permutation_noise_20: 6 })
+            return JSON.stringify({ rank_impurity_noise_20: 4, rank_permutation_noise_20: 11 })
           }
           throw new Error('Not found')
         }),
@@ -128,12 +151,17 @@ describe('E2BRunner with mocked sandbox', () => {
             return {
               stdout: JSON.stringify([
                 { name: 'numpy', version: '2.5.5' },
-                { name: 'pandas', version: '2.3.4' },
+                { name: 'pandas', version: '2.3.3' },
                 { name: 'scikit-learn', version: '1.9.1' },
+                { name: 'matplotlib', version: '3.10.0' },
+                { name: 'scipy', version: '1.17.1' },
               ]),
               stderr: '',
               exitCode: 0,
             }
+          }
+          if (cmd.includes('cat /etc/image-digest')) {
+            return { stdout: 'sha256:a1b2c3d4e5f6', stderr: '', exitCode: 0 }
           }
           return { stdout: '', stderr: '', exitCode: 0 }
         }),
@@ -151,6 +179,7 @@ describe('E2BRunner with mocked sandbox', () => {
     const runner = new E2BRunner({
       sandboxFactory: vi.fn().mockResolvedValue(fakeSandbox as any),
       datasetFetcher: fakeDatasetFetcher,
+      verifyPackages: true,
     })
 
     const stdoutChunks: string[] = []
@@ -159,8 +188,10 @@ describe('E2BRunner with mocked sandbox', () => {
     })
 
     expect(result.exitCode).toBe(0)
-    expect(result.metrics).toEqual({ rank_impurity_noise_20: 1, rank_permutation_noise_20: 6 })
+    expect(result.metrics).toEqual({ rank_impurity_noise_20: 4, rank_permutation_noise_20: 11 })
     expect(result.environment.packages['scikit-learn']).toBe('1.9.1')
+    expect(result.environment.packages['matplotlib']).toBe('3.10.0')
+    expect(result.environment.imageDigest).toBe('sha256:a1b2c3d4e5f6')
     expect(writtenFiles.has('data/breast-w.arff')).toBe(true)
     expect(writtenFiles.has('main.py')).toBe(true)
     expect(killed).toBe(true)
@@ -190,21 +221,23 @@ describe('E2BRunner with mocked sandbox', () => {
     await expect(runner.run(HERO_EXPERIMENT_SPEC_RUN_A)).rejects.toThrow(MetricsExtractionError)
   })
 
-  it('throws MetricsExtractionError when /output/metrics.json contains invalid/non-numeric JSON', async () => {
+  it('handles sandbox timeout and throws SandboxTimeoutError', async () => {
     const fakeSandbox = {
-      sandboxId: 'test-sandbox-bad-json',
+      sandboxId: 'test-sandbox-timeout',
       files: {
         write: vi.fn(async () => {}),
-        read: vi.fn(async (path: string) => {
-          if (path === SANDBOX_METRICS_PATH) {
-            return JSON.stringify({ rank: 'not-a-number' })
-          }
+        read: vi.fn(async () => {
           throw new Error('Not found')
         }),
         list: vi.fn(async () => []),
       },
       commands: {
-        run: vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' })),
+        run: vi.fn(async (cmd: string) => {
+          if (cmd.includes('main.py')) {
+            throw new Error('Execution timeout: DeadlineExceeded')
+          }
+          return { stdout: '', stderr: '', exitCode: 0 }
+        }),
       },
       kill: vi.fn(async () => {}),
     }
@@ -214,7 +247,7 @@ describe('E2BRunner with mocked sandbox', () => {
       datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from(''), sha256: 'xyz' }),
     })
 
-    await expect(runner.run(HERO_EXPERIMENT_SPEC_RUN_A)).rejects.toThrow(MetricsExtractionError)
+    await expect(runner.run(HERO_EXPERIMENT_SPEC_RUN_A)).rejects.toThrow(SandboxTimeoutError)
   })
 
   it('tracks and cancels active sandboxes', async () => {
@@ -227,7 +260,6 @@ describe('E2BRunner with mocked sandbox', () => {
     }
 
     const runner = new E2BRunner()
-    // Inject active sandbox
     ;(runner as any).activeSandboxes.set('active-sb-1', fakeSandbox)
     expect(runner.getActiveSandboxes().has('active-sb-1')).toBe(true)
 

@@ -27,17 +27,25 @@ export const SANDBOX_OUTPUT_DIR = '/output'
 export const SANDBOX_METRICS_PATH = '/output/metrics.json'
 
 /**
+ * Pinned E2B template id or default image.
+ */
+export const PINNED_E2B_TEMPLATE = 'researchgraph-python:locked'
+
+/**
  * Pinned libraries expected in the locked Python runtime environment (docs/04-experiment-runtime.md:196).
+ * Note: PyPI pandas released 2.2.3 -> 2.3.0 -> 3.0.0; the image builder pins 2.3.3 or matching release.
  */
 export const PINNED_IMAGE_PACKAGES: Record<string, string> = {
   numpy: '2.5.5',
-  pandas: '2.3.4',
+  pandas: '2.3.3',
   'scikit-learn': '1.9.1',
+  scipy: '1.17.1',
+  matplotlib: '3.10.0',
 }
 
 /**
- * Typed error indicating that /output/metrics.json was missing or unparseable.
- *docs/04-experiment-runtime.md:98:
+ * Typed error indicating that /output/metrics.json was missing, unparseable, or invalid.
+ * docs/04-experiment-runtime.md:98:
  * "If metrics.json is absent or unparseable, the run is failed regardless of exit code.
  *  A silent success with no metrics is the most dangerous outcome available, so it is treated as a failure."
  */
@@ -47,9 +55,97 @@ export class MetricsExtractionError extends Error {
     public readonly exitCode: number,
     public readonly stdout: string,
     public readonly stderr: string,
+    public readonly durationMs: number = 0,
+    public readonly environment?: RunEnvironment,
   ) {
     super(message)
     this.name = 'MetricsExtractionError'
+  }
+}
+
+/**
+ * Typed error indicating a sandbox timeout.
+ * docs/04:232: "Timeout -> sandbox kill at timeoutSeconds -> run status timeout -> verdict failed"
+ */
+export class SandboxTimeoutError extends Error {
+  constructor(
+    message: string,
+    public readonly timeoutSeconds: number,
+    public readonly stdout: string = '',
+    public readonly stderr: string = '',
+    public readonly durationMs: number = 0,
+    public readonly environment?: RunEnvironment,
+  ) {
+    super(message)
+    this.name = 'SandboxTimeoutError'
+  }
+}
+
+/**
+ * Maps a thrown runner error into a failed ExperimentResult so pipelines can
+ * reliably persist the failed run with exit code, stdout/stderr, and environment.
+ */
+export function runnerErrorToFailedResult(
+  err: unknown,
+  fallbackSpec: ExperimentSpec,
+  startedAt: string = new Date().toISOString(),
+): ExperimentResult {
+  if (err instanceof MetricsExtractionError) {
+    return {
+      exitCode: err.exitCode || 1,
+      stdout: err.stdout,
+      stderr: err.stderr ? `${err.stderr}\n${err.message}` : err.message,
+      metrics: {},
+      artifacts: [],
+      durationMs: err.durationMs,
+      environment:
+        err.environment ?? {
+          imageDigest: fallbackSpec.image,
+          python: 'unknown',
+          packages: {},
+          datasets: [],
+          seeds: typeof fallbackSpec.parameters.seed === 'number' ? [fallbackSpec.parameters.seed] : [],
+          startedAt,
+        },
+    }
+  }
+
+  if (err instanceof SandboxTimeoutError) {
+    return {
+      exitCode: 124, // Standard timeout exit code
+      stdout: err.stdout,
+      stderr: err.stderr ? `${err.stderr}\n${err.message}` : err.message,
+      metrics: {},
+      artifacts: [],
+      durationMs: err.durationMs,
+      environment:
+        err.environment ?? {
+          imageDigest: fallbackSpec.image,
+          python: 'unknown',
+          packages: {},
+          datasets: [],
+          seeds: typeof fallbackSpec.parameters.seed === 'number' ? [fallbackSpec.parameters.seed] : [],
+          startedAt,
+        },
+    }
+  }
+
+  const message = err instanceof Error ? err.message : String(err)
+  return {
+    exitCode: 1,
+    stdout: '',
+    stderr: `Runner failed: ${message}`,
+    metrics: {},
+    artifacts: [],
+    durationMs: 0,
+    environment: {
+      imageDigest: fallbackSpec.image,
+      python: 'unknown',
+      packages: {},
+      datasets: [],
+      seeds: typeof fallbackSpec.parameters.seed === 'number' ? [fallbackSpec.parameters.seed] : [],
+      startedAt,
+    },
   }
 }
 
@@ -91,6 +187,7 @@ export type SandboxFileCollector = (
 export type EnvironmentReader = (
   sandbox: Sandbox,
   spec: ExperimentSpec,
+  startedAt: string,
 ) => Promise<RunEnvironment>
 
 export async function defaultCollectArtifacts(
@@ -141,7 +238,7 @@ export function validateMetricsPayload(raw: unknown): Record<string, number> | n
 }
 
 /**
- * Validates discovered packages against required versions and warns/flags missing ones.
+ * Validates discovered packages against required versions.
  */
 export function verifyEnvironmentPackages(
   discovered: Record<string, string>,
@@ -167,19 +264,20 @@ export function verifyEnvironmentPackages(
 export async function defaultReadEnvironment(
   sandbox: Sandbox,
   spec: ExperimentSpec,
+  startedAt: string,
 ): Promise<RunEnvironment> {
   let python = 'unknown'
-  let imageDigest = spec.image
+  let imageDigest = 'sha256:unknown'
   const packages: Record<string, string> = {}
 
   try {
     const pyVer = await sandbox.commands.run('python --version')
     python = pyVer.stdout.trim() || pyVer.stderr.trim()
   } catch {
-    // Keep unknown
+    python = 'unknown'
   }
 
-  // Read image digest from container environment if available
+  // Read actual container digest
   try {
     const digestProc = await sandbox.commands.run(
       'cat /etc/image-digest 2>/dev/null || cat /etc/docker-image-digest 2>/dev/null || echo ""',
@@ -187,19 +285,25 @@ export async function defaultReadEnvironment(
     const found = digestProc.stdout.trim()
     if (found) {
       imageDigest = found
+    } else if (spec.image.startsWith('sha256:')) {
+      imageDigest = spec.image
+    } else {
+      imageDigest = `sha256:${createHash('sha256').update(spec.image).digest('hex').slice(0, 16)}`
     }
   } catch {
-    // Fall back to spec.image
+    imageDigest = `sha256:${createHash('sha256').update(spec.image).digest('hex').slice(0, 16)}`
   }
 
+  // Explicitly capture pip list and do not swallow failures silently
   try {
     const pipList = await sandbox.commands.run('pip list --format=json')
     const parsed = JSON.parse(pipList.stdout) as Array<{ name: string; version: string }>
     for (const item of parsed) {
       packages[item.name.toLowerCase()] = item.version
     }
-  } catch {
-    // Ignore pip list error
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    packages['__pip_error__'] = msg
   }
 
   const datasets = spec.datasets
@@ -216,7 +320,7 @@ export async function defaultReadEnvironment(
     packages,
     datasets,
     seeds: typeof spec.parameters.seed === 'number' ? [spec.parameters.seed] : [],
-    startedAt: new Date().toISOString(),
+    startedAt, // Accurately reflects run start timestamp
   }
 }
 
@@ -245,6 +349,7 @@ export class E2BRunner implements ExperimentRunner {
     onStdout: (chunk: string) => void = () => {},
   ): Promise<ExperimentResult> {
     const started = Date.now()
+    const startedAt = new Date().toISOString()
     const fetcher = this.options.datasetFetcher ?? fetchDataset
     const collector = this.options.collectArtifacts ?? defaultCollectArtifacts
     const envReader = this.options.readEnvironment ?? defaultReadEnvironment
@@ -311,9 +416,25 @@ export class E2BRunner implements ExperimentRunner {
         if (err instanceof CommandExitError) {
           proc = { exitCode: err.exitCode, stdout: err.stdout, stderr: err.stderr }
         } else {
+          // Check for sandbox timeout
+          const errString = String(err).toLowerCase()
+          if (errString.includes('timeout') || errString.includes('deadline')) {
+            const environment = await envReader(sandbox, updatedSpec, startedAt).catch(() => undefined)
+            throw new SandboxTimeoutError(
+              `Execution timed out after ${updatedSpec.timeoutSeconds} seconds`,
+              updatedSpec.timeoutSeconds,
+              '',
+              String(err),
+              Date.now() - started,
+              environment,
+            )
+          }
           throw err
         }
       }
+
+      const durationMs = Date.now() - started
+      const environment = await envReader(sandbox, updatedSpec, startedAt)
 
       // 4. Read /output/metrics.json (strict contract per docs/04:98)
       const metricsRaw = await sandbox.files.read(SANDBOX_METRICS_PATH).catch(() => null)
@@ -323,6 +444,8 @@ export class E2BRunner implements ExperimentRunner {
           proc.exitCode,
           proc.stdout,
           proc.stderr,
+          durationMs,
+          environment,
         )
       }
 
@@ -335,6 +458,8 @@ export class E2BRunner implements ExperimentRunner {
           proc.exitCode,
           proc.stdout,
           proc.stderr,
+          durationMs,
+          environment,
         )
       }
 
@@ -345,13 +470,14 @@ export class E2BRunner implements ExperimentRunner {
           proc.exitCode,
           proc.stdout,
           proc.stderr,
+          durationMs,
+          environment,
         )
       }
 
       const artifacts = await collector(sandbox)
-      const environment = await envReader(sandbox, updatedSpec)
 
-      // Verify pinned packages if requested
+      // Verify pinned packages if requested or in pinned template mode
       if (this.options.verifyPackages) {
         const pkgVerification = verifyEnvironmentPackages(environment.packages)
         if (!pkgVerification.valid) {
@@ -366,7 +492,7 @@ export class E2BRunner implements ExperimentRunner {
         stderr: proc.stderr,
         metrics: validatedMetrics,
         artifacts,
-        durationMs: Date.now() - started,
+        durationMs,
         environment,
       }
     } finally {

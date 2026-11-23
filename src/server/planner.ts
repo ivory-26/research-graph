@@ -7,9 +7,10 @@ import type { ExperimentSpec } from '../shared/types'
  * - mode is present and is not 'exact' (current product only produces 'adapted' or 'conceptual').
  * - Exactly one entrypoint, and it must exist in files (e.g. entrypoint "python main.py" -> "main.py" exists in files).
  * - Every dataset has a valid, resolvable URL (http/https).
- * - The script writes its metrics as json.dump to /output/metrics.json.
- * - Estimated runtime (timeoutSeconds) is under or equal to 60 seconds (Issue #23 / docs/03:83).
- * - No `pip install` inside any script file.
+ * - The script writes its metrics as json.dump to /output/metrics.json in executable code.
+ * - Estimated runtime (parameters.estimatedRuntimeSeconds or spec constraint) is under 60 seconds (Issue #23 / docs/03:83).
+ * - timeoutSeconds is bounded at 120 seconds (docs/04-experiment-runtime.md:18).
+ * - No `pip install` or `pip3 install` inside executable script files.
  * - Structural: network is 'none', language is 'python'.
  */
 
@@ -20,7 +21,8 @@ export interface SpecValidationResult {
 
 /**
  * Extracts the normalized file path from an entrypoint command string like "python main.py" or "python3 script.py"
- * Only accepts python / python3 or direct .py scripts. Rejects arbitrary shell commands.
+ * Strictly requires python or python3 invocation of a .py file, or a direct .py script.
+ * Rejects shell wrappers and non-python entrypoints.
  */
 export function extractEntrypointFile(entrypoint: string): string | null {
   const parts = entrypoint.trim().split(/\s+/)
@@ -35,39 +37,106 @@ export function extractEntrypointFile(entrypoint: string): string | null {
 }
 
 /**
- * Strips comments and docstrings from python source code so comments cannot satisfy validation.
+ * Strips comments, single-line string literals, and multi-line docstrings from Python source code
+ * so string literals, print statements, comments and docstrings cannot satisfy executable code checks.
  */
-export function stripPythonComments(source: string): string {
-  // Remove single line comments
-  const lines = source.split('\n').map((line) => {
-    let inSingle = false
-    let inDouble = false
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i]
-      if (char === "'" && !inDouble) inSingle = !inSingle
-      else if (char === '"' && !inSingle) inDouble = !inDouble
-      else if (char === '#' && !inSingle && !inDouble) {
-        return line.slice(0, i)
+export function stripPythonLiteralsAndComments(source: string): string {
+  let result = ''
+  let i = 0
+  const n = source.length
+
+  while (i < n) {
+    // 1. Single line comment
+    if (source[i] === '#') {
+      while (i < n && source[i] !== '\n') {
+        i++
       }
+      continue
     }
-    return line
-  })
-  return lines.join('\n')
+
+    // 2. Triple quoted docstrings: """ or '''
+    if (
+      (source.slice(i, i + 3) === '"""' || source.slice(i, i + 3) === "'''") &&
+      (i === 0 || source[i - 1] !== '\\')
+    ) {
+      const quote = source.slice(i, i + 3)
+      i += 3
+      while (i < n && source.slice(i, i + 3) !== quote) {
+        if (source[i] === '\\') {
+          i += 2
+        } else {
+          i++
+        }
+      }
+      i += 3
+      result += ' '
+      continue
+    }
+
+    // 3. Regular string literals: "..." or '...'
+    if (
+      (source[i] === '"' || source[i] === "'") &&
+      (i === 0 || source[i - 1] !== '\\')
+    ) {
+      const quote = source[i]
+      i++
+      while (i < n && source[i] !== quote && source[i] !== '\n') {
+        if (source[i] === '\\') {
+          i += 2
+        } else {
+          i++
+        }
+      }
+      if (i < n && source[i] === quote) {
+        i++
+      }
+      result += ' '
+      continue
+    }
+
+    result += source[i]
+    i++
+  }
+
+  return result
 }
 
 /**
- * Validates that the python source writes metrics via json.dump to /output/metrics.json.
- * Requires actual json.dump and the exact /output/metrics.json path in executable code.
+ * Checks whether Python source code contains an executable pip/pip3 install command.
+ * Inspects both stripped code (for inline execution) and raw code (for os.system / subprocess calls).
+ */
+export function hasProhibitedPipInstall(source: string): boolean {
+  // Check for pip / pip3 invocation in executable code or string arguments passed to system/subprocess
+  const pipPattern = /\b(pip|pip3)\s+install\b/i
+  const lines = source.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed.startsWith('#')) continue // Pure comments ignored
+    if (pipPattern.test(line)) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Validates that an executable module actually writes metrics to /output/metrics.json via json.dump.
+ * Ensures the call is not enclosed inside a string literal, print statement, or docstring.
  */
 export function validateScriptMetricsOutput(source: string): boolean {
-  const code = stripPythonComments(source)
-  // Must contain json.dump and /output/metrics.json
-  const hasJsonDump = /\bjson\.dump\s*\(/.test(code)
-  const hasMetricsPath =
-    /\/output\/metrics\.json/.test(code) ||
-    (/(["'])\/output\1/.test(code) && /(["'])metrics\.json\1/.test(code)) ||
-    (/os\.environ\.get\([^)]*\/output[^)]*\)/.test(code) && /metrics\.json/.test(code))
-  return hasJsonDump && hasMetricsPath
+  // 1. Must contain json.dump call in executable code (outside strings and comments)
+  const executableCode = stripPythonLiteralsAndComments(source)
+  const hasExecutableJsonDump = /\bjson\.dump\s*\(/.test(executableCode)
+  if (!hasExecutableJsonDump) {
+    return false
+  }
+
+  // 2. Must contain the fixed /output/metrics.json target path in code (or pathlib / os.path construction)
+  const hasMetricsTargetPath =
+    /\/output\/metrics\.json/.test(source) ||
+    (/(['"])\/output\1/.test(source) && /(['"])metrics\.json\1/.test(source))
+
+  return hasMetricsTargetPath
 }
 
 export function validateExperimentSpec(spec: unknown): SpecValidationResult {
@@ -109,10 +178,11 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
   }
 
   // 6. entrypoint exists in files (normalized via posix)
+  let entryFile: string | null = null
   if (!s.entrypoint || typeof s.entrypoint !== 'string') {
     errors.push('entrypoint must be a non-empty string')
   } else {
-    const entryFile = extractEntrypointFile(s.entrypoint)
+    entryFile = extractEntrypointFile(s.entrypoint)
     if (!entryFile) {
       errors.push(`entrypoint '${s.entrypoint}' must invoke python with a .py script`)
     } else if (s.files && typeof s.files === 'object') {
@@ -125,24 +195,25 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
     }
   }
 
-  // 7. No pip install in files, and must write to /output/metrics.json via json.dump
+  // 7. No pip/pip3 install in files, and entrypoint file must write to /output/metrics.json via json.dump
   if (s.files && typeof s.files === 'object') {
-    let hasMetricsOutput = false
     for (const [filename, source] of Object.entries(s.files)) {
       if (typeof source !== 'string') {
         errors.push(`file '${filename}' content must be a string`)
         continue
       }
-      const stripped = stripPythonComments(source)
-      if (/\bpip\s+install\b/i.test(stripped)) {
-        errors.push(`file '${filename}' contains prohibited 'pip install'. Base image already includes required libraries.`)
-      }
-      if (validateScriptMetricsOutput(source)) {
-        hasMetricsOutput = true
+      if (hasProhibitedPipInstall(source)) {
+        errors.push(`file '${filename}' contains prohibited 'pip install' or 'pip3 install'. Base image already includes required libraries.`)
       }
     }
 
-    if (!hasMetricsOutput) {
+    // Require entrypoint file itself to write /output/metrics.json (or call a function that writes it)
+    if (entryFile && s.files[entryFile]) {
+      const entrySource = s.files[entryFile]
+      if (!validateScriptMetricsOutput(entrySource)) {
+        errors.push(`Entrypoint file '${entryFile}' must write metrics as json.dump to /output/metrics.json in executable code`)
+      }
+    } else if (!entryFile) {
       errors.push('Script must write metrics as json.dump to /output/metrics.json')
     }
   }
@@ -178,11 +249,18 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
     }
   }
 
-  // 9. timeoutSeconds: Issue #23 and docs/03:83 mandate estimated runtime under 60 seconds (timeoutSeconds <= 60).
+  // 9. Runtime constraints:
+  // - timeoutSeconds <= 120 per docs/04-experiment-runtime.md:18
+  // - estimated runtime under 60 seconds per docs/03-agent-pipeline.md:83 and Issue #23
   if (typeof s.timeoutSeconds !== 'number' || s.timeoutSeconds <= 0) {
     errors.push('timeoutSeconds must be a positive number')
-  } else if (s.timeoutSeconds > 60) {
-    errors.push('timeoutSeconds cannot exceed 60 seconds (runtime under 60s rule per Issue #23)')
+  } else if (s.timeoutSeconds > 120) {
+    errors.push('timeoutSeconds cannot exceed 120 seconds (docs/04 contract bound)')
+  }
+
+  const estimatedRuntime = (s.parameters as Record<string, unknown> | undefined)?.estimatedRuntimeSeconds
+  if (typeof estimatedRuntime === 'number' && estimatedRuntime >= 60) {
+    errors.push('estimatedRuntimeSeconds must be under 60 seconds (docs/03 rule)')
   }
 
   // 10. criteria

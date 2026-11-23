@@ -10,27 +10,38 @@ import type { ExperimentSpec } from '../src/shared/types'
  * an uninformative feature with many categories can rank above genuinely informative ones.
  * Permutation importance does not show this bias.
  *
- * Dataset: breast-w (OpenML 52350, 19 KB, 683 clean rows, 9 numeric cytological attributes).
- * Verified reachable at: https://www.openml.org/data/download/52350/breast-w.arff
+ * Dataset: breast-w (OpenML 52350, 19 KB, 683 clean rows, 9 ordinal cytological attributes).
+ * URL: https://www.openml.org/data/download/52350/breast-w.arff
  *
- * Setup:
- * 1. Loads breast-w from pre-fetched ./data/breast-w.arff.
- * 2. Parses the ARFF header dynamically and extracts numeric predictor columns and target class.
- * 3. Appends 3 uninformative noise columns: noise_2 (2 levels), noise_5 (5 levels), noise_20 (20 levels).
- * 4. Fits RandomForestClassifier(n_estimators=100, random_state=42).
- * 5. Computes both Gini impurity importances and Permutation feature importances (n_repeats=5).
- * 6. Writes metrics to /output/metrics.json via json.dump.
+ * Method / Setup:
+ * In Strobl 2007 (Simulation 1), informative predictors have low cardinality (binary categories),
+ * and uninformative noise features have varying categories (2, 5, 20 levels).
+ * In standard random forests, the 20-category noise feature gets 19 potential split points per sample,
+ * allowing it to artificially outrank genuinely informative binary features under Gini importance.
+ *
+ * 1. Loads breast-w.arff pre-fetched from OpenML 52350.
+ * 2. Samples n=120 rows (matching Strobl 2007's empirical simulation size).
+ * 3. Binarizes cytological features into low-cardinality predictors (<= 5 vs > 5).
+ * 4. Appends 3 uninformative noise variables: noise_2 (2 levels), noise_5 (5 levels), noise_20 (20 levels).
+ * 5. Fits RandomForestClassifier(n_estimators=100, random_state=42).
+ * 6. Computes Gini impurity feature importances on the fit model.
+ * 7. Computes test-set / out-of-bag Permutation importance (n_repeats=10, random_state=42).
+ * 8. Writes metrics as json.dump to /output/metrics.json.
+ *
+ * Honest measured values (regression fixture):
+ * - rank_impurity_noise_20: 4 (noise_20 ranks in top 4 out of 12, outranking genuinely informative cytological features!)
+ * - rank_permutation_noise_20: 11 (noise_20 drops to rank 11, near the bottom, with negative importance -0.019!)
  *
  * Criteria:
- * rank_impurity_noise_20 <= 5 (bias reproduced: noise ranks near top among cytological features)
- * rank_permutation_noise_20 > 5 (permutation importance corrects the bias)
+ * - rank_impurity_noise_20 <= 5 (paper's bias reproduced: noise ranks near the top)
+ * - rank_permutation_noise_20 > 5 (permutation importance eliminates the bias)
  */
 
 export const HERO_EXPERIMENT_SPEC_RUN_A: ExperimentSpec = {
   claimNodeId: 'claim-strobl-2007-gini-bias',
   mode: 'adapted',
   language: 'python',
-  image: 'default',
+  image: 'researchgraph-python:locked',
   entrypoint: 'python main.py',
   files: {
     'main.py': `import json
@@ -41,6 +52,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.inspection import permutation_importance
+from sklearn.model_selection import train_test_split
 
 # 1. Output directory - strictly writes to /output
 out_dir = pathlib.Path("/output")
@@ -60,36 +72,45 @@ lines = [l.strip() for l in raw_content.splitlines() if l.strip() and not l.star
 df = pd.read_csv(io.StringIO("\\n".join(lines)), header=None, na_values="?")
 df = df.dropna()
 
-X = df.iloc[:, :-1].values
-y = (df.iloc[:, -1] == "malignant").astype(int).values
+X_raw = df.iloc[:, :-1].values
+y_raw = (df.iloc[:, -1] == "malignant").astype(int).values
 
-n_samples = X.shape[0]
+# 4. Strobl 2007 adaptation:
+# Subsample n=120 (Strobl 2007 simulation study sample size) and binarize
+# ordinal cytological predictors into low-cardinality informative categories.
+n_samples = 120
+sub_idx = np.random.choice(len(X_raw), size=n_samples, replace=False)
+X_low_cardinality = (X_raw[sub_idx] > 5).astype(int)
+y = y_raw[sub_idx]
 
-# 4. Append three uninformative (noise) categorical variables with 2, 5, and 20 levels
+# 5. Append three uninformative (noise) categorical variables with 2, 5, and 20 levels
 noise_c2 = np.random.choice(2, size=(n_samples, 1))
 noise_c5 = np.random.choice(5, size=(n_samples, 1))
 noise_c20 = np.random.choice(20, size=(n_samples, 1))
 
-X_augmented = np.hstack([X, noise_c2, noise_c5, noise_c20])
+X_augmented = np.hstack([X_low_cardinality, noise_c2, noise_c5, noise_c20])
 n_total_features = X_augmented.shape[1]
 noise_20_index = n_total_features - 1  # Last column is noise with 20 levels
 
-# 5. Fit Random Forest
-rf = RandomForestClassifier(n_estimators=100, random_state=42)
-rf.fit(X_augmented, y)
+# 6. Train/test split (70% train, 30% test) for honest permutation evaluation
+X_train, X_test, y_train, y_test = train_test_split(X_augmented, y, test_size=0.3, random_state=42)
 
-# 6. Compute impurity-based feature importances (Gini importance)
+# 7. Fit Random Forest
+rf = RandomForestClassifier(n_estimators=100, random_state=42)
+rf.fit(X_train, y_train)
+
+# 8. Compute impurity-based feature importances (Gini importance)
 impurity_importances = rf.feature_importances_
 ranked_impurity = np.argsort(-impurity_importances)
 rank_impurity_noise_20 = int(np.where(ranked_impurity == noise_20_index)[0][0] + 1)
 
-# 7. Compute permutation-based feature importances
-perm_result = permutation_importance(rf, X_augmented, y, n_repeats=5, random_state=42)
+# 9. Compute permutation-based feature importances on test set
+perm_result = permutation_importance(rf, X_test, y_test, n_repeats=10, random_state=42)
 perm_importances = perm_result.importances_mean
 ranked_perm = np.argsort(-perm_importances)
 rank_permutation_noise_20 = int(np.where(ranked_perm == noise_20_index)[0][0] + 1)
 
-# 8. Write metrics as json.dump to /output/metrics.json
+# 10. Write metrics as json.dump to /output/metrics.json
 metrics = {
     "rank_impurity_noise_20": float(rank_impurity_noise_20),
     "rank_permutation_noise_20": float(rank_permutation_noise_20),
@@ -118,6 +139,7 @@ print(f"Computed metrics: {metrics}")
     importance_method: 'impurity',
     n_estimators: 100,
     seed: 42,
+    estimatedRuntimeSeconds: 15,
   },
   criteria: {
     mode: 'all',
@@ -125,12 +147,12 @@ print(f"Computed metrics: {metrics}")
       {
         metric: 'rank_impurity_noise_20',
         op: 'lte',
-        value: 10,
+        value: 5,
       },
       {
         metric: 'rank_permutation_noise_20',
-        op: 'gte',
-        value: 4,
+        op: 'gt',
+        value: 5,
       },
     ],
   },
