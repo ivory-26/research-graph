@@ -145,7 +145,8 @@ export async function extractClaims(
     const updateStatus =
       options.updateTaskStatusFn ??
       (async (taskId, status, error) => {
-        if (process.env.DATABASE_URL) {
+        const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        if (process.env.DATABASE_URL && UUID_REGEX.test(taskId)) {
           const { getDb } = await import('../../db/client')
           const { agentTasks } = await import('../../db/schema')
           const { eq } = await import('drizzle-orm')

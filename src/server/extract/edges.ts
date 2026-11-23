@@ -2,6 +2,7 @@ import type { Database } from '../../db/client'
 import { edges, type EdgeRow } from '../../db/schema'
 import { callModel as defaultCallModel, type CallModel, agentTaskStore } from '../model'
 import { normalizeQuote, verifyVerbatimQuote } from './quote'
+import type { UpdateTaskStatusFn } from './claims'
 import {
   ProposeEdgesResultSchema,
   type ChunkRef,
@@ -162,7 +163,8 @@ RULES:
 2. Every edge MUST have an exact, VERBATIM quote from one of the evidence chunks proving this relationship.
 3. Assign a calibrated confidence score between 0.0 and 1.0 based on how directly the quote substantiates the relation.
 4. "evidenceChunkId" must be the exact CHUNK ID containing the quote.
-5. Limit proposals to at most 12 edges.`
+5. "rationale": required brief explanation under 240 characters.
+6. Limit proposals to at most 12 edges.`
 }
 
 export interface ProposeEdgesOptions {
@@ -174,6 +176,8 @@ export interface ProposeEdgesOptions {
   storeEdgesFn?: typeof storeEdges
   /** Injected callModel implementation (defaults to production callModel) */
   callModelFn?: CallModel
+  /** Injected task updater (defaults to Neon direct update) */
+  updateTaskStatusFn?: UpdateTaskStatusFn
 }
 
 /**
@@ -213,7 +217,33 @@ export async function proposeEdges(
   )
 
   const raw = result.output
-  const { accepted, rejected } = validateProposedEdges(raw.edges ?? [], nodes, chunks)
+  // Invariant: validate strictly against selectedChunks (chunks that were rendered into prompt)
+  const { accepted, rejected } = validateProposedEdges(raw.edges ?? [], nodes, selectedChunks)
+
+  // docs/03: When no proposed edges survive validation, mark the task as rejected
+  if (result.task?.id && accepted.length === 0) {
+    result.task.status = 'rejected'
+    const updateStatus =
+      options.updateTaskStatusFn ??
+      (async (taskId, status, error) => {
+        if (process.env.DATABASE_URL && UUID_REGEX.test(taskId)) {
+          const { getDb } = await import('../../db/client')
+          const { agentTasks } = await import('../../db/schema')
+          const { eq } = await import('drizzle-orm')
+          await getDb()
+            .update(agentTasks)
+            .set({ status, error: error ?? null })
+            .where(eq(agentTasks.id, taskId))
+        }
+      })
+
+    const rejectReason =
+      (raw.edges ?? []).length === 0
+        ? 'Model returned no proposed edges.'
+        : 'All proposed edges were rejected due to unverified verbatim quotes or constraint violations.'
+
+    await updateStatus(result.task.id, 'rejected', rejectReason)
+  }
 
   let storedRows: EdgeRow[] | undefined
   const storeFn = options.storeEdgesFn ?? storeEdges
