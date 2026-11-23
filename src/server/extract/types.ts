@@ -60,13 +60,6 @@ export const ProposedEdgeSchema = z.object({
 })
 
 export const ProposeEdgesResultSchema = z.object({
-  _provenance: z
-    .object({
-      model: z.string(),
-      capturedAt: z.string(),
-      promptHash: z.string().optional(),
-    })
-    .optional(),
   edges: z.array(ProposedEdgeSchema).max(12),
 })
 
