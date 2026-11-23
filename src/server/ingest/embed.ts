@@ -1,7 +1,7 @@
 import { embed, embedMany, type EmbeddingModel } from 'ai'
 import { createGoogleGenerativeAI, google } from '@ai-sdk/google'
 import type { Chunk, EmbedOptions } from './types'
-import { agentTaskStore } from '../model'
+import { agentTaskStore, isRateLimitError } from '../model'
 
 /** The pinned embedding model (CLAUDE.md & Issue #11). */
 export const DEFAULT_EMBEDDING_MODEL_ID = 'gemini-embedding-2'
@@ -16,6 +16,32 @@ export const DEFAULT_EMBEDDING_DIMENSIONS = 768
  * "gemini-embedding-2 at 768 dimensions, one call per batch of 20 chunks"
  */
 export const DEFAULT_BATCH_SIZE = 20
+
+/** Named constant for embedding list price: $0.15 per 1M tokens (Issue #11 & ADR 0009). */
+export const DEFAULT_EMBEDDING_PRICE_PER_MILLION = 0.15
+
+export const DEFAULT_MAX_EMBED_ATTEMPTS = 3
+export const DEFAULT_BASE_DELAY_MS = 1_000
+export const DEFAULT_MAX_DELAY_MS = 30_000
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function backoffDelayMs(retryIndex: number): number {
+  const ceiling = Math.min(DEFAULT_MAX_DELAY_MS, DEFAULT_BASE_DELAY_MS * 2 ** (retryIndex - 1))
+  const jitter = Math.max(0, Math.min(1, Math.random()))
+  return Math.floor(jitter * ceiling)
+}
+
+// Global sequential queue for all embedding calls (ADR 0009: sequential rate-limited execution)
+let queueTail: Promise<unknown> = Promise.resolve()
+
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const next = queueTail.then(task, task)
+  queueTail = next.then(() => {}, () => {})
+  return next
+}
 
 const modelCache = new Map<string, EmbeddingModel>()
 
@@ -50,6 +76,7 @@ export interface EmbedDeps {
   embedManyFn?: typeof embedMany
   embedFn?: typeof embed
   resolveModel?: typeof resolveEmbeddingModel
+  sleepFn?: (ms: number) => Promise<void>
 }
 
 /**
@@ -58,7 +85,8 @@ export interface EmbedDeps {
  * Implements Issue #11 rules & ADR 0009 invariants:
  * - gemini-embedding-2 at 768 dimensions passed to provider via outputDimensionality
  * - One call per batch of at most 20 chunks
- * - maxRetries: 0 to enforce exactly one agent_tasks row per attempt
+ * - Sequential queue to prevent parallel burst rate-limiting across concurrent ingests
+ * - maxRetries: 0 with manual 429 backoff recording 'retried' rows for intermediate attempts
  * - Estimated tokens recorded when provider returns undefined usage
  * - Vector dimension validated BEFORE recording success in agent_tasks
  * - Accounting failures surface rather than being swallowed
@@ -72,60 +100,101 @@ export async function embedChunks(
     return []
   }
 
-  const batchSize = Math.max(1, Math.min(options.batchSize ?? DEFAULT_BATCH_SIZE, 50))
+  const batchSize = Math.max(1, Math.min(options.batchSize ?? DEFAULT_BATCH_SIZE, DEFAULT_BATCH_SIZE))
   const dimensions = options.dimensions ?? DEFAULT_EMBEDDING_DIMENSIONS
   const resolveModelFn = deps.resolveModel ?? resolveEmbeddingModel
   const model = options.model ?? resolveModelFn(DEFAULT_EMBEDDING_MODEL_ID)
   const embedManyCall = deps.embedManyFn ?? embedMany
   const taskStore = options.taskStore ?? agentTaskStore
+  const sleepCall = deps.sleepFn ?? sleep
 
   const texts: string[] = items.map((item) => (typeof item === 'string' ? item : item.text))
   const allEmbeddings: number[][] = []
 
-  // Process sequentially in batches of batchSize (default 20)
+  // Process sequentially in batches of at most 20
   for (let i = 0; i < texts.length; i += batchSize) {
     const batch = texts.slice(i, i + batchSize)
-    const startedAt = Date.now()
+    let attempt = 0
     let result: any = null
+    let successfulLatencyMs = 0
+    const maxAttempts = DEFAULT_MAX_EMBED_ATTEMPTS
 
-    try {
-      result = await embedManyCall({
-        model,
-        values: batch,
-        abortSignal: options.abortSignal,
-        maxRetries: 0, // ADR 0009: disable AI SDK retries to preserve 1-row-per-attempt invariant
-        providerOptions: {
-          google: {
-            outputDimensionality: dimensions,
-          },
-        },
-      } as any)
-    } catch (err) {
-      if (options.workspaceId) {
+    while (attempt < maxAttempts) {
+      attempt++
+      const startedAt = Date.now()
+
+      try {
+        result = await enqueue(() =>
+          embedManyCall({
+            model,
+            values: batch,
+            abortSignal: options.abortSignal,
+            maxRetries: 0, // ADR 0009: disable AI SDK retries to preserve 1-row-per-attempt invariant
+            providerOptions: {
+              google: {
+                outputDimensionality: dimensions,
+              },
+            },
+          } as any),
+        )
+        // Attempt succeeded
+        successfulLatencyMs = Math.max(0, Date.now() - startedAt)
+        break
+      } catch (err) {
         const latencyMs = Math.max(0, Date.now() - startedAt)
-        await taskStore.insert({
-          workspaceId: options.workspaceId,
-          strategyId: options.strategyId ?? null,
-          taskKind: 'ingest',
-          model: DEFAULT_EMBEDDING_MODEL_ID,
-          status: 'failed',
-          inputRef: { batchIndex: i / batchSize, batchCount: batch.length },
-          output: null,
-          error: err instanceof Error ? err.message : String(err),
-          promptTokens: null,
-          completionTokens: null,
-          costUsd: null,
-          latencyMs,
-        })
+        const is429 = isRateLimitError(err)
+
+        if (is429 && attempt < maxAttempts) {
+          if (options.workspaceId) {
+            await taskStore.insert({
+              workspaceId: options.workspaceId,
+              strategyId: options.strategyId ?? null,
+              taskKind: 'ingest',
+              model: DEFAULT_EMBEDDING_MODEL_ID,
+              status: 'retried',
+              inputRef: { batchIndex: i / batchSize, itemCount: batch.length },
+              output: null,
+              error: err instanceof Error ? err.message : String(err),
+              promptTokens: null,
+              completionTokens: null,
+              costUsd: null,
+              latencyMs,
+            })
+          }
+          const delay = backoffDelayMs(attempt)
+          await sleepCall(delay)
+          continue
+        }
+
+        // Exhausted retries or non-429 error
+        if (options.workspaceId) {
+          await taskStore.insert({
+            workspaceId: options.workspaceId,
+            strategyId: options.strategyId ?? null,
+            taskKind: 'ingest',
+            model: DEFAULT_EMBEDDING_MODEL_ID,
+            status: 'failed',
+            inputRef: { batchIndex: i / batchSize, itemCount: batch.length },
+            output: null,
+            error: err instanceof Error ? err.message : String(err),
+            promptTokens: null,
+            completionTokens: null,
+            costUsd: null,
+            latencyMs,
+          })
+        }
+        throw err
       }
-      throw err
     }
 
-    const latencyMs = Math.max(0, Date.now() - startedAt)
+    const latencyMs = successfulLatencyMs // Latency of successful final attempt
     // Estimate tokens from text length since Google doEmbed returns usage: undefined
     const estimatedTokens = Math.ceil(batch.reduce((sum, s) => sum + s.length, 0) / 4)
     const promptTokens = result.usage?.tokens ?? result.usage?.inputTokens ?? estimatedTokens
-    const costUsd = promptTokens !== null ? ((promptTokens * 0.15) / 1_000_000).toFixed(6) : null
+    const costUsd =
+      promptTokens !== null
+        ? ((promptTokens * DEFAULT_EMBEDDING_PRICE_PER_MILLION) / 1_000_000).toFixed(6)
+        : null
 
     // Validate dimensions BEFORE inserting success row
     for (const vec of result.embeddings) {
@@ -137,7 +206,7 @@ export async function embedChunks(
             taskKind: 'ingest',
             model: DEFAULT_EMBEDDING_MODEL_ID,
             status: 'failed',
-            inputRef: { batchIndex: i / batchSize, batchCount: batch.length },
+            inputRef: { batchIndex: i / batchSize, itemCount: batch.length },
             output: null,
             error: `Embedding returned ${vec.length} dimensions, expected ${dimensions}.`,
             promptTokens,
@@ -161,7 +230,7 @@ export async function embedChunks(
         taskKind: 'ingest',
         model: DEFAULT_EMBEDDING_MODEL_ID,
         status: 'succeeded',
-        inputRef: { batchIndex: i / batchSize, batchCount: batch.length },
+        inputRef: { batchIndex: i / batchSize, itemCount: batch.length },
         output: { embeddingCount: result.embeddings.length, dimensions },
         error: null,
         promptTokens,
@@ -193,47 +262,87 @@ export async function embedQuery(
   const model = options.model ?? resolveModelFn(DEFAULT_EMBEDDING_MODEL_ID)
   const embedCall = deps.embedFn ?? embed
   const taskStore = options.taskStore ?? agentTaskStore
+  const sleepCall = deps.sleepFn ?? sleep
 
-  const startedAt = Date.now()
+  let attempt = 0
   let result: any = null
+  let successfulLatencyMs = 0
+  const maxAttempts = DEFAULT_MAX_EMBED_ATTEMPTS
 
-  try {
-    result = await embedCall({
-      model,
-      value: trimmed,
-      abortSignal: options.abortSignal,
-      maxRetries: 0, // ADR 0009: disable AI SDK retries to preserve 1-row-per-attempt invariant
-      providerOptions: {
-        google: {
-          outputDimensionality: dimensions,
-        },
-      },
-    } as any)
-  } catch (err) {
-    if (options.workspaceId) {
+  while (attempt < maxAttempts) {
+    attempt++
+    const startedAt = Date.now()
+
+    try {
+      result = await enqueue(() =>
+        embedCall({
+          model,
+          value: trimmed,
+          abortSignal: options.abortSignal,
+          maxRetries: 0, // ADR 0009: disable AI SDK retries to preserve 1-row-per-attempt invariant
+          providerOptions: {
+            google: {
+              outputDimensionality: dimensions,
+            },
+          },
+        } as any),
+      )
+      // Success
+      successfulLatencyMs = Math.max(0, Date.now() - startedAt)
+      break
+    } catch (err) {
       const latencyMs = Math.max(0, Date.now() - startedAt)
-      await taskStore.insert({
-        workspaceId: options.workspaceId,
-        strategyId: options.strategyId ?? null,
-        taskKind: 'ingest',
-        model: DEFAULT_EMBEDDING_MODEL_ID,
-        status: 'failed',
-        inputRef: { query: trimmed },
-        output: null,
-        error: err instanceof Error ? err.message : String(err),
-        promptTokens: null,
-        completionTokens: null,
-        costUsd: null,
-        latencyMs,
-      })
+      const is429 = isRateLimitError(err)
+
+      if (is429 && attempt < maxAttempts) {
+        if (options.workspaceId) {
+          await taskStore.insert({
+            workspaceId: options.workspaceId,
+            strategyId: options.strategyId ?? null,
+            taskKind: 'ingest',
+            model: DEFAULT_EMBEDDING_MODEL_ID,
+            status: 'retried',
+            inputRef: { query: trimmed },
+            output: null,
+            error: err instanceof Error ? err.message : String(err),
+            promptTokens: null,
+            completionTokens: null,
+            costUsd: null,
+            latencyMs,
+          })
+        }
+        const delay = backoffDelayMs(attempt)
+        await sleepCall(delay)
+        continue
+      }
+
+      if (options.workspaceId) {
+        await taskStore.insert({
+          workspaceId: options.workspaceId,
+          strategyId: options.strategyId ?? null,
+          taskKind: 'ingest',
+          model: DEFAULT_EMBEDDING_MODEL_ID,
+          status: 'failed',
+          inputRef: { query: trimmed },
+          output: null,
+          error: err instanceof Error ? err.message : String(err),
+          promptTokens: null,
+          completionTokens: null,
+          costUsd: null,
+          latencyMs,
+        })
+      }
+      throw err
     }
-    throw err
   }
 
-  const latencyMs = Math.max(0, Date.now() - startedAt)
+  const latencyMs = successfulLatencyMs
   const estimatedTokens = Math.ceil(trimmed.length / 4)
   const promptTokens = result.usage?.tokens ?? result.usage?.inputTokens ?? estimatedTokens
-  const costUsd = promptTokens !== null ? ((promptTokens * 0.15) / 1_000_000).toFixed(6) : null
+  const costUsd =
+    promptTokens !== null
+      ? ((promptTokens * DEFAULT_EMBEDDING_PRICE_PER_MILLION) / 1_000_000).toFixed(6)
+      : null
 
   // Validate dimensions BEFORE inserting success row
   if (result.embedding.length !== dimensions) {
