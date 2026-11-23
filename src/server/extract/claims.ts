@@ -1,4 +1,4 @@
-import { callModel as defaultCallModel, type CallModel } from '../model'
+import { callModel as defaultCallModel, type CallModel, agentTaskStore } from '../model'
 import { validateClaimQuotes } from './quote'
 import {
   ExtractionResultSchema,
@@ -127,8 +127,7 @@ export async function extractClaims(
       workspaceId,
       taskKind: 'extract_claims',
       strategyId: validStrategyId,
-      // Lazily import the agentTaskStore to avoid DB imports in pure unit test runs
-      store: (await import('../model')).agentTaskStore,
+      store: agentTaskStore,
       inputRef: { sourceId, chunkCount: targetChunks.length, strategy },
     },
   )
@@ -142,9 +141,7 @@ export async function extractClaims(
   // When no claim survives validation (either zero claims returned or all were rejected), update the task row to 'rejected'
   // so dashboard #22 doesn't count a fabrication or empty extraction as a success.
   if (result.task?.id && accepted.length === 0) {
-    if (result.task) {
-      result.task.status = 'rejected'
-    }
+    result.task.status = 'rejected'
     const updateStatus =
       options.updateTaskStatusFn ??
       (async (taskId, status, error) => {

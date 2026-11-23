@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { ingestPdf } from '../ingest'
 import { buildProposeEdgesPrompt, proposeEdges, storeEdges, validateProposedEdges } from './edges'
 import { verifyVerbatimQuote } from './quote'
-import type { ChunkRef, NodeSummary, ProposedEdge, ValidatedEdge } from './types'
+import type { Database } from '../../db/client'
+import type { ChunkRef, NodeSummary, ProposedEdge, ProposeEdgesResult, ValidatedEdge } from './types'
 
 const CHUNK_UUID_1 = '11111111-1111-4111-8111-111111111111'
 const CHUNK_UUID_2 = '22222222-2222-4222-8222-222222222222'
@@ -415,43 +416,49 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
       const { chunks: chunks2008 } = await ingestPdf(fs.readFileSync(strobl2008Path))
       const { chunks: chunks2010 } = await ingestPdf(fs.readFileSync(kursa2010Path))
 
-      // Tag chunks with valid UUIDs
-      const allChunks: ChunkRef[] = [
-        ...chunks2007.map((c) => ({
-          id: crypto.randomUUID(),
-          sourceId: 'src-s07',
-          ordinal: c.ordinal,
-          text: c.text,
-          page: c.page,
-        })),
-        ...chunks2008.map((c) => ({
-          id: crypto.randomUUID(),
-          sourceId: 'src-s08',
-          ordinal: c.ordinal,
-          text: c.text,
-          page: c.page,
-        })),
-        ...chunks2010.map((c) => ({
-          id: crypto.randomUUID(),
-          sourceId: 'src-k10',
-          ordinal: c.ordinal,
-          text: c.text,
-          page: c.page,
-        })),
-      ]
+      // Tag chunks with valid UUIDs partitioned by paper
+      const tagged2007: ChunkRef[] = chunks2007.map((c) => ({
+        id: crypto.randomUUID(),
+        sourceId: 'src-s07',
+        ordinal: c.ordinal,
+        text: c.text,
+        page: c.page,
+      }))
+      const tagged2008: ChunkRef[] = chunks2008.map((c) => ({
+        id: crypto.randomUUID(),
+        sourceId: 'src-s08',
+        ordinal: c.ordinal,
+        text: c.text,
+        page: c.page,
+      }))
+      const tagged2010: ChunkRef[] = chunks2010.map((c) => ({
+        id: crypto.randomUUID(),
+        sourceId: 'src-k10',
+        ordinal: c.ordinal,
+        text: c.text,
+        page: c.page,
+      }))
 
-      // Helper to locate exact passage in chunks
-      function findChunkForQuote(quote: string): ChunkRef {
-        const found = allChunks.find((c) => verifyVerbatimQuote(quote, c.text))
-        if (!found) {
-          throw new Error(`Quote not found in ingested papers: "${quote}"`)
-        }
+      // Paper-specific helpers to locate exact distinctive passage within that exact paper
+      function findIn2007(quote: string): ChunkRef {
+        const found = tagged2007.find((c) => verifyVerbatimQuote(quote, c.text))
+        if (!found) throw new Error(`Quote not found in Strobl 2007: "${quote}"`)
+        return found
+      }
+      function findIn2008(quote: string): ChunkRef {
+        const found = tagged2008.find((c) => verifyVerbatimQuote(quote, c.text))
+        if (!found) throw new Error(`Quote not found in Strobl 2008: "${quote}"`)
+        return found
+      }
+      function findIn2010(quote: string): ChunkRef {
+        const found = tagged2010.find((c) => verifyVerbatimQuote(quote, c.text))
+        if (!found) throw new Error(`Quote not found in Kursa 2010: "${quote}"`)
         return found
       }
 
-      // 6 real quotes across the 3 papers:
+      // 6 real quotes verified distinctly inside their respective papers:
       // Paper 1 (Strobl 2007)
-      const q1 = 'random forest variable importance measures are a sensible means for variable selection'
+      const q1 = 'random forest variable importance measures are a sensible means for variable selection in many applications, but are not reliable in situations where potential predictor variables vary in their scale of measurement or their number of categories.'
       const q2 = 'The random forest approach was shown to outperform'
 
       // Paper 2 (Strobl 2008)
@@ -459,15 +466,25 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
       const q4 = 'permutation importance'
 
       // Paper 3 (Kursa 2010 Boruta)
-      const q5 = 'random forest'
+      const q5 = 'The importance measure itself varies due to stochasticity of the random forest classifier.'
       const q6 = 'Boruta Package'
 
-      const c1 = findChunkForQuote(q1)
-      const c2 = findChunkForQuote(q2)
-      const c3 = findChunkForQuote(q3)
-      const c4 = findChunkForQuote(q4)
-      const c5 = findChunkForQuote(q5)
-      const c6 = findChunkForQuote(q6)
+      const c1 = findIn2007(q1)
+      const c2 = findIn2007(q2)
+      const c3 = findIn2008(q3)
+      const c4 = findIn2008(q4)
+      const c5 = findIn2010(q5)
+      const c6 = findIn2010(q6)
+
+      // Assign stable UUIDs matching the checked-in fixture
+      c1.id = '11111111-1111-4111-8111-111111111111'
+      c2.id = '11111111-1111-4111-8111-111111111112'
+      c3.id = '22222222-2222-4222-8222-222222222221'
+      c4.id = '22222222-2222-4222-8222-222222222222'
+      c5.id = '33333333-3333-4333-8333-333333333331'
+      c6.id = '33333333-3333-4333-8333-333333333332'
+
+      const allChunks: ChunkRef[] = [...tagged2007, ...tagged2008, ...tagged2010]
 
       // Workspace nodes representing claims and methods across the 3 papers
       const workspaceNodes: NodeSummary[] = [
@@ -479,86 +496,57 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
         { id: 'node-k10-claim', type: 'claim', title: 'Kursa 2010: Shadow Features' },
       ]
 
-      // 6 proposed edges across the three papers, each with confidence >= 0.65 and valid verbatim quotes
-      const proposedAcrossPapers: ProposedEdge[] = [
-        // Edge 1 (Strobl 2007): Claim tests RF
-        {
-          fromNodeId: 'node-s07-claim',
-          toNodeId: 'node-s07-rf',
-          relation: 'tests',
-          confidence: 0.9,
-          evidenceChunkId: c1.id!,
-          quote: q1,
-          rationale: 'Evaluates reliability of variable selection measures',
-        },
-        // Edge 2 (Strobl 2007): Compares against other methods
-        {
-          fromNodeId: 'node-s07-rf',
-          toNodeId: 'node-s07-claim',
-          relation: 'supports',
-          confidence: 0.85,
-          evidenceChunkId: c2.id!,
-          quote: q2,
-          rationale: 'RF benchmarking performance',
-        },
-        // Edge 3 (Strobl 2008 -> 2007): Strobl 2008 CVI derived from RF
-        {
-          fromNodeId: 'node-s08-cvi',
-          toNodeId: 'node-s07-rf',
-          relation: 'derived_from',
-          confidence: 0.95,
-          evidenceChunkId: c3.id!,
-          quote: q3,
-          rationale: 'Builds conditional trees on standard RF',
-        },
-        // Edge 4 (Strobl 2008): Compares against original permutation importance
-        {
-          fromNodeId: 'node-s08-claim',
-          toNodeId: 'node-s07-claim',
-          relation: 'supports',
-          confidence: 0.88,
-          evidenceChunkId: c4.id!,
-          quote: q4,
-          rationale: 'Directly analyzes the original permutation measure',
-        },
-        // Edge 5 (Kursa 2010): Boruta derived from Random Forest
-        {
-          fromNodeId: 'node-k10-boruta',
-          toNodeId: 'node-s07-rf',
-          relation: 'derived_from',
-          confidence: 0.92,
-          evidenceChunkId: c5.id!,
-          quote: q5,
-          rationale: 'Boruta algorithm wraps standard RF',
-        },
-        // Edge 6 (Kursa 2010): Boruta claim tests Boruta package
-        {
-          fromNodeId: 'node-k10-claim',
-          toNodeId: 'node-k10-boruta',
-          relation: 'tests',
-          confidence: 0.89,
-          evidenceChunkId: c6.id!,
-          quote: q6,
-          rationale: 'Empirical validation of the Boruta package',
-        },
-      ]
+      // Load checked-in fixture of model output
+      const fixturePath = path.resolve(process.cwd(), 'fixtures/extract/three-papers-edges.json')
+      const capturedFixture: ProposeEdgesResult = JSON.parse(fs.readFileSync(fixturePath, 'utf8'))
 
-      const { accepted, rejected } = validateProposedEdges(
-        proposedAcrossPapers,
-        workspaceNodes,
-        allChunks,
-      )
+      const mockCallModel = vi.fn().mockResolvedValue({
+        output: capturedFixture,
+        task: { id: 'task-edges-fixture' },
+        attempts: [],
+      })
 
-      expect(rejected.length).toBe(0)
-      // Acceptance criteria: at least six accepted edges exist across the three papers
-      expect(accepted.length).toBeGreaterThanOrEqual(6)
+      const insertedDbRows: any[] = []
+      const fakeDb = {
+        transaction: vi.fn(async (cb: any) => {
+          const tx = {
+            insert: vi.fn(() => ({
+              values: vi.fn((vals: any) => ({
+                returning: vi.fn(async () => {
+                  const row = { id: crypto.randomUUID(), ...vals, evidenceRunId: null, createdAt: new Date() }
+                  insertedDbRows.push(row)
+                  return [row]
+                }),
+              })),
+            })),
+          }
+          return await cb(tx)
+        }),
+      } as unknown as Database
 
-      // Every accepted edge has status 'accepted' and a resolvable quote in its chunk
-      for (const edge of accepted) {
+      const outcome = await proposeEdges({
+        workspaceId: 'ws-three-papers',
+        nodes: workspaceNodes,
+        chunks: allChunks,
+        db: fakeDb,
+        callModelFn: mockCallModel as any,
+      })
+
+      expect(mockCallModel).toHaveBeenCalledTimes(1)
+      expect(fakeDb.transaction).toHaveBeenCalledTimes(1)
+      expect(outcome.acceptedEdges.length).toBeGreaterThanOrEqual(6)
+      expect(outcome.rejectedEdges).toHaveLength(0)
+      expect(outcome.storedRows?.length).toBeGreaterThanOrEqual(6)
+
+      // Every accepted edge has status 'accepted', confidence >= 0.65, and a resolvable quote verified against its cited chunk from that paper
+      for (const edge of outcome.acceptedEdges) {
         expect(edge.status).toBe('accepted')
         expect(edge.confidence).toBeGreaterThanOrEqual(0.65)
         expect(edge.matchedQuote.length).toBeGreaterThan(0)
         expect(edge.evidenceChunkId).toBeDefined()
+        const citedChunk = allChunks.find((c) => c.id === edge.evidenceChunkId)
+        expect(citedChunk).toBeDefined()
+        expect(verifyVerbatimQuote(edge.matchedQuote, citedChunk!.text)).toBe(true)
       }
     },
     25000,
@@ -566,6 +554,51 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
 })
 
 describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () => {
+  it('persists accepted edges via atomic transaction and maps all required foreign key fields', async () => {
+    const insertedRows: any[] = []
+    const fakeDb = {
+      transaction: vi.fn(async (cb: any) => {
+        const fakeTx = {
+          insert: vi.fn(() => ({
+            values: vi.fn((vals: any) => ({
+              returning: vi.fn(async () => {
+                const row = {
+                  id: crypto.randomUUID(),
+                  ...vals,
+                  evidenceRunId: null,
+                  createdAt: new Date(),
+                }
+                insertedRows.push(row)
+                return [row]
+              }),
+            })),
+          })),
+        }
+        return await cb(fakeTx)
+      }),
+    } as unknown as Database
+
+    const edgeToStore: ValidatedEdge = {
+      fromNodeId: '11111111-1111-4111-8111-111111111111',
+      toNodeId: '22222222-2222-4222-8222-222222222222',
+      relation: 'supports',
+      confidence: 0.9,
+      status: 'accepted',
+      evidenceChunkId: '33333333-3333-4333-8333-333333333333',
+      matchedQuote: 'Verified evidence chunk text.',
+      rationale: 'Direct empirical support',
+    }
+
+    const inserted = await storeEdges(fakeDb, 'ws-test-unit', [edgeToStore])
+    expect(fakeDb.transaction).toHaveBeenCalledTimes(1)
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0].evidenceChunkId).toBe('33333333-3333-4333-8333-333333333333')
+    expect(inserted[0].sourceNodeId).toBe('11111111-1111-4111-8111-111111111111')
+    expect(inserted[0].targetNodeId).toBe('22222222-2222-4222-8222-222222222222')
+    expect(inserted[0].status).toBe('accepted')
+    expect(inserted[0].relation).toBe('supports')
+  })
+
   const hasDb = Boolean(process.env.DATABASE_URL)
 
   it.skipIf(!hasDb)(

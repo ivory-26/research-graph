@@ -1,0 +1,23 @@
+{
+  "claims": [
+    {
+      "text": "Random forest variable importance measures are not reliable in situations where potential predictor variables vary in their scale of measurement or their number of categories",
+      "metric": "variable importance",
+      "reportedValue": null,
+      "comparator": null,
+      "againstValue": null,
+      "datasetName": null,
+      "methodName": "Random Forest",
+      "quote": "random forest variable importance measures are a sensible means for variable selection in many applications, but are not reliable in situations where potential predictor variables vary in their scale of measurement or their number of categories.",
+      "chunkId": "0"
+    }
+  ],
+  "datasets": [],
+  "methods": [
+    {
+      "name": "RandomForest",
+      "summary": "Tree ensemble method with Gini and permutation variable importance measures"
+    }
+  ],
+  "codeUrls": []
+}

@@ -383,7 +383,7 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
   )
 
   it.skipIf(!fs.existsSync(stroblPdfPath))(
-    'executes extractClaims on real Strobl 2007 chunks and extracts hero claim with verbatim quote',
+    'executes extractClaims on real Strobl 2007 chunks using checked-in model output fixture and extracts hero claim with verbatim quote',
     async () => {
       const buffer = fs.readFileSync(stroblPdfPath)
       const { chunks } = await ingestPdf(buffer)
@@ -398,30 +398,12 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
         page: c.page,
       }))
 
-      const targetChunk = chunkRefs.find((c) => c.text.includes(realHeroQuote))
-      expect(targetChunk).toBeDefined()
-
-      const mockModelOutput: ExtractionResult = {
-        claims: [
-          {
-            text: 'Gini importance is unreliable when predictors vary in category count',
-            metric: 'variable importance',
-            reportedValue: null,
-            comparator: null,
-            againstValue: null,
-            datasetName: null,
-            methodName: 'Random Forest',
-            quote: realHeroQuote,
-            chunkId: targetChunk!.id!,
-          },
-        ],
-        datasets: [],
-        methods: [{ name: 'RandomForest', summary: 'Tree ensemble' }],
-        codeUrls: [],
-      }
+      // Load checked-in fixture of real model output captured from Gemini on Strobl 2007
+      const fixturePath = path.resolve(process.cwd(), 'fixtures/extract/strobl-2007-claims.json')
+      const capturedModelOutput: ExtractionResult = JSON.parse(fs.readFileSync(fixturePath, 'utf8'))
 
       const mockCallModel = vi.fn().mockResolvedValue({
-        output: mockModelOutput,
+        output: capturedModelOutput,
         task: { id: 'task-hero-extract', latencyMs: 250 },
         attempts: [],
       })
@@ -435,12 +417,53 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
       })
 
       expect(mockCallModel).toHaveBeenCalledTimes(1)
-      expect(outcome.acceptedClaims).toHaveLength(1)
+      expect(outcome.acceptedClaims.length).toBeGreaterThanOrEqual(1)
       expect(outcome.rejectedClaims).toHaveLength(0)
-      expect(outcome.acceptedClaims[0].quote).toBe(realHeroQuote)
-      expect(outcome.acceptedClaims[0].page).toBe(1)
+
+      const heroClaim = outcome.acceptedClaims.find((c) => c.quote.includes('random forest variable importance measures'))
+      expect(heroClaim).toBeDefined()
+      expect(heroClaim!.quote).toBe(realHeroQuote)
+      expect(heroClaim!.page).toBe(1)
+
+      // Invariant: verifyVerbatimQuote is true against the real Strobl 2007 chunk it cites
+      const citedChunk = chunkRefs.find((c) => c.ordinal === heroClaim!.chunkOrdinal)
+      expect(citedChunk).toBeDefined()
+      expect(verifyVerbatimQuote(heroClaim!.quote, citedChunk!.text)).toBe(true)
     },
     15000,
+  )
+
+  const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY)
+  const canRunLive = hasKey && fs.existsSync(stroblPdfPath)
+  it.skipIf(!canRunLive)(
+    'LIVE: executes extractClaims with real Gemini model on Strobl 2007 and extracts hero claim',
+    async () => {
+      const buffer = fs.readFileSync(stroblPdfPath)
+      const { chunks } = await ingestPdf(buffer)
+      const chunkRefs: ChunkRef[] = chunks.map((c) => ({
+        id: `chunk-${c.ordinal}`,
+        ordinal: c.ordinal,
+        text: c.text,
+        page: c.page,
+      }))
+
+      const outcome = await extractClaims({
+        workspaceId: 'ws-extract-live',
+        sourceId: 'strobl-2007-live',
+        chunks: chunkRefs,
+        strategy: 'single_pass',
+      })
+
+      expect(outcome.acceptedClaims.length).toBeGreaterThanOrEqual(1)
+      const hero = outcome.acceptedClaims.find((c) =>
+        c.text.toLowerCase().includes('importance') || c.quote.toLowerCase().includes('importance'),
+      )
+      expect(hero).toBeDefined()
+      const cited = chunkRefs.find((c) => c.ordinal === hero!.chunkOrdinal)
+      expect(cited).toBeDefined()
+      expect(verifyVerbatimQuote(hero!.quote, cited!.text)).toBe(true)
+    },
+    60000,
   )
 
   it('truncates input chunks to 30,000 characters under single_pass strategy', async () => {
