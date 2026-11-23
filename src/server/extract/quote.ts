@@ -6,8 +6,10 @@ import type { ChunkRef, ExtractedClaim, RejectedClaim, ValidatedClaim } from './
  * Rules (docs/03-agent-pipeline.md):
  * - Collapses consecutive whitespace (spaces, newlines, tabs) into a single space
  * - Folds unicode smart quotes/apostrophes to ASCII equivalents
- * - Folds dashes/hyphens to ASCII '-'
  * - Trims leading and trailing whitespace
+ *
+ * NOTE: Does NOT fold en/em dashes to hyphens. Per docs/03, dashes are character-exact;
+ * a hyphen where the source has an em-dash is not a verbatim quote.
  */
 export function normalizeQuote(text: string): string {
   if (!text) return ''
@@ -19,8 +21,6 @@ export function normalizeQuote(text: string): string {
     .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
     // Replace unicode double quotes
     .replace(/[\u201C\u201D\u201E\u201F«»]/g, '"')
-    // Replace unicode dashes
-    .replace(/[\u2013\u2014]/g, '-')
     // Collapse whitespace
     .replace(/\s+/g, ' ')
     .trim()
@@ -52,6 +52,7 @@ export function verifyVerbatimQuote(quote: string, chunkText: string): boolean {
  * Validates a list of extracted claims against source chunks.
  *
  * A claim whose quote is absent from its chunk is dropped and categorized as rejected.
+ * No silent fallback / search across other chunks is permitted.
  */
 export function validateClaimQuotes(
   claims: ExtractedClaim[],
@@ -60,7 +61,6 @@ export function validateClaimQuotes(
   const accepted: ValidatedClaim[] = []
   const rejected: RejectedClaim[] = []
 
-  // Create lookup maps by id and by ordinal
   const chunkMap = new Map<string, ChunkRef>()
   for (const chunk of chunks) {
     if (chunk.id) chunkMap.set(chunk.id, chunk)
@@ -74,27 +74,26 @@ export function validateClaimQuotes(
       continue
     }
 
-    // Locate the referenced chunk strictly (never scan or rebind to other chunks per docs/03)
+    // 1. Resolve chunk explicitly cited by claim.chunkId
     const targetChunk = chunkMap.get(claim.chunkId)
-
     if (!targetChunk) {
       rejected.push({ claim, reason: 'CHUNK_NOT_FOUND' })
       continue
     }
 
-    // Strict verbatim validation in the target chunk ONLY
-    const isVerbatim = verifyVerbatimQuote(claim.quote, targetChunk.text)
-
-    if (isVerbatim) {
-      accepted.push({
-        ...claim,
-        chunkOrdinal: targetChunk.ordinal,
-        page: targetChunk.page ?? null,
-        matchedQuote: normalizeQuote(claim.quote),
-      })
-    } else {
+    // 2. Strict verbatim check strictly within the cited chunk
+    const isVerbatim = verifyVerbatimQuote(rawQuote, targetChunk.text)
+    if (!isVerbatim) {
       rejected.push({ claim, reason: 'VERBATIM_QUOTE_NOT_FOUND' })
+      continue
     }
+
+    accepted.push({
+      ...claim,
+      chunkOrdinal: targetChunk.ordinal,
+      page: targetChunk.page ?? null,
+      matchedQuote: normalizeQuote(rawQuote),
+    })
   }
 
   return { accepted, rejected }

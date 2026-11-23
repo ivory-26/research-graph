@@ -55,11 +55,13 @@ export interface EmbedDeps {
 /**
  * Embeds an array of texts in batches of at most 20 chunks using gemini-embedding-2.
  *
- * Implements Issue #11 rules:
+ * Implements Issue #11 rules & ADR 0009 invariants:
  * - gemini-embedding-2 at 768 dimensions passed to provider via outputDimensionality
  * - One call per batch of at most 20 chunks
- * - Enforces dimensions match expected vector schema length
- * - Records agent_tasks rows when workspaceId is provided
+ * - maxRetries: 0 to enforce exactly one agent_tasks row per attempt
+ * - Estimated tokens recorded when provider returns undefined usage
+ * - Vector dimension validated BEFORE recording success in agent_tasks
+ * - Accounting failures surface rather than being swallowed
  */
 export async function embedChunks(
   items: (string | Chunk | { text: string })[],
@@ -91,6 +93,7 @@ export async function embedChunks(
         model,
         values: batch,
         abortSignal: options.abortSignal,
+        maxRetries: 0, // ADR 0009: disable AI SDK retries to preserve 1-row-per-attempt invariant
         providerOptions: {
           google: {
             outputDimensionality: dimensions,
@@ -100,8 +103,35 @@ export async function embedChunks(
     } catch (err) {
       if (options.workspaceId) {
         const latencyMs = Math.max(0, Date.now() - startedAt)
-        await taskStore
-          .insert({
+        await taskStore.insert({
+          workspaceId: options.workspaceId,
+          strategyId: options.strategyId ?? null,
+          taskKind: 'ingest',
+          model: DEFAULT_EMBEDDING_MODEL_ID,
+          status: 'failed',
+          inputRef: { batchIndex: i / batchSize, batchCount: batch.length },
+          output: null,
+          error: err instanceof Error ? err.message : String(err),
+          promptTokens: null,
+          completionTokens: null,
+          costUsd: null,
+          latencyMs,
+        })
+      }
+      throw err
+    }
+
+    const latencyMs = Math.max(0, Date.now() - startedAt)
+    // Estimate tokens from text length since Google doEmbed returns usage: undefined
+    const estimatedTokens = Math.ceil(batch.reduce((sum, s) => sum + s.length, 0) / 4)
+    const promptTokens = result.usage?.tokens ?? result.usage?.inputTokens ?? estimatedTokens
+    const costUsd = promptTokens !== null ? ((promptTokens * 0.15) / 1_000_000).toFixed(6) : null
+
+    // Validate dimensions BEFORE inserting success row
+    for (const vec of result.embeddings) {
+      if (vec.length !== dimensions) {
+        if (options.workspaceId) {
+          await taskStore.insert({
             workspaceId: options.workspaceId,
             strategyId: options.strategyId ?? null,
             taskKind: 'ingest',
@@ -109,47 +139,36 @@ export async function embedChunks(
             status: 'failed',
             inputRef: { batchIndex: i / batchSize, batchCount: batch.length },
             output: null,
-            error: err instanceof Error ? err.message : String(err),
-            promptTokens: null,
-            completionTokens: null,
-            costUsd: null,
+            error: `Embedding returned ${vec.length} dimensions, expected ${dimensions}.`,
+            promptTokens,
+            completionTokens: 0,
+            costUsd,
             latencyMs,
           })
-          .catch(() => {})
-      }
-      throw err
-    }
-
-    const latencyMs = Math.max(0, Date.now() - startedAt)
-    if (options.workspaceId) {
-      const inputTokens = result.usage?.tokens ?? result.usage?.inputTokens ?? null
-      const costUsd =
-        inputTokens !== null ? ((inputTokens * 0.15) / 1_000_000).toFixed(6) : null
-      await taskStore
-        .insert({
-          workspaceId: options.workspaceId,
-          strategyId: options.strategyId ?? null,
-          taskKind: 'ingest',
-          model: DEFAULT_EMBEDDING_MODEL_ID,
-          status: 'succeeded',
-          inputRef: { batchIndex: i / batchSize, batchCount: batch.length },
-          output: { embeddingCount: result.embeddings.length, dimensions },
-          error: null,
-          promptTokens: inputTokens,
-          completionTokens: 0,
-          costUsd,
-          latencyMs,
-        })
-        .catch(() => {})
-    }
-
-    for (const vec of result.embeddings) {
-      if (vec.length !== dimensions) {
+        }
         throw new Error(
           `Embedding returned ${vec.length} dimensions, expected ${dimensions}.`,
         )
       }
       allEmbeddings.push(vec)
+    }
+
+    // Record success only after vectors pass dimension validation
+    if (options.workspaceId) {
+      await taskStore.insert({
+        workspaceId: options.workspaceId,
+        strategyId: options.strategyId ?? null,
+        taskKind: 'ingest',
+        model: DEFAULT_EMBEDDING_MODEL_ID,
+        status: 'succeeded',
+        inputRef: { batchIndex: i / batchSize, batchCount: batch.length },
+        output: { embeddingCount: result.embeddings.length, dimensions },
+        error: null,
+        promptTokens,
+        completionTokens: 0,
+        costUsd,
+        latencyMs,
+      })
     }
   }
 
@@ -183,6 +202,7 @@ export async function embedQuery(
       model,
       value: trimmed,
       abortSignal: options.abortSignal,
+      maxRetries: 0, // ADR 0009: disable AI SDK retries to preserve 1-row-per-attempt invariant
       providerOptions: {
         google: {
           outputDimensionality: dimensions,
@@ -192,54 +212,92 @@ export async function embedQuery(
   } catch (err) {
     if (options.workspaceId) {
       const latencyMs = Math.max(0, Date.now() - startedAt)
-      await taskStore
-        .insert({
-          workspaceId: options.workspaceId,
-          strategyId: options.strategyId ?? null,
-          taskKind: 'ingest',
-          model: DEFAULT_EMBEDDING_MODEL_ID,
-          status: 'failed',
-          inputRef: { query: trimmed },
-          output: null,
-          error: err instanceof Error ? err.message : String(err),
-          promptTokens: null,
-          completionTokens: null,
-          costUsd: null,
-          latencyMs,
-        })
-        .catch(() => {})
+      await taskStore.insert({
+        workspaceId: options.workspaceId,
+        strategyId: options.strategyId ?? null,
+        taskKind: 'ingest',
+        model: DEFAULT_EMBEDDING_MODEL_ID,
+        status: 'failed',
+        inputRef: { query: trimmed },
+        output: null,
+        error: err instanceof Error ? err.message : String(err),
+        promptTokens: null,
+        completionTokens: null,
+        costUsd: null,
+        latencyMs,
+      })
     }
     throw err
   }
 
   const latencyMs = Math.max(0, Date.now() - startedAt)
-  if (options.workspaceId) {
-    const inputTokens = result.usage?.tokens ?? result.usage?.inputTokens ?? null
-    const costUsd =
-      inputTokens !== null ? ((inputTokens * 0.15) / 1_000_000).toFixed(6) : null
-    await taskStore
-      .insert({
+  const estimatedTokens = Math.ceil(trimmed.length / 4)
+  const promptTokens = result.usage?.tokens ?? result.usage?.inputTokens ?? estimatedTokens
+  const costUsd = promptTokens !== null ? ((promptTokens * 0.15) / 1_000_000).toFixed(6) : null
+
+  // Validate dimensions BEFORE inserting success row
+  if (result.embedding.length !== dimensions) {
+    if (options.workspaceId) {
+      await taskStore.insert({
         workspaceId: options.workspaceId,
         strategyId: options.strategyId ?? null,
         taskKind: 'ingest',
         model: DEFAULT_EMBEDDING_MODEL_ID,
-        status: 'succeeded',
+        status: 'failed',
         inputRef: { query: trimmed },
-        output: { dimensions },
-        error: null,
-        promptTokens: inputTokens,
+        output: null,
+        error: `Query embedding returned ${result.embedding.length} dimensions, expected ${dimensions}.`,
+        promptTokens,
         completionTokens: 0,
         costUsd,
         latencyMs,
       })
-      .catch(() => {})
-  }
-
-  if (result.embedding.length !== dimensions) {
+    }
     throw new Error(
       `Query embedding returned ${result.embedding.length} dimensions, expected ${dimensions}.`,
     )
   }
 
+  if (options.workspaceId) {
+    await taskStore.insert({
+      workspaceId: options.workspaceId,
+      strategyId: options.strategyId ?? null,
+      taskKind: 'ingest',
+      model: DEFAULT_EMBEDDING_MODEL_ID,
+      status: 'succeeded',
+      inputRef: { query: trimmed },
+      output: { dimensions },
+      error: null,
+      promptTokens,
+      completionTokens: 0,
+      costUsd,
+      latencyMs,
+    })
+  }
+
   return result.embedding
+}
+
+/**
+ * Production wrapper enforcing mandatory workspace accounting for batch embeddings.
+ */
+export async function embedChunksForWorkspace(
+  workspaceId: string,
+  items: (string | Chunk | { text: string })[],
+  options?: Omit<EmbedOptions, 'workspaceId'>,
+  deps?: EmbedDeps,
+): Promise<number[][]> {
+  return embedChunks(items, { ...options, workspaceId }, deps)
+}
+
+/**
+ * Production wrapper enforcing mandatory workspace accounting for query embeddings.
+ */
+export async function embedQueryForWorkspace(
+  workspaceId: string,
+  query: string,
+  options?: Omit<EmbedOptions, 'workspaceId'>,
+  deps?: EmbedDeps,
+): Promise<number[]> {
+  return embedQuery(query, { ...options, workspaceId }, deps)
 }
