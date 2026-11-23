@@ -41,7 +41,11 @@ export function verifyVerbatimQuote(quote: string, chunkText: string): boolean {
     return false
   }
 
-  return normChunk.includes(normQuote)
+  // Exact normalized match first, followed by case-insensitive fallback for sentence-initial capitalization
+  return (
+    normChunk.includes(normQuote) ||
+    normChunk.toLowerCase().includes(normQuote.toLowerCase())
+  )
 }
 
 /**
