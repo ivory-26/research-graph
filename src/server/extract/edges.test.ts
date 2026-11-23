@@ -913,6 +913,11 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
           .where(eq(edges.workspaceId, testWsId))
 
         expect(persistedEdges.length).toBeGreaterThanOrEqual(6)
+        console.log(`\n### Recorded Live Neon Run Evidence (persisted edges joined to source_chunks):`)
+        console.log(`| # | Edge ID | Relation | Confidence | Status | Evidence Chunk ID | Quote Verified in Chunk? | Verbatim Quote Snippet |`)
+        console.log(`|---|---|---|---|---|---|---|---|`)
+
+        let rowIndex = 1
         for (const row of persistedEdges) {
           expect(row.edge.status).toBe('accepted')
           expect(row.edge.confidence).toBeGreaterThanOrEqual(0.65)
@@ -920,7 +925,10 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
             (e) => e.fromNodeId === row.edge.sourceNodeId && e.toNodeId === row.edge.targetNodeId,
           )
           expect(matchedEdge).toBeDefined()
-          expect(verifyVerbatimQuote(matchedEdge!.matchedQuote, row.chunkText)).toBe(true)
+          const isVerbatim = verifyVerbatimQuote(matchedEdge!.matchedQuote, row.chunkText)
+          expect(isVerbatim).toBe(true)
+          const quoteSnippet = matchedEdge!.matchedQuote.slice(0, 60).replace(/\n/g, ' ') + '...'
+          console.log(`| ${rowIndex++} | \`${row.edge.id}\` | \`${row.edge.relation}\` | ${row.edge.confidence} | \`${row.edge.status}\` | \`${row.edge.evidenceChunkId}\` | VERIFIED_VERBATIM | "${quoteSnippet}" |`)
         }
       } finally {
         await db.delete(edges).where(eq(edges.workspaceId, testWsId)).catch(() => {})
