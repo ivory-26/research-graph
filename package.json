@@ -12,6 +12,7 @@
     "build": "vite build",
     "start": "node .output/server/index.mjs",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/server/pipeline-transport/*.test.ts\" && vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "node src/db/bootstrap.mjs && drizzle-kit push",
@@ -41,6 +42,7 @@
     "drizzle-kit": "0.31.11",
     "nitro": "3.0.261103-rc",
     "typescript": "7.0.2",
-    "vite": "8.3.8"
+    "vite": "8.3.8",
+    "vitest": "5.1.1"
   }
 }
