@@ -1,6 +1,7 @@
 import { embed, embedMany, type EmbeddingModel } from 'ai'
 import { createGoogleGenerativeAI, google } from '@ai-sdk/google'
 import type { Chunk, EmbedOptions } from './types'
+import { agentTaskStore } from '../model'
 
 /** The pinned embedding model (CLAUDE.md & Issue #11). */
 export const DEFAULT_EMBEDDING_MODEL_ID = 'gemini-embedding-2'
@@ -19,7 +20,7 @@ export const DEFAULT_BATCH_SIZE = 20
 const modelCache = new Map<string, EmbeddingModel>()
 
 /**
- * Resolves the Google Generative AI embedding model with caching.
+ * Resolves the Google Generative AI embedding model with caching and explicit 768 dimensions.
  */
 export function resolveEmbeddingModel(
   modelId: string = DEFAULT_EMBEDDING_MODEL_ID,
@@ -55,9 +56,10 @@ export interface EmbedDeps {
  * Embeds an array of texts in batches of at most 20 chunks using gemini-embedding-2.
  *
  * Implements Issue #11 rules:
- * - gemini-embedding-2 at 768 dimensions
+ * - gemini-embedding-2 at 768 dimensions passed to provider via outputDimensionality
  * - One call per batch of at most 20 chunks
  * - Enforces dimensions match expected vector schema length
+ * - Records agent_tasks rows when workspaceId is provided
  */
 export async function embedChunks(
   items: (string | Chunk | { text: string })[],
@@ -73,6 +75,7 @@ export async function embedChunks(
   const resolveModelFn = deps.resolveModel ?? resolveEmbeddingModel
   const model = options.model ?? resolveModelFn(DEFAULT_EMBEDDING_MODEL_ID)
   const embedManyCall = deps.embedManyFn ?? embedMany
+  const taskStore = options.taskStore ?? agentTaskStore
 
   const texts: string[] = items.map((item) => (typeof item === 'string' ? item : item.text))
   const allEmbeddings: number[][] = []
@@ -80,12 +83,65 @@ export async function embedChunks(
   // Process sequentially in batches of batchSize (default 20)
   for (let i = 0; i < texts.length; i += batchSize) {
     const batch = texts.slice(i, i + batchSize)
+    const startedAt = Date.now()
+    let result: any = null
 
-    const result = await embedManyCall({
-      model,
-      values: batch,
-      abortSignal: options.abortSignal,
-    })
+    try {
+      result = await embedManyCall({
+        model,
+        values: batch,
+        abortSignal: options.abortSignal,
+        providerOptions: {
+          google: {
+            outputDimensionality: dimensions,
+          },
+        },
+      } as any)
+    } catch (err) {
+      if (options.workspaceId) {
+        const latencyMs = Math.max(0, Date.now() - startedAt)
+        await taskStore
+          .insert({
+            workspaceId: options.workspaceId,
+            strategyId: options.strategyId ?? null,
+            taskKind: 'ingest',
+            model: DEFAULT_EMBEDDING_MODEL_ID,
+            status: 'failed',
+            inputRef: { batchIndex: i / batchSize, batchCount: batch.length },
+            output: null,
+            error: err instanceof Error ? err.message : String(err),
+            promptTokens: null,
+            completionTokens: null,
+            costUsd: null,
+            latencyMs,
+          })
+          .catch(() => {})
+      }
+      throw err
+    }
+
+    const latencyMs = Math.max(0, Date.now() - startedAt)
+    if (options.workspaceId) {
+      const inputTokens = result.usage?.tokens ?? result.usage?.inputTokens ?? null
+      const costUsd =
+        inputTokens !== null ? ((inputTokens * 0.15) / 1_000_000).toFixed(6) : null
+      await taskStore
+        .insert({
+          workspaceId: options.workspaceId,
+          strategyId: options.strategyId ?? null,
+          taskKind: 'ingest',
+          model: DEFAULT_EMBEDDING_MODEL_ID,
+          status: 'succeeded',
+          inputRef: { batchIndex: i / batchSize, batchCount: batch.length },
+          output: { embeddingCount: result.embeddings.length, dimensions },
+          error: null,
+          promptTokens: inputTokens,
+          completionTokens: 0,
+          costUsd,
+          latencyMs,
+        })
+        .catch(() => {})
+    }
 
     for (const vec of result.embeddings) {
       if (vec.length !== dimensions) {
@@ -117,12 +173,67 @@ export async function embedQuery(
   const resolveModelFn = deps.resolveModel ?? resolveEmbeddingModel
   const model = options.model ?? resolveModelFn(DEFAULT_EMBEDDING_MODEL_ID)
   const embedCall = deps.embedFn ?? embed
+  const taskStore = options.taskStore ?? agentTaskStore
 
-  const result = await embedCall({
-    model,
-    value: trimmed,
-    abortSignal: options.abortSignal,
-  })
+  const startedAt = Date.now()
+  let result: any = null
+
+  try {
+    result = await embedCall({
+      model,
+      value: trimmed,
+      abortSignal: options.abortSignal,
+      providerOptions: {
+        google: {
+          outputDimensionality: dimensions,
+        },
+      },
+    } as any)
+  } catch (err) {
+    if (options.workspaceId) {
+      const latencyMs = Math.max(0, Date.now() - startedAt)
+      await taskStore
+        .insert({
+          workspaceId: options.workspaceId,
+          strategyId: options.strategyId ?? null,
+          taskKind: 'ingest',
+          model: DEFAULT_EMBEDDING_MODEL_ID,
+          status: 'failed',
+          inputRef: { query: trimmed },
+          output: null,
+          error: err instanceof Error ? err.message : String(err),
+          promptTokens: null,
+          completionTokens: null,
+          costUsd: null,
+          latencyMs,
+        })
+        .catch(() => {})
+    }
+    throw err
+  }
+
+  const latencyMs = Math.max(0, Date.now() - startedAt)
+  if (options.workspaceId) {
+    const inputTokens = result.usage?.tokens ?? result.usage?.inputTokens ?? null
+    const costUsd =
+      inputTokens !== null ? ((inputTokens * 0.15) / 1_000_000).toFixed(6) : null
+    await taskStore
+      .insert({
+        workspaceId: options.workspaceId,
+        strategyId: options.strategyId ?? null,
+        taskKind: 'ingest',
+        model: DEFAULT_EMBEDDING_MODEL_ID,
+        status: 'succeeded',
+        inputRef: { query: trimmed },
+        output: { dimensions },
+        error: null,
+        promptTokens: inputTokens,
+        completionTokens: 0,
+        costUsd,
+        latencyMs,
+      })
+      .catch(() => {})
+  }
 
   if (result.embedding.length !== dimensions) {
     throw new Error(

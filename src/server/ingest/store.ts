@@ -44,11 +44,13 @@ export async function storeChunks(
   const inserted: SourceChunkRow[] = []
   const insertBatchSize = 50
 
-  for (let i = 0; i < rows.length; i += insertBatchSize) {
-    const batch = rows.slice(i, i + insertBatchSize)
-    const result = await db.insert(sourceChunks).values(batch).returning()
-    inserted.push(...result)
-  }
+  await db.transaction(async (tx) => {
+    for (let i = 0; i < rows.length; i += insertBatchSize) {
+      const batch = rows.slice(i, i + insertBatchSize)
+      const result = await tx.insert(sourceChunks).values(batch).returning()
+      inserted.push(...result)
+    }
+  })
 
   return inserted
 }
@@ -70,6 +72,8 @@ export async function searchSimilarChunks(
   if (!queryEmbedding || queryEmbedding.length === 0) {
     throw new Error('queryEmbedding is required for similarity search.')
   }
+
+  const safeTopK = Math.max(1, Math.min(topK ?? 5, 100))
 
   // Cosine distance expression: source_chunks.embedding <=> queryEmbedding
   // Cosine similarity: 1 - cosineDistance
@@ -102,7 +106,7 @@ export async function searchSimilarChunks(
       .innerJoin(sources, eq(sourceChunks.sourceId, sources.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(similarityExpr))
-      .limit(topK)
+      .limit(safeTopK)
   } else {
     rows = await db
       .select({
@@ -112,7 +116,7 @@ export async function searchSimilarChunks(
       .from(sourceChunks)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(similarityExpr))
-      .limit(topK)
+      .limit(safeTopK)
   }
 
   return rows.map((r) => ({
