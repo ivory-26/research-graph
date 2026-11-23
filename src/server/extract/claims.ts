@@ -110,11 +110,22 @@ export async function extractClaims(
     let accumulatedChars = 0
     targetChunks = []
     for (const chunk of chunks) {
-      if (accumulatedChars >= maxChars && targetChunks.length > 0) {
+      if (accumulatedChars >= maxChars) {
         break
       }
-      targetChunks.push(chunk)
-      accumulatedChars += chunk.text.length
+      const remainingBudget = maxChars - accumulatedChars
+      if (chunk.text.length <= remainingBudget) {
+        targetChunks.push(chunk)
+        accumulatedChars += chunk.text.length
+      } else {
+        // Character-level cut to adhere strictly to the maxChars character budget
+        targetChunks.push({
+          ...chunk,
+          text: chunk.text.slice(0, remainingBudget),
+        })
+        accumulatedChars += remainingBudget
+        break
+      }
     }
   }
 

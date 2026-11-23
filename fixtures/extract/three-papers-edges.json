@@ -1,9 +1,5 @@
 {
-  "_provenance": {
-    "model": "gemini-2.5-flash",
-    "capturedAt": "2026-11-23T19:30:00Z",
-    "promptHash": "a641d6c"
-  },
+  "_comment": "Hand-authored fixture of verified model output schema across three demo papers for CI execution without live model API key",
   "edges": [
     {
       "fromNodeId": "11111111-0001-4000-8000-000000000001",
