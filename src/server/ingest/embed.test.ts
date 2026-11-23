@@ -2,7 +2,13 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { embedChunks, embedQuery, DEFAULT_EMBEDDING_DIMENSIONS } from './embed'
+import {
+  embedChunks,
+  embedChunksForWorkspace,
+  embedQuery,
+  embedQueryForWorkspace,
+  DEFAULT_EMBEDDING_DIMENSIONS,
+} from './embed'
 import { searchSimilarChunks, storeChunks } from './store'
 import type { Chunk } from './types'
 import type { Database } from '../../db/client'
@@ -209,7 +215,7 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
     expect(mockInnerJoin).toHaveBeenCalled()
   })
 
-  it('records agent_tasks rows when workspaceId is provided', async () => {
+  it('records agent_tasks rows when workspaceId is provided, estimates tokens when usage is undefined, and passes maxRetries: 0', async () => {
     const insertedTasks: any[] = []
     const fakeStore = {
       insert: vi.fn(async (task) => {
@@ -218,15 +224,19 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
       }),
     }
 
-    const fakeEmbedMany = vi.fn(async () => ({
-      embeddings: [new Array(768).fill(0.1)],
-      usage: { inputTokens: 45 },
-    }))
+    let capturedArgs: any = null
+    const fakeEmbedMany = vi.fn(async (args) => {
+      capturedArgs = args
+      return {
+        embeddings: [new Array(768).fill(0.1)],
+        usage: undefined, // Google doEmbed returns usage: void 0 in production
+      }
+    })
 
     const fakeResolveModel = vi.fn((): any => ({ modelId: 'gemini-embedding-2' }))
 
     await embedChunks(
-      ['Text to embed'],
+      ['Text to embed with length of 30 characters'],
       {
         workspaceId: 'ws-record-1',
         taskStore: fakeStore,
@@ -237,14 +247,113 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
       },
     )
 
+    // ADR 0009 invariant: maxRetries: 0 so AI SDK does not generate multiple physical calls for one row
+    expect(capturedArgs?.maxRetries).toBe(0)
+
     expect(fakeStore.insert).toHaveBeenCalledTimes(1)
     expect(insertedTasks[0].taskKind).toBe('ingest')
     expect(insertedTasks[0].status).toBe('succeeded')
     expect(insertedTasks[0].model).toBe('gemini-embedding-2')
-    expect(insertedTasks[0].promptTokens).toBe(45)
+    // Estimated tokens from text length: ceil(43 / 4) = 11
+    expect(insertedTasks[0].promptTokens).toBeGreaterThan(0)
+    expect(insertedTasks[0].costUsd).toBeDefined()
+  })
+
+  it('records failed task row and throws when returned embedding has mismatched dimensions', async () => {
+    const insertedTasks: any[] = []
+    const fakeStore = {
+      insert: vi.fn(async (task) => {
+        insertedTasks.push(task)
+        return { id: 'task-err-1' }
+      }),
+    }
+
+    const fakeEmbedMany = vi.fn(async () => ({
+      embeddings: [new Array(512).fill(0.1)], // 512 dimensions instead of 768
+      usage: undefined,
+    }))
+
+    await expect(
+      embedChunks(
+        ['Some chunk'],
+        {
+          dimensions: 768,
+          workspaceId: 'ws-dim-fail',
+          taskStore: fakeStore,
+        },
+        {
+          embedManyFn: fakeEmbedMany as any,
+          resolveModel: () => ({} as any),
+        },
+      ),
+    ).rejects.toThrow(/Embedding returned 512 dimensions, expected 768/)
+
+    // Invariant: failure row is recorded, never a success row!
+    expect(fakeStore.insert).toHaveBeenCalledTimes(1)
+    expect(insertedTasks[0].status).toBe('failed')
+    expect(insertedTasks[0].error).toContain('Embedding returned 512 dimensions, expected 768')
+  })
+
+  it('surfaces taskStore insertion errors rather than silently swallowing them', async () => {
+    const fakeStore = {
+      insert: vi.fn(async () => {
+        throw new Error('Database connection down')
+      }),
+    }
+
+    const fakeEmbedMany = vi.fn(async () => ({
+      embeddings: [new Array(768).fill(0.1)],
+      usage: undefined,
+    }))
+
+    await expect(
+      embedChunks(
+        ['Some text'],
+        {
+          workspaceId: 'ws-store-fail',
+          taskStore: fakeStore,
+        },
+        {
+          embedManyFn: fakeEmbedMany as any,
+          resolveModel: () => ({} as any),
+        },
+      ),
+    ).rejects.toThrow('Database connection down')
+  })
+
+  it('provides production workspace wrappers requiring workspaceId', async () => {
+    const fakeStore = {
+      insert: vi.fn(async () => ({ id: 'task-wrap-1' })),
+    }
+
+    const fakeEmbedMany = vi.fn(async () => ({
+      embeddings: [new Array(768).fill(0.1)],
+      usage: undefined,
+    }))
+
+    const results = await embedChunksForWorkspace(
+      'ws-mandatory',
+      ['Text wrapped'],
+      { taskStore: fakeStore },
+      {
+        embedManyFn: fakeEmbedMany as any,
+        resolveModel: () => ({} as any),
+      },
+    )
+
+    expect(results).toHaveLength(1)
+    expect(fakeStore.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'ws-mandatory' }),
+    )
   })
 })
 
+/**
+ * Acceptance test verifying real embedding & stored vector search across Strobl 2007 chunks.
+ *
+ * How to run live against Neon database:
+ * DATABASE_URL="postgresql://..." GEMINI_API_KEY="AIza..." pnpm vitest run src/server/ingest/embed.test.ts
+ */
 describe('Issue #11 Acceptance Test: Real Embedding & Stored Vector Search', () => {
   const hasDb = Boolean(process.env.DATABASE_URL)
   const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY)
@@ -314,6 +423,10 @@ describe('Issue #11 Acceptance Test: Real Embedding & Stored Vector Search', () 
         expect(searchResults[0].similarity).toBeGreaterThan(0.5)
         expect(searchResults[0].chunk.sourceId).toBe(testSourceId)
         expect(searchResults[0].chunk.page).toBeGreaterThanOrEqual(1)
+
+        // Content relevance assertion: top returned passage must discuss variable importance in random forests
+        const topChunkText = searchResults[0].chunk.text.toLowerCase()
+        expect(topChunkText).toMatch(/importance|variable|forest|rf/)
       } finally {
         // Cleanup test data
         await db.delete(sourceChunks).where(eq(sourceChunks.sourceId, testSourceId)).catch(() => {})
