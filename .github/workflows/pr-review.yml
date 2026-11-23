@@ -265,7 +265,7 @@ jobs:
              || ! git cat-file -e "origin/${BASE_REF}:.github/scripts/extract-review.mjs" 2>/dev/null \
              || ! git cat-file -e "origin/${BASE_REF}:.github/scripts/extract-review.test.mjs" 2>/dev/null; then
             if ! printf '%s  %s\n' \
-              "822cec85099635e611203df5859ce81143763f8d092a77449440e0cb740b42f4" ".opencode/agents/pr-review.md" \
+              "158ba92eb8b291e402485e2968a4e69a2f7f3c209d26776162517e6129c52f1a" ".opencode/agents/pr-review.md" \
               "1ad127c72085c2e1985b589f44fa247db5a5573e8c9253ed8126e8cc98b8be83" ".github/scripts/pr-context.mjs" \
               "4588a67967b901dc7c37cab0e9619d23cf968a49405af35b8b2fd8107cf7842b" ".github/scripts/extract-review.mjs" \
               "b68a33ea69e864024a994f305c91c347f095f196932911704a1b6df698fcffd9" ".github/scripts/extract-review.test.mjs" \
@@ -283,11 +283,16 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: pr-checks
-          path: .
+          path: ${{ runner.temp }}/checks-artifact
 
-      - name: Ensure check results exist
+      - name: Use only the uploaded check results
         run: |
-          if [[ ! -f checks.md ]]; then
+          # Never trust a checks.md from the PR checkout. Only the artifact
+          # directory can supply results; anything else means "not run".
+          rm -f checks.md
+          if [[ -f "$RUNNER_TEMP/checks-artifact/checks.md" ]]; then
+            cp "$RUNNER_TEMP/checks-artifact/checks.md" checks.md
+          else
             printf '%s\n' '- install: NOT RUN' '- typecheck: NOT RUN' '- test: NOT RUN' '- db-check: NOT RUN' > checks.md
           fi
 
@@ -323,7 +328,17 @@ jobs:
           XDG_DATA_HOME: ${{ runner.temp }}/opencode-data
         run: |
           set -euo pipefail
-          mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
+          mkdir -p "$XDG_CONFIG_HOME/opencode" "$XDG_DATA_HOME"
+          cat > "$XDG_CONFIG_HOME/opencode/opencode.json" <<'JSON'
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "plugins": [
+              "-opencode.tools",
+              "-opencode.tool.automation",
+              "-opencode.tool.video-generate"
+            ]
+          }
+          JSON
           opencode run \
             --standalone \
             --archived \
@@ -341,7 +356,7 @@ jobs:
           node .github/scripts/extract-review.mjs opencode-events.ndjson > review-raw.md
 
           # Keep everything from the first GATE line onward; drop any preamble.
-          awk 'BEGIN{found=0} /^GATE: /{found=1} found' review-raw.md > review-gate.md
+          awk 'BEGIN{found=0} /^GATE:/{found=1} found' review-raw.md > review-gate.md
           if [[ ! -s review-gate.md ]]; then
             echo "::error::OpenCode did not return a GATE line."
             cat review-raw.md
@@ -423,13 +438,18 @@ jobs:
               in_section && /- \[[ ?]\]/ { found=1 }
               END { exit (found ? 0 : 1) }
             ' review-body.md; then
-              echo "::error::Reviewer said READY but the definition of done has unchecked items."
-              exit 1
+              gate=FINDINGS
+              {
+                echo "## Blockers"
+                echo "- The definition of done has unchecked or unverifiable items."
+                echo
+                cat review-body.md
+              } > review-body-gated.md
+              mv review-body-gated.md review-body.md
             fi
-            if grep -qiE '^##[[:space:]]+(blockers|should fix)' review-body.md; then
-              echo "::error::Reviewer said READY but the review contains blockers or should-fix items."
-              exit 1
-            fi
+          fi
+          if [[ "$gate" == "READY" ]] && grep -qiE '^##[[:space:]]+(blockers|should fix)' review-body.md; then
+            gate=FINDINGS
           fi
 
           # The model must not generate notifications or inject the sticky marker.

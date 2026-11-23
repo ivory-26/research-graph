@@ -36,6 +36,33 @@ permissions:
   - action: generate_image
     resource: "*"
     effect: deny
+  - action: generate_video
+    resource: "*"
+    effect: deny
+  - action: automation
+    resource: "*"
+    effect: deny
+  - action: worktree
+    resource: "*"
+    effect: deny
+  - action: session
+    resource: "*"
+    effect: deny
+  - action: question
+    resource: "*"
+    effect: deny
+  - action: browser
+    resource: "*"
+    effect: deny
+  - action: opencode_list_mcp_resources
+    resource: "*"
+    effect: deny
+  - action: opencode_read_mcp_resource
+    resource: "*"
+    effect: deny
+  - action: opencode_list_mcp_events
+    resource: "*"
+    effect: deny
   - action: external_directory
     resource: "*"
     effect: deny
