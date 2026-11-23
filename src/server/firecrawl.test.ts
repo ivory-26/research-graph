@@ -21,6 +21,12 @@ describe('Firecrawl Web & Repo Ingestion (Issue #15)', () => {
       expect(isPdfUrl('https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-8-25')).toBe(false)
       expect(isPdfUrl('https://github.com/cran/party')).toBe(false)
       expect(isPdfUrl('https://cran.r-project.org/web/packages/party/index.html')).toBe(false)
+      expect(isPdfUrl('https://example.com/docs/pdf/guide.html')).toBe(false)
+    })
+
+    it('detects ArXiv and BioRxiv PDF endpoints', () => {
+      expect(isPdfUrl('https://arxiv.org/pdf/2103.00020')).toBe(true)
+      expect(isPdfUrl('https://www.biorxiv.org/content/10.1101/2020.01.01.123456v1.full.pdf')).toBe(true)
     })
 
     it('detects PDF from scrape metadata content-type even without .pdf extension', () => {
@@ -271,6 +277,62 @@ cforest implements conditional permutation importance which removes spurious cor
       expect(accepted[0]?.quote).toBe(
         'cforest implements conditional permutation importance which removes spurious correlations',
       )
+    })
+
+    it('throws error when markdown produces zero chunks (e.g. non-alphanumeric content)', async () => {
+      await expect(
+        ingestWebSource(
+          'https://example.com/empty-headings',
+          {
+            workspaceId: 'ws-empty-chunk',
+            preFetchedMarkdown: '# --- \n\n ### === \n\n ---',
+          },
+        ),
+      ).rejects.toThrow('produced zero valid chunks')
+    })
+
+    it('preserves app-owned firecrawl: true and scrapedAt keys over remote metadata collisions', async () => {
+      let insertedMeta: any = null
+      const mockDb: any = {
+        insert: vi.fn().mockImplementation(() => ({
+          values: vi.fn().mockImplementation((val) => {
+            if (!Array.isArray(val)) {
+              insertedMeta = val.meta
+            }
+            return {
+              returning: vi.fn().mockResolvedValue([
+                { id: 'src-1', ...val, createdAt: new Date() },
+              ]),
+            }
+          }),
+        })),
+      }
+      mockDb.transaction = vi.fn().mockImplementation(async (cb) => cb(mockDb))
+
+      await ingestWebSource(
+        'https://example.com/meta-collision',
+        {
+          workspaceId: 'ws-meta',
+        },
+        {
+          db: mockDb,
+          embedChunksFn: vi.fn().mockResolvedValue([new Array(768).fill(0.1)]),
+          scraper: vi.fn().mockResolvedValue({
+            url: 'https://example.com/meta-collision',
+            title: 'Title',
+            markdown: '# Valid Title\n\nValid body text for chunking.',
+            metadata: {
+              firecrawl: false, // Malicious or collision attempt!
+              scrapedAt: '1970-01-01T00:00:00.000Z',
+              customField: 'preserved',
+            },
+          } as any),
+        },
+      )
+
+      expect(insertedMeta.firecrawl).toBe(true)
+      expect(insertedMeta.customField).toBe('preserved')
+      expect(insertedMeta.scrapedAt).not.toBe('1970-01-01T00:00:00.000Z')
     })
   })
 })

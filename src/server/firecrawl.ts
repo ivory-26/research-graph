@@ -84,10 +84,20 @@ export function isPdfUrl(url: string, metadata?: Record<string, unknown>): boole
   try {
     const parsed = new URL(url)
     const pathname = parsed.pathname.toLowerCase()
-    return pathname.endsWith('.pdf') || pathname.includes('/pdf/')
+    const isArxivPdf = parsed.hostname.includes('arxiv.org') && pathname.startsWith('/pdf')
+    const isBioRxivPdf =
+      (parsed.hostname.includes('biorxiv.org') || parsed.hostname.includes('medrxiv.org')) &&
+      pathname.includes('/content/') &&
+      pathname.endsWith('.full.pdf')
+    return (
+      pathname.endsWith('.pdf') ||
+      pathname.endsWith('.pdf/') ||
+      isArxivPdf ||
+      isBioRxivPdf
+    )
   } catch {
     const lower = url.toLowerCase()
-    return lower.includes('.pdf') || lower.includes('/pdf/')
+    return lower.endsWith('.pdf') || lower.includes('.pdf?') || lower.includes('.pdf#')
   }
 }
 
@@ -275,6 +285,9 @@ export async function ingestWebSource(
   ]
 
   const chunks = chunkDocument(markdown, virtualPages, options.chunkOptions)
+  if (chunks.length === 0) {
+    throw new Error(`Content from URL produced zero valid chunks: ${trimmed}`)
+  }
 
   // 5. Embed chunks using gemini-embedding-2 (768d) with workspaceId task accounting
   const embedFn = deps.embedChunksFn ?? embedChunks
@@ -300,9 +313,9 @@ export async function ingestWebSource(
     sha256,
     bytes,
     meta: {
+      ...metadata,
       firecrawl: true,
       scrapedAt: new Date().toISOString(),
-      ...metadata,
     },
   }
 
