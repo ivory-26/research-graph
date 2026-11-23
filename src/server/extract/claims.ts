@@ -80,9 +80,18 @@ export async function extractClaims(
     chunks,
     sourceTitle,
     strategy = 'single_pass',
-    strategyId = strategy,
     callModelFn = defaultCallModel,
   } = options
+
+  if (strategy !== 'single_pass') {
+    throw new Error(
+      `Extraction strategy '${strategy}' is not yet supported. Only 'single_pass' is implemented.`,
+    )
+  }
+
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const validStrategyId =
+    options.strategyId && UUID_REGEX.test(options.strategyId) ? options.strategyId : null
 
   if (chunks.length === 0) {
     return {
@@ -117,7 +126,7 @@ export async function extractClaims(
     {
       workspaceId,
       taskKind: 'extract_claims',
-      strategyId,
+      strategyId: validStrategyId,
       // Lazily import the agentTaskStore to avoid DB imports in pure unit test runs
       store: (await import('../model')).agentTaskStore,
       inputRef: { sourceId, chunkCount: targetChunks.length, strategy },
@@ -130,9 +139,9 @@ export async function extractClaims(
   const { accepted, rejected } = validateClaimQuotes(raw.claims, targetChunks)
 
   // docs/03: "A claim whose quote is unverifiable is dropped and counted as a rejected task"
-  // When no proposed claim survives validation (all were rejected), update the task row to 'rejected'
-  // so dashboard #22 doesn't count a complete fabrication as a success.
-  if (result.task?.id && raw.claims.length > 0 && accepted.length === 0) {
+  // When no claim survives validation (either zero claims returned or all were rejected), update the task row to 'rejected'
+  // so dashboard #22 doesn't count a fabrication or empty extraction as a success.
+  if (result.task?.id && accepted.length === 0) {
     if (result.task) {
       result.task.status = 'rejected'
     }
@@ -150,11 +159,12 @@ export async function extractClaims(
         }
       })
 
-    await updateStatus(
-      result.task.id,
-      'rejected',
-      'All proposed claims were rejected due to unverified verbatim quotes.',
-    ).catch(() => {})
+    const rejectReason =
+      raw.claims.length === 0
+        ? 'Model returned no claims.'
+        : 'All proposed claims were rejected due to unverified verbatim quotes.'
+
+    await updateStatus(result.task.id, 'rejected', rejectReason).catch(() => {})
   }
 
   return {
