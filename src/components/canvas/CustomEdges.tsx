@@ -52,7 +52,7 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
   };
 
   const currentStrokes = theme === 'dark' ? relationStrokesDark : relationStrokesLight;
-  const strokeColor = currentStrokes[relation] || (theme === 'dark' ? '#262626' : '#e2e8f0');
+  const strokeColor = currentStrokes[relation] || (theme === 'dark' ? 'var(--border-primary)' : '#e2e8f0');
   const confidence = typeof data?.confidence === 'number' ? data.confidence : null;
 
   const isLineageActive = Boolean(data?.isLineageActive) || selected;

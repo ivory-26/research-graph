@@ -8,12 +8,12 @@
 }
 
 :root {
-  --bg-primary: #000000;
-  --bg-surface: #0a0a0a;
-  --bg-surface-hover: #121212;
-  --bg-surface-elevated: #171717;
-  --border-primary: #262626;
-  --border-secondary: #404040;
+  --bg-primary: #0b0d0f;
+  --bg-surface: #0b0d0f;
+  --bg-surface-hover: #15181c;
+  --bg-surface-elevated: #16191f;
+  --border-primary: #242930;
+  --border-secondary: #353d47;
   --text-primary: #ffffff;
   --text-secondary: #e5e5e5;
   --text-muted: #a3a3a3;
@@ -21,22 +21,22 @@
   --accent-orange: #f97316;
   --accent-orange-hover: #ea580c;
   --accent-orange-glow: rgba(249, 115, 22, 0.35);
-  --canvas-bg: #000000;
-  --grid-dot: #262626;
-  --minimap-mask: rgba(0, 0, 0, 0.85);
-  --header-bg: rgba(0, 0, 0, 0.95);
-  --card-bg: #0a0a0a;
-  --card-border: #262626;
-  --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --canvas-bg: #0b0d0f;
+  --grid-dot: #1e2229;
+  --minimap-mask: rgba(11, 13, 15, 0.85);
+  --header-bg: #0b0d0f;
+  --card-bg: #0b0d0f;
+  --card-border: #242930;
+  --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 html.light {
   --bg-primary: #f8fafc;
-  --bg-surface: #ffffff;
+  --bg-surface: #f8fafc;
   --bg-surface-hover: #f1f5f9;
   --bg-surface-elevated: #ffffff;
-  --border-primary: #e2e8f0;
-  --border-secondary: #cbd5e1;
+  --border-primary: #cbd5e1;
+  --border-secondary: #94a3b8;
   --text-primary: #0f172a;
   --text-secondary: #334155;
   --text-muted: #64748b;
@@ -45,11 +45,11 @@ html.light {
   --accent-orange-hover: #c2410c;
   --accent-orange-glow: rgba(234, 88, 12, 0.2);
   --canvas-bg: #f8fafc;
-  --grid-dot: #cbd5e1;
+  --grid-dot: #e2e8f0;
   --minimap-mask: rgba(248, 250, 252, 0.85);
-  --header-bg: rgba(255, 255, 255, 0.95);
-  --card-bg: #ffffff;
-  --card-border: #e2e8f0;
+  --header-bg: #f8fafc;
+  --card-bg: #f8fafc;
+  --card-border: #cbd5e1;
   --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 1);
 }
 
@@ -76,12 +76,11 @@ body,
 html.dark,
 html.dark body,
 html.dark #app {
-  background: #000000;
+  background: #0b0d0f;
   color: #e5e5e5;
   background-image: 
-    radial-gradient(at 0% 0%, rgba(249, 115, 22, 0.04) 0px, transparent 40%),
-    radial-gradient(at 100% 100%, rgba(255, 255, 255, 0.02) 0px, transparent 40%),
-    radial-gradient(at 50% 50%, rgba(249, 115, 22, 0.015) 0px, transparent 60%);
+    radial-gradient(at 0% 0%, rgba(249, 115, 22, 0.03) 0px, transparent 40%),
+    radial-gradient(at 100% 100%, rgba(255, 255, 255, 0.015) 0px, transparent 40%);
   background-attachment: fixed;
 }
 

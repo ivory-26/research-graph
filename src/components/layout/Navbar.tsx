@@ -28,7 +28,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="flex h-[2px] w-full">
         <div className={`w-1/3 ${theme === 'dark' ? 'bg-white' : 'bg-slate-900'}`} />
         <div className="w-1/3 bg-[#f97316]" />
-        <div className={`w-1/3 ${theme === 'dark' ? 'bg-[#262626]' : 'bg-slate-300'}`} />
+        <div className={`w-1/3 ${theme === 'dark' ? 'bg-[var(--border-primary)]' : 'bg-slate-300'}`} />
       </div>
 
       <div className="flex min-h-[58px] w-full items-center justify-between gap-3 px-4 text-[var(--text-secondary)]">

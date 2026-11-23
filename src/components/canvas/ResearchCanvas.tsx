@@ -280,7 +280,7 @@ function CanvasInner({
     return initialNodes.find((n) => n.id === selectedNodeId)?.title || selectedNodeId;
   }, [selectedNodeId, initialNodes]);
 
-  const gridDotColor = theme === 'dark' ? '#262626' : '#cbd5e1';
+  const gridDotColor = theme === 'dark' ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.07)';
 
   return (
     <div className="relative h-full w-full bg-[var(--canvas-bg)] select-none transition-colors duration-200">
@@ -533,7 +533,7 @@ function CanvasInner({
                   case 'source':
                     return '#a3a3a3';
                   default:
-                    return '#262626';
+                    return '#1e2229';
                 }
               } else {
                 switch (n.type) {

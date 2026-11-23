@@ -15,7 +15,7 @@ export const ConsoleDrawer: React.FC<ConsoleDrawerProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="border-t border-[var(--border-primary)] h-[180px] bg-[#090b0d] p-3 overflow-y-auto flex-none font-mono text-xs select-text animate-fade-in z-20">
+    <div className="border-t border-[var(--border-primary)] h-[180px] bg-[var(--header-bg)] p-3 overflow-y-auto flex-none font-mono text-xs select-text animate-fade-in z-20">
       <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-2 mb-2">
         <div className="flex items-center gap-2">
           <Terminal className="h-3.5 w-3.5 text-[#f97316]" />
