@@ -100,6 +100,7 @@ export async function embedChunks(
   const model = options.model ?? resolveModelFn(DEFAULT_EMBEDDING_MODEL_ID)
   const embedManyCall = deps.embedManyFn ?? embedMany
   const taskStore = options.taskStore ?? agentTaskStore
+  const taskKind = options.taskKind ?? 'ingest'
   const sleepCall = deps.sleepFn ?? sleep
 
   const texts: string[] = items.map((item) => (typeof item === 'string' ? item : item.text))
@@ -278,6 +279,7 @@ export async function embedQuery(
   const model = options.model ?? resolveModelFn(DEFAULT_EMBEDDING_MODEL_ID)
   const embedCall = deps.embedFn ?? embed
   const taskStore = options.taskStore ?? agentTaskStore
+  const taskKind = options.taskKind ?? 'ingest'
   const sleepCall = deps.sleepFn ?? sleep
 
   let attempt = 0
@@ -315,7 +317,7 @@ export async function embedQuery(
           await taskStore.insert({
             workspaceId: options.workspaceId,
             strategyId: options.strategyId ?? null,
-            taskKind: 'ingest',
+            taskKind,
             model: DEFAULT_EMBEDDING_MODEL_ID,
             status: 'retried',
             inputRef: { query: trimmed },
@@ -336,7 +338,7 @@ export async function embedQuery(
         await taskStore.insert({
           workspaceId: options.workspaceId,
           strategyId: options.strategyId ?? null,
-          taskKind: 'ingest',
+          taskKind,
           model: DEFAULT_EMBEDDING_MODEL_ID,
           status: 'failed',
           inputRef: { query: trimmed },
@@ -366,7 +368,7 @@ export async function embedQuery(
       await taskStore.insert({
         workspaceId: options.workspaceId,
         strategyId: options.strategyId ?? null,
-        taskKind: 'ingest',
+        taskKind,
         model: DEFAULT_EMBEDDING_MODEL_ID,
         status: 'failed',
         inputRef: { query: trimmed },
@@ -387,7 +389,7 @@ export async function embedQuery(
     await taskStore.insert({
       workspaceId: options.workspaceId,
       strategyId: options.strategyId ?? null,
-      taskKind: 'ingest',
+      taskKind,
       model: DEFAULT_EMBEDDING_MODEL_ID,
       status: 'succeeded',
       inputRef: { query: trimmed },

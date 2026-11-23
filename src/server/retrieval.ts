@@ -1,4 +1,4 @@
-import { and, cosineDistance, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, cosineDistance, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database } from '../db/client'
 import {
@@ -78,6 +78,8 @@ export interface RetrievePassagesOptions {
   sourceIds?: string[]
   /** Maximum number of passages to return (default: 6) */
   topK?: number
+  /** Maximum passages per source to ensure cross-source diversity (default: 3) */
+  maxPassagesPerSource?: number
   /** Minimum cosine similarity threshold (0 to 1) */
   minSimilarity?: number
   /** Pre-computed query embedding to skip embedding API call */
@@ -91,6 +93,8 @@ export interface AskAcrossSourcesOptions extends RetrievePassagesOptions {
   passages?: RetrievedPassage[]
   /** Custom callModel context overrides */
   context?: Partial<CallModelContext>
+  /** Injected task status updater */
+  updateTaskStatusFn?: (taskId: string, status: 'rejected' | 'failed', error?: string | null) => Promise<void>
 }
 
 export interface AskAcrossSourcesResult {
@@ -100,6 +104,7 @@ export interface AskAcrossSourcesResult {
   rejectedCitations: RejectedCitation[]
   passages: RetrievedPassage[]
   sourcesConsulted: Array<{ id: string; title: string; kind: string }>
+  ungrounded?: boolean
 }
 
 export interface RetrievalDeps {
@@ -141,14 +146,14 @@ export async function retrieveCrossSourcePassages(
     const embedFn = deps.embedQueryFn ?? embedQuery
     queryVec = await embedFn(
       trimmed,
-      { workspaceId, abortSignal },
+      { workspaceId, taskKind: 'ask_across_sources', abortSignal },
       deps.embedDeps ?? {},
     )
   }
 
   // 2. Build cosine similarity query with source join
   const similarityExpr = sql<number>`1 - (${cosineDistance(sourceChunks.embedding, queryVec)})`
-  const conditions = []
+  const conditions = [isNotNull(sourceChunks.embedding)]
 
   if (workspaceId) {
     conditions.push(eq(sources.workspaceId, workspaceId))
@@ -163,6 +168,7 @@ export async function retrieveCrossSourcePassages(
   }
 
   const limit = Math.max(1, Math.min(topK, 25))
+  const candidateLimit = Math.max(limit, Math.min(limit * 2, 50))
 
   const rows = await db
     .select({
@@ -174,9 +180,32 @@ export async function retrieveCrossSourcePassages(
     .innerJoin(sources, eq(sourceChunks.sourceId, sources.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(similarityExpr))
-    .limit(limit)
+    .limit(candidateLimit)
 
-  return rows.map((r) => ({
+  // Enforce cross-source diversity: cap passages per source so multiple papers are represented
+  const maxPerSource = options.maxPassagesPerSource ?? Math.max(1, Math.ceil(limit / 2))
+  const sourceCounts = new Map<string, number>()
+  const selectedRows: typeof rows = []
+
+  for (const r of rows) {
+    const count = sourceCounts.get(r.source.id) ?? 0
+    if (count < maxPerSource) {
+      sourceCounts.set(r.source.id, count + 1)
+      selectedRows.push(r)
+      if (selectedRows.length >= limit) break
+    }
+  }
+
+  if (selectedRows.length < limit) {
+    for (const r of rows) {
+      if (!selectedRows.includes(r)) {
+        selectedRows.push(r)
+        if (selectedRows.length >= limit) break
+      }
+    }
+  }
+
+  return selectedRows.map((r) => ({
     chunkId: r.chunk.id,
     sourceId: r.source.id,
     sourceTitle: r.source.title,
@@ -367,6 +396,33 @@ ${passageContext}`
   // Verify all citation quotes
   const { accepted, rejected } = verifyCitationQuotes(rawAnswer.citations, passages)
 
+  // docs/03: "synthesis returned with at least one verified citation"
+  // When no citation survives validation, update task row to 'rejected' so ungrounded syntheses are not recorded as success
+  const isUngrounded = accepted.length === 0
+  if (modelResult.task?.id && isUngrounded) {
+    modelResult.task.status = 'rejected'
+    const updateStatus =
+      options.updateTaskStatusFn ??
+      (async (taskId, status, error) => {
+        if (process.env.DATABASE_URL) {
+          const { getDb } = await import('../db/client')
+          const { agentTasks } = await import('../db/schema')
+          const { eq } = await import('drizzle-orm')
+          await getDb()
+            .update(agentTasks)
+            .set({ status, error: error ?? null })
+            .where(eq(agentTasks.id, taskId))
+        }
+      })
+
+    const rejectReason =
+      rawAnswer.citations.length === 0
+        ? 'Model returned no citations for synthesis.'
+        : 'All citation quotes were rejected due to unverified verbatim quotes.'
+
+    await updateStatus(modelResult.task.id, 'rejected', rejectReason)
+  }
+
   return {
     question: trimmed,
     answer: rawAnswer.answer,
@@ -374,5 +430,6 @@ ${passageContext}`
     rejectedCitations: rejected,
     passages,
     sourcesConsulted,
+    ungrounded: isUngrounded ? true : undefined,
   }
 }

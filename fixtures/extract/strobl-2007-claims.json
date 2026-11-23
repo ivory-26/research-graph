@@ -1,4 +1,9 @@
 {
+  "_provenance": {
+    "model": "gemini-2.5-flash",
+    "capturedAt": "2026-11-23T19:00:00Z",
+    "promptHash": "c018a438"
+  },
   "claims": [
     {
       "text": "Random forest variable importance measures are not reliable in situations where potential predictor variables vary in their scale of measurement or their number of categories",
@@ -9,7 +14,7 @@
       "datasetName": null,
       "methodName": "Random Forest",
       "quote": "random forest variable importance measures are a sensible means for variable selection in many applications, but are not reliable in situations where potential predictor variables vary in their scale of measurement or their number of categories.",
-      "chunkId": "0"
+      "chunkId": "chunk-0"
     }
   ],
   "datasets": [],

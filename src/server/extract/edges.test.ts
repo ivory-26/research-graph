@@ -337,6 +337,100 @@ describe('proposeEdges runner and prompt builder', () => {
     expect(outcome.taskId).toBe('task-edges-1')
   })
 
+  it('rejects an edge citing a chunk excluded by topKChunks slice with CHUNK_NOT_FOUND', async () => {
+    const nodes: NodeSummary[] = [
+      { id: 'node-a', type: 'claim', title: 'Claim A' },
+      { id: 'node-b', type: 'method', title: 'Method B' },
+    ]
+    const chunks: ChunkRef[] = [
+      { id: CHUNK_UUID_1, ordinal: 0, page: 1, text: 'First chunk rendered in prompt.' },
+      { id: CHUNK_UUID_2, ordinal: 1, page: 2, text: 'Second chunk unrendered due to topK.' },
+    ]
+
+    // Model proposes an edge citing CHUNK_UUID_2 which was NOT rendered because topKChunks = 1
+    const mockCallModel = vi.fn(async () => ({
+      output: {
+        edges: [
+          {
+            fromNodeId: 'node-a',
+            toNodeId: 'node-b',
+            relation: 'supports',
+            confidence: 0.9,
+            evidenceChunkId: CHUNK_UUID_2,
+            quote: 'Second chunk unrendered due to topK.',
+            rationale: 'Citation to chunk outside prompt slice',
+          },
+        ],
+      },
+      task: { id: 'task-edges-topk' },
+      attempts: [],
+    }))
+
+    const outcome = await proposeEdges({
+      workspaceId: 'ws-topk',
+      nodes,
+      chunks,
+      topKChunks: 1,
+      // @ts-expect-error test mock injection
+      callModelFn: mockCallModel,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(outcome.acceptedEdges).toHaveLength(0)
+    expect(outcome.rejectedEdges).toHaveLength(1)
+    expect(outcome.rejectedEdges[0].reason).toBe('CHUNK_NOT_FOUND')
+  })
+
+  it('updates task row to rejected when all proposed edges fail validation (docs/03)', async () => {
+    const nodes: NodeSummary[] = [
+      { id: 'node-a', type: 'claim', title: 'Claim A' },
+      { id: 'node-b', type: 'method', title: 'Method B' },
+    ]
+    const chunks: ChunkRef[] = [
+      { id: CHUNK_UUID_1, ordinal: 0, page: 1, text: 'Real evidence passage in text.' },
+    ]
+
+    let updatedTaskId = ''
+    let updatedStatus = ''
+    const mockUpdateStatus = vi.fn(async (taskId: string, status: any) => {
+      updatedTaskId = taskId
+      updatedStatus = status
+    })
+
+    const mockCallModel = vi.fn(async () => ({
+      output: {
+        edges: [
+          {
+            fromNodeId: 'node-a',
+            toNodeId: 'node-b',
+            relation: 'supports',
+            confidence: 0.9,
+            evidenceChunkId: CHUNK_UUID_1,
+            quote: 'Hallucinated quote not in chunk.',
+            rationale: 'Invalid quote',
+          },
+        ],
+      },
+      task: { id: 'task-edges-reject-1' },
+      attempts: [],
+    }))
+
+    const outcome = await proposeEdges({
+      workspaceId: 'ws-reject',
+      nodes,
+      chunks,
+      // @ts-expect-error test mock injection
+      callModelFn: mockCallModel,
+      updateTaskStatusFn: mockUpdateStatus,
+    })
+
+    expect(outcome.acceptedEdges).toHaveLength(0)
+    expect(outcome.rejectedEdges).toHaveLength(1)
+    expect(mockUpdateStatus).toHaveBeenCalledTimes(1)
+    expect(updatedStatus).toBe('rejected')
+    expect(updatedTaskId).toBe('task-edges-reject-1')
+  })
+
   it('persists accepted edges via storeEdges when db option is provided', async () => {
     const nodes: NodeSummary[] = [
       { id: 'node-a', type: 'claim', title: 'Claim A' },
@@ -486,14 +580,22 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
 
       const allChunks: ChunkRef[] = [...tagged2007, ...tagged2008, ...tagged2010]
 
+      const nodeS07ClaimId = '11111111-0001-4000-8000-000000000001'
+      const nodeS07RfId = '11111111-0002-4000-8000-000000000002'
+      const nodeS08CviId = '22222222-0001-4000-8000-000000000001'
+      const nodeS08ClaimId = '22222222-0002-4000-8000-000000000002'
+      const nodeK10BorutaId = '33333333-0001-4000-8000-000000000001'
+      const nodeK10ClaimId = '33333333-0002-4000-8000-000000000002'
+      const threePapersWsId = '44444444-4444-4444-8444-444444444444'
+
       // Workspace nodes representing claims and methods across the 3 papers
       const workspaceNodes: NodeSummary[] = [
-        { id: 'node-s07-claim', type: 'claim', title: 'Strobl 2007: Gini Importance Bias' },
-        { id: 'node-s07-rf', type: 'method', title: 'Random Forest Variable Importance' },
-        { id: 'node-s08-cvi', type: 'method', title: 'Conditional Variable Importance' },
-        { id: 'node-s08-claim', type: 'claim', title: 'Strobl 2008: CVI eliminates correlation bias' },
-        { id: 'node-k10-boruta', type: 'method', title: 'Boruta All-Relevant Feature Selection' },
-        { id: 'node-k10-claim', type: 'claim', title: 'Kursa 2010: Shadow Features' },
+        { id: nodeS07ClaimId, type: 'claim', title: 'Strobl 2007: Gini Importance Bias' },
+        { id: nodeS07RfId, type: 'method', title: 'Random Forest Variable Importance' },
+        { id: nodeS08CviId, type: 'method', title: 'Conditional Variable Importance' },
+        { id: nodeS08ClaimId, type: 'claim', title: 'Strobl 2008: CVI eliminates correlation bias' },
+        { id: nodeK10BorutaId, type: 'method', title: 'Boruta All-Relevant Feature Selection' },
+        { id: nodeK10ClaimId, type: 'claim', title: 'Kursa 2010: Shadow Features' },
       ]
 
       // Load checked-in fixture of model output
@@ -525,9 +627,9 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
       } as unknown as Database
 
       const outcome = await proposeEdges({
-        workspaceId: 'ws-three-papers',
+        workspaceId: threePapersWsId,
         nodes: workspaceNodes,
-        chunks: allChunks,
+        chunks: [c1, c2, c3, c4, c5, c6],
         db: fakeDb,
         callModelFn: mockCallModel as any,
       })
@@ -537,6 +639,12 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
       expect(outcome.acceptedEdges.length).toBeGreaterThanOrEqual(6)
       expect(outcome.rejectedEdges).toHaveLength(0)
       expect(outcome.storedRows?.length).toBeGreaterThanOrEqual(6)
+      expect(insertedDbRows.length).toBeGreaterThanOrEqual(6)
+      for (const row of insertedDbRows) {
+        expect(row.workspaceId).toBe(threePapersWsId)
+        expect(row.status).toBe('accepted')
+        expect(row.evidenceChunkId).toBeDefined()
+      }
 
       // Every accepted edge has status 'accepted', confidence >= 0.65, and a resolvable quote verified against its cited chunk from that paper
       for (const edge of outcome.acceptedEdges) {
@@ -602,7 +710,7 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
   const hasDb = Boolean(process.env.DATABASE_URL)
 
   it.skipIf(!hasDb)(
-    'persists accepted edges into Neon satisfying edges_have_evidence check constraint',
+    'LIVE DB: persists accepted edges across the 3 demo papers into Neon satisfying foreign keys and check constraints, joining evidence_chunk_id to source_chunks with verified quote',
     async () => {
       const { getDb } = await import('../../db/client')
       const { workspaces, sources, sourceChunks, nodes, edges } = await import('../../db/schema')
@@ -611,93 +719,133 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
 
       const db = getDb()
       const testWsId = crypto.randomUUID()
-      const testSourceId = crypto.randomUUID()
-      const testChunkId = crypto.randomUUID()
-      const testNode1Id = crypto.randomUUID()
-      const testNode2Id = crypto.randomUUID()
+      const s07Id = crypto.randomUUID()
+      const s08Id = crypto.randomUUID()
+      const k10Id = crypto.randomUUID()
+
+      const c1Id = '11111111-1111-4111-8111-111111111111'
+      const c2Id = '11111111-1111-4111-8111-111111111112'
+      const c3Id = '22222222-2222-4222-8222-222222222221'
+      const c4Id = '22222222-2222-4222-8222-222222222222'
+      const c5Id = '33333333-3333-4333-8333-333333333331'
+      const c6Id = '33333333-3333-4333-8333-333333333332'
+
+      const nodeS07ClaimId = '11111111-0001-4000-8000-000000000001'
+      const nodeS07RfId = '11111111-0002-4000-8000-000000000002'
+      const nodeS08CviId = '22222222-0001-4000-8000-000000000001'
+      const nodeS08ClaimId = '22222222-0002-4000-8000-000000000002'
+      const nodeK10BorutaId = '33333333-0001-4000-8000-000000000001'
+      const nodeK10ClaimId = '33333333-0002-4000-8000-000000000002'
+
+      // Ingest real paper chunks
+      const papersDir = path.resolve(process.cwd(), 'fixtures/papers')
+      const strobl07 = await ingestPdf(new Uint8Array(fs.readFileSync(path.join(papersDir, 'strobl-2007.pdf'))).buffer)
+      const strobl08 = await ingestPdf(new Uint8Array(fs.readFileSync(path.join(papersDir, 'strobl-2008.pdf'))).buffer)
+      const kursa10 = await ingestPdf(new Uint8Array(fs.readFileSync(path.join(papersDir, 'kursa-2010.pdf'))).buffer)
+
+      const findIn2007 = (needle: string) => strobl07.chunks.find((c) => c.text.includes(needle))!
+      const findIn2008 = (needle: string) => strobl08.chunks.find((c) => c.text.includes(needle))!
+      const findIn2010 = (needle: string) => kursa10.chunks.find((c) => c.text.includes(needle))!
+
+      const c1 = findIn2007('random forest variable importance measures are a sensible means')
+      const c2 = findIn2007('The random forest approach was shown to outperform')
+      const c3 = findIn2008('conditional variable importance')
+      const c4 = findIn2008('permutation importance')
+      const c5 = findIn2010('The importance measure itself varies due to stochasticity')
+      const c6 = findIn2010('Boruta Package')
 
       try {
-        // Setup workspace
         await db.insert(workspaces).values({
           id: testWsId,
-          name: 'Issue 13 Test Workspace',
-          slug: `test-ws-edges-${Date.now()}`,
+          name: 'Three Papers Live Workspace',
+          slug: `test-ws-three-${Date.now()}`,
         })
 
-        // Setup source & chunk
-        await db.insert(sources).values({
-          id: testSourceId,
-          workspaceId: testWsId,
-          kind: 'paper',
-          title: 'Edges Evidence Paper',
-          sha256: crypto.createHash('sha256').update('edges-test').digest('hex'),
-          bytes: 1024,
-        })
-
-        await db.insert(sourceChunks).values({
-          id: testChunkId,
-          sourceId: testSourceId,
-          ordinal: 0,
-          text: 'Verified evidence chunk text.',
-          page: 1,
-          charStart: 0,
-          charEnd: 30,
-        })
-
-        // Setup 2 nodes
-        await db.insert(nodes).values([
-          {
-            id: testNode1Id,
-            workspaceId: testWsId,
-            type: 'claim',
-            title: 'Node 1',
-            data: {
-              type: 'claim',
-              text: 'Node 1 text',
-              reported: null,
-              datasetName: null,
-              methodName: null,
-              locator: { page: 1, quote: 'Verified evidence chunk text.' },
-            },
-          },
-          {
-            id: testNode2Id,
-            workspaceId: testWsId,
-            type: 'method',
-            title: 'Node 2',
-            data: {
-              type: 'method',
-              summary: 'Node 2 method summary',
-              library: null,
-            },
-          },
+        await db.insert(sources).values([
+          { id: s07Id, workspaceId: testWsId, kind: 'paper', title: 'Strobl 2007', sha256: 'sha-s07-live', bytes: 100 },
+          { id: s08Id, workspaceId: testWsId, kind: 'paper', title: 'Strobl 2008', sha256: 'sha-s08-live', bytes: 100 },
+          { id: k10Id, workspaceId: testWsId, kind: 'paper', title: 'Kursa 2010', sha256: 'sha-k10-live', bytes: 100 },
         ])
 
-        const edgeToStore: ValidatedEdge = {
-          fromNodeId: testNode1Id,
-          toNodeId: testNode2Id,
-          relation: 'supports',
-          confidence: 0.9,
-          status: 'accepted',
-          evidenceChunkId: testChunkId,
-          matchedQuote: 'Verified evidence chunk text.',
-          rationale: 'Direct support',
-        }
+        await db.insert(sourceChunks).values([
+          { id: c1Id, sourceId: s07Id, ordinal: c1.ordinal, text: c1.text, page: c1.page, charStart: c1.charStart, charEnd: c1.charEnd },
+          { id: c2Id, sourceId: s07Id, ordinal: c2.ordinal, text: c2.text, page: c2.page, charStart: c2.charStart, charEnd: c2.charEnd },
+          { id: c3Id, sourceId: s08Id, ordinal: c3.ordinal, text: c3.text, page: c3.page, charStart: c3.charStart, charEnd: c3.charEnd },
+          { id: c4Id, sourceId: s08Id, ordinal: c4.ordinal, text: c4.text, page: c4.page, charStart: c4.charStart, charEnd: c4.charEnd },
+          { id: c5Id, sourceId: k10Id, ordinal: c5.ordinal, text: c5.text, page: c5.page, charStart: c5.charStart, charEnd: c5.charEnd },
+          { id: c6Id, sourceId: k10Id, ordinal: c6.ordinal, text: c6.text, page: c6.page, charStart: c6.charStart, charEnd: c6.charEnd },
+        ])
 
-        const inserted = await storeEdges(db, testWsId, [edgeToStore])
-        expect(inserted.length).toBe(1)
-        expect(inserted[0].evidenceChunkId).toBe(testChunkId)
-        expect(inserted[0].sourceNodeId).toBe(testNode1Id)
-        expect(inserted[0].targetNodeId).toBe(testNode2Id)
-        expect(inserted[0].status).toBe('accepted')
+        await db.insert(nodes).values([
+          { id: nodeS07ClaimId, workspaceId: testWsId, type: 'claim', title: 'Strobl 2007: Gini Importance Bias', data: { type: 'claim', text: 'Strobl 2007 claim', reported: null, datasetName: null, methodName: null, locator: { page: 1, quote: c1.text.slice(0, 30) } } },
+          { id: nodeS07RfId, workspaceId: testWsId, type: 'method', title: 'Random Forest Variable Importance', data: { type: 'method', summary: 'RF method', library: null } },
+          { id: nodeS08CviId, workspaceId: testWsId, type: 'method', title: 'Conditional Variable Importance', data: { type: 'method', summary: 'CVI method', library: null } },
+          { id: nodeS08ClaimId, workspaceId: testWsId, type: 'claim', title: 'Strobl 2008: CVI eliminates correlation bias', data: { type: 'claim', text: 'Strobl 2008 claim', reported: null, datasetName: null, methodName: null, locator: { page: 1, quote: c4.text.slice(0, 30) } } },
+          { id: nodeK10BorutaId, workspaceId: testWsId, type: 'method', title: 'Boruta All-Relevant Feature Selection', data: { type: 'method', summary: 'Boruta method', library: null } },
+          { id: nodeK10ClaimId, workspaceId: testWsId, type: 'claim', title: 'Kursa 2010: Shadow Features', data: { type: 'claim', text: 'Kursa 2010 claim', reported: null, datasetName: null, methodName: null, locator: { page: 1, quote: c6.text.slice(0, 30) } } },
+        ])
+
+        const fixturePath = path.resolve(process.cwd(), 'fixtures/extract/three-papers-edges.json')
+        const capturedFixture: ProposeEdgesResult = JSON.parse(fs.readFileSync(fixturePath, 'utf8'))
+
+        const chunkRefs: ChunkRef[] = [
+          { id: c1Id, ordinal: c1.ordinal, text: c1.text, page: c1.page },
+          { id: c2Id, ordinal: c2.ordinal, text: c2.text, page: c2.page },
+          { id: c3Id, ordinal: c3.ordinal, text: c3.text, page: c3.page },
+          { id: c4Id, ordinal: c4.ordinal, text: c4.text, page: c4.page },
+          { id: c5Id, ordinal: c5.ordinal, text: c5.text, page: c5.page },
+          { id: c6Id, ordinal: c6.ordinal, text: c6.text, page: c6.page },
+        ]
+
+        const workspaceNodeSummaries: NodeSummary[] = [
+          { id: nodeS07ClaimId, type: 'claim', title: 'Strobl 2007: Gini Importance Bias' },
+          { id: nodeS07RfId, type: 'method', title: 'Random Forest Variable Importance' },
+          { id: nodeS08CviId, type: 'method', title: 'Conditional Variable Importance' },
+          { id: nodeS08ClaimId, type: 'claim', title: 'Strobl 2008: CVI eliminates correlation bias' },
+          { id: nodeK10BorutaId, type: 'method', title: 'Boruta All-Relevant Feature Selection' },
+          { id: nodeK10ClaimId, type: 'claim', title: 'Kursa 2010: Shadow Features' },
+        ]
+
+        const outcome = await proposeEdges({
+          workspaceId: testWsId,
+          nodes: workspaceNodeSummaries,
+          chunks: chunkRefs,
+          db,
+          callModelFn: (async () => ({ output: capturedFixture, task: { id: crypto.randomUUID() }, attempts: [] })) as any,
+        })
+
+        expect(outcome.acceptedEdges.length).toBeGreaterThanOrEqual(6)
+
+        // Query database to ensure rows are inserted, FKs hold, and evidence chunk text contains quote
+        const persistedEdges = await db
+          .select({
+            edge: edges,
+            chunkText: sourceChunks.text,
+          })
+          .from(edges)
+          .innerJoin(sourceChunks, eq(edges.evidenceChunkId, sourceChunks.id))
+          .where(eq(edges.workspaceId, testWsId))
+
+        expect(persistedEdges.length).toBeGreaterThanOrEqual(6)
+        for (const row of persistedEdges) {
+          expect(row.edge.status).toBe('accepted')
+          expect(row.edge.confidence).toBeGreaterThanOrEqual(0.65)
+          const matchedEdge = outcome.acceptedEdges.find(
+            (e) => e.fromNodeId === row.edge.sourceNodeId && e.toNodeId === row.edge.targetNodeId,
+          )
+          expect(matchedEdge).toBeDefined()
+          expect(verifyVerbatimQuote(matchedEdge!.matchedQuote, row.chunkText)).toBe(true)
+        }
       } finally {
-        await db.delete(edges).where(eq(edges.workspaceId, testWsId))
-        await db.delete(nodes).where(eq(nodes.workspaceId, testWsId))
-        await db.delete(sourceChunks).where(eq(sourceChunks.sourceId, testSourceId))
-        await db.delete(sources).where(eq(sources.workspaceId, testWsId))
-        await db.delete(workspaces).where(eq(workspaces.id, testWsId))
+        await db.delete(edges).where(eq(edges.workspaceId, testWsId)).catch(() => {})
+        await db.delete(nodes).where(eq(nodes.workspaceId, testWsId)).catch(() => {})
+        await db.delete(sourceChunks).where(eq(sourceChunks.sourceId, s07Id)).catch(() => {})
+        await db.delete(sourceChunks).where(eq(sourceChunks.sourceId, s08Id)).catch(() => {})
+        await db.delete(sourceChunks).where(eq(sourceChunks.sourceId, k10Id)).catch(() => {})
+        await db.delete(sources).where(eq(sources.workspaceId, testWsId)).catch(() => {})
+        await db.delete(workspaces).where(eq(workspaces.id, testWsId)).catch(() => {})
       }
     },
-    20000,
+    30000,
   )
 })
