@@ -77,6 +77,13 @@ export function validateProposedEdges(
       continue
     }
 
+    // 3b. Rationale presence check
+    const rawRationale = edge.rationale?.trim()
+    if (!rawRationale) {
+      rejected.push({ edge, reason: 'RATIONALE_EMPTY' })
+      continue
+    }
+
     // 4. Chunk resolution: strictly lookup the chunk referenced by evidenceChunkId.
     // Invariant: no silent fallback scanning across all chunks.
     const targetChunk = chunkMap.get(edge.evidenceChunkId)
@@ -130,7 +137,7 @@ export function buildProposeEdgesPrompt(
   chunks: ChunkRef[],
   options?: { topKChunks?: number },
 ): string {
-  const topK = options?.topKChunks ?? chunks.length
+  const topK = options?.topKChunks ?? 8
   const selectedChunks = chunks.slice(0, topK)
 
   const nodeList = nodes
@@ -273,6 +280,13 @@ export async function storeEdges(
   return await db.transaction(async (tx) => {
     const inserted: EdgeRow[] = []
     for (const edge of edgesToStore) {
+      if (
+        !UUID_REGEX.test(edge.fromNodeId) ||
+        !UUID_REGEX.test(edge.toNodeId) ||
+        !UUID_REGEX.test(edge.evidenceChunkId)
+      ) {
+        continue
+      }
       const rows = await tx
         .insert(edges)
         .values({
