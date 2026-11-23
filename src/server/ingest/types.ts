@@ -23,6 +23,7 @@ export interface PdfExtractResult {
   pages: ExtractedPage[]
   fullText: string
   totalPages: number
+  needsOcr?: boolean
 }
 
 export interface Chunk {

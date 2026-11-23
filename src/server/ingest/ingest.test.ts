@@ -159,12 +159,15 @@ describe('chunkDocument (Token sizing and overlap)', () => {
 })
 
 describe('PDF Ingestion Integration with Fixtures', () => {
-  const stroblPdfPath = path.resolve(process.cwd(), 'fixtures/papers/strobl-2007.pdf')
+  const papersDir = path.resolve(process.cwd(), 'fixtures/papers')
+  const strobl2007Pdf = path.join(papersDir, 'strobl-2007.pdf')
+  const strobl2008Pdf = path.join(papersDir, 'strobl-2008.pdf')
+  const kursa2010Pdf = path.join(papersDir, 'kursa-2010.pdf')
 
-  it.skipIf(!fs.existsSync(stroblPdfPath))(
+  it.skipIf(!fs.existsSync(strobl2007Pdf))(
     'ingests real Strobl 2007 PDF into ordered pages and valid chunks',
     async () => {
-      const buffer = fs.readFileSync(stroblPdfPath)
+      const buffer = fs.readFileSync(strobl2007Pdf)
       const { result, chunks } = await ingestPdf(buffer, {
         targetTokens: 800,
         overlapRatio: 0.15,
@@ -173,6 +176,12 @@ describe('PDF Ingestion Integration with Fixtures', () => {
       expect(result.totalPages).toBe(21)
       expect(result.pages.length).toBe(21)
       expect(chunks.length).toBeGreaterThan(0)
+      expect(result.needsOcr).toBe(false)
+
+      // Verify exact page character span identity for EVERY page (prevent drift blocker from Issue #10 review)
+      for (const page of result.pages) {
+        expect(result.fullText.slice(page.charStart, page.charEnd)).toBe(page.text)
+      }
 
       // Verify Page 2 reading order preserves column 1 before column 2
       const page2 = result.pages[1]
@@ -186,10 +195,11 @@ describe('PDF Ingestion Integration with Fixtures', () => {
       // Column 1 heading must be before Column 2 paragraph
       expect(backgroundIdx).toBeLessThan(phenotypesIdx)
 
-      // Verify all chunks have required metadata
+      // Verify all chunks have required metadata and alphanumeric content
       for (const chunk of chunks) {
         expect(chunk.ordinal).toBeGreaterThanOrEqual(0)
         expect(chunk.text.length).toBeGreaterThan(0)
+        expect(/[a-zA-Z0-9]/.test(chunk.text)).toBe(true)
         expect(chunk.page).toBeGreaterThanOrEqual(1)
         expect(chunk.page).toBeLessThanOrEqual(21)
         expect(chunk.charStart).toBeGreaterThanOrEqual(0)
@@ -198,4 +208,81 @@ describe('PDF Ingestion Integration with Fixtures', () => {
     },
     15000,
   )
+
+  it.skipIf(!fs.existsSync(strobl2008Pdf))(
+    'ingests real Strobl 2008 PDF and verifies reading order and page span identity',
+    async () => {
+      const buffer = fs.readFileSync(strobl2008Pdf)
+      const { result, chunks } = await ingestPdf(buffer)
+
+      expect(result.totalPages).toBeGreaterThan(0)
+      expect(chunks.length).toBeGreaterThan(0)
+      expect(result.needsOcr).toBe(false)
+
+      // Check character span identity for all pages
+      for (const page of result.pages) {
+        expect(result.fullText.slice(page.charStart, page.charEnd)).toBe(page.text)
+      }
+
+      // Verify reading order preserves two-column layout on page 2 (column 1 before column 2)
+      const page2 = result.pages[1]
+      expect(page2).toBeDefined()
+      expect(page2.text).toContain('spurious correlation')
+      expect(page2.text).toContain('permutation accuracy importance')
+
+      const col1Idx = page2.text.indexOf('spurious correlation')
+      const col2Idx = page2.text.indexOf('permutation accuracy importance')
+      expect(col1Idx).toBeLessThan(col2Idx)
+    },
+    15000,
+  )
+
+  it.skipIf(!fs.existsSync(kursa2010Pdf))(
+    'ingests real Kursa 2010 PDF (A4 single-column) and verifies reading order without clipping top margin',
+    async () => {
+      const buffer = fs.readFileSync(kursa2010Pdf)
+      const { result, chunks } = await ingestPdf(buffer)
+
+      expect(result.totalPages).toBeGreaterThan(0)
+      expect(chunks.length).toBeGreaterThan(0)
+      expect(result.needsOcr).toBe(false)
+
+      // Check character span identity for all pages
+      for (const page of result.pages) {
+        expect(result.fullText.slice(page.charStart, page.charEnd)).toBe(page.text)
+      }
+
+      // Page 1 should contain title and abstract
+      const page1 = result.pages[0]
+      expect(page1.text).toContain('Feature Selection with the Boruta Package')
+      expect(page1.text).toContain('Abstract')
+    },
+    15000,
+  )
+
+  it('drops chunks containing no alphanumeric characters (docs/03)', () => {
+    const fullText = `Valid text with words. \n\n --- ... *** === +++ \n\n Another valid sentence.`
+    const pages: ExtractedPage[] = [
+      { page: 1, text: fullText, charStart: 0, charEnd: fullText.length },
+    ]
+
+    const chunks = chunkDocument(fullText, pages, {
+      targetTokens: 10,
+      overlapRatio: 0,
+    })
+
+    for (const chunk of chunks) {
+      expect(/[a-zA-Z0-9]/.test(chunk.text)).toBe(true)
+      expect(chunk.text).not.toBe('--- ... *** === +++')
+    }
+  })
+
+  it('marks needsOcr when document is empty or a page yields fewer than 40 characters (docs/03)', async () => {
+    const resEmpty = await extractPdf(new Uint8Array(0))
+    expect(resEmpty.needsOcr).toBe(true)
+
+    const ingestEmpty = await ingestPdf(new Uint8Array(0))
+    expect(ingestEmpty.result.needsOcr).toBe(true)
+    expect(ingestEmpty.chunks).toHaveLength(0)
+  })
 })
