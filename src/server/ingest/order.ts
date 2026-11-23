@@ -46,41 +46,83 @@ export function extractPageReadingOrder(items: TextItem[]): string {
     return ''
   }
 
-  // 2. Multi-column detection
+  // 2. Multi-column and regional layout analysis
   // In typical two-column papers (A4 width 595pt, margin ~50pt):
   // Left column items have maxX < 305pt, Right column items have minX > 295pt.
   const gutterX = 300
-  const leftItems = valid.filter((i) => i.x + (i.width || 0) < 305)
-  const rightItems = valid.filter((i) => i.x > 295)
-  const spanningItems = valid.filter(
-    (i) => i.x < 240 && i.x + (i.width || 0) > 360,
-  )
+  const isLeft = (i: TextItem) => i.x + (i.width || 0) < 305
+  const isRight = (i: TextItem) => i.x > 295
+  const isSpanning = (i: TextItem) => i.x < 240 && i.x + (i.width || 0) > 360
 
-  const isTwoCol =
-    leftItems.length >= 15 &&
-    rightItems.length >= 15 &&
-    spanningItems.length < valid.length * 0.2
+  const allLeft = valid.filter(isLeft)
+  const allRight = valid.filter(isRight)
+  const allSpanning = valid.filter(isSpanning)
 
   let orderedLines: Line[] = []
 
-  if (isTwoCol) {
-    // If top spanning items exist (e.g. title/authors on page 1), find their lowest y
-    const topSpanning = spanningItems.filter((i) => i.y > 500)
-    const topCutoffY =
-      topSpanning.length > 0 ? Math.min(...topSpanning.map((i) => i.y)) : Infinity
+  // Check 1: Does the page have a top banner (title/abstract/spanning items) with two columns below?
+  // We identify the lowest y of the spanning header/abstract block.
+  let hasTwoColBelowBanner = false
+  let bannerCutoffY = Infinity
 
-    const topLines = groupItemsIntoLines(
-      valid.filter((i) => i.y >= topCutoffY),
-    )
+  if (allSpanning.length > 0) {
+    const minSpanningY = Math.min(...allSpanning.map((i) => i.y))
+    const bodyItems = valid.filter((i) => i.y < minSpanningY - 1)
+    const bodyLeft = bodyItems.filter(isLeft)
+    const bodyRight = bodyItems.filter(isRight)
+    const bodySpanning = bodyItems.filter(isSpanning)
+
+    if (
+      bodyLeft.length >= 6 &&
+      bodyRight.length >= 6 &&
+      bodySpanning.length <= Math.max(1, bodyItems.length * 0.05)
+    ) {
+      hasTwoColBelowBanner = true
+      bannerCutoffY = minSpanningY - 1
+    }
+  }
+
+  // Check 2: Is the entire page a standard two-column layout (e.g. page 2+ of two-column paper)?
+  const isFullTwoCol =
+    !hasTwoColBelowBanner &&
+    allLeft.length >= 15 &&
+    allRight.length >= 15 &&
+    allSpanning.length < valid.length * 0.15
+
+  if (hasTwoColBelowBanner) {
+    // Top banner items (title, authors, abstract) read first across the full width
+    const topLines = groupItemsIntoLines(valid.filter((i) => i.y >= bannerCutoffY))
+    // Below banner: column 1 read top-to-bottom, then column 2 read top-to-bottom
     const col1Lines = groupItemsIntoLines(
-      valid.filter((i) => i.x < gutterX && i.y < topCutoffY),
+      valid.filter((i) => i.x < gutterX && i.y < bannerCutoffY),
     )
     const col2Lines = groupItemsIntoLines(
-      valid.filter((i) => i.x >= gutterX && i.y < topCutoffY),
+      valid.filter((i) => i.x >= gutterX && i.y < bannerCutoffY),
     )
-
     orderedLines = [...topLines, ...col1Lines, ...col2Lines]
+  } else if (isFullTwoCol) {
+    // If there are any top-spanning items (e.g. section header), keep them on top
+    const topCutoffY =
+      allSpanning.length > 0
+        ? Math.min(...allSpanning.map((i) => i.y))
+        : Infinity
+
+    if (topCutoffY < Infinity && topCutoffY > maxY - 150) {
+      const topLines = groupItemsIntoLines(valid.filter((i) => i.y >= topCutoffY))
+      const col1Lines = groupItemsIntoLines(
+        valid.filter((i) => i.x < gutterX && i.y < topCutoffY),
+      )
+      const col2Lines = groupItemsIntoLines(
+        valid.filter((i) => i.x >= gutterX && i.y < topCutoffY),
+      )
+      orderedLines = [...topLines, ...col1Lines, ...col2Lines]
+    } else {
+      const col1Lines = groupItemsIntoLines(valid.filter((i) => i.x < gutterX))
+      const col2Lines = groupItemsIntoLines(valid.filter((i) => i.x >= gutterX))
+      orderedLines = [...col1Lines, ...col2Lines]
+    }
   } else {
+    // Single column page (e.g. Kursa 2010 Boruta, or front-matter page with no columns)
     orderedLines = groupItemsIntoLines(valid)
   }
 

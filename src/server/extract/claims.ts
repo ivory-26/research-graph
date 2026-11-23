@@ -7,45 +7,15 @@ import {
   type ExtractionResult,
 } from './types'
 
-/**
- * Builds the structured extraction prompt presenting source chunks to Gemini.
- */
-export function buildExtractionPrompt(
-  chunks: ChunkRef[],
-  sourceTitle?: string,
-): string {
-  const header = sourceTitle
-    ? `Document: ${sourceTitle}\n\n`
-    : 'Document Chunks:\n\n'
-
-  const formattedChunks = chunks
-    .map((c) => `--- CHUNK ID: ${c.id || c.ordinal} (Page ${c.page ?? '?'}) ---\n${c.text}`)
-    .join('\n\n')
-
-  return `${header}${formattedChunks}
-
-INSTRUCTIONS:
-You are a rigorous scientific extractor. From the document chunks provided above, extract:
-1. Core scientific claims (max 12).
-   - "text": A concise, clear summary of the assertion made in the paper (under 600 characters).
-   - "quote": An EXACT, VERBATIM quote copied word-for-word from the chunk that justifies this claim. Do NOT paraphrase, summarize, or alter punctuation.
-   - "chunkId": The exact CHUNK ID from which the quote was copied.
-   - "metric": If the claim reports a quantitative measurement (e.g. "accuracy", "runtime", "rank"), name it. Otherwise null.
-   - "reportedValue": Number reported in the paper. If qualitative or simulation-based without a single scalar, set to null.
-   - "comparator": 'gt', 'lt', or 'eq' if a comparison is asserted, otherwise null.
-   - "againstValue": Baseline number compared against, if any, otherwise null.
-   - "datasetName": Name of the benchmark or dataset used, if applicable.
-   - "methodName": Name of the proposed or evaluated method.
-2. Datasets mentioned (max 8, with name and url if provided).
-3. Methods described (max 8, with name and summary).
-4. Code repository URLs (max 8).
-
-CRITICAL REQUIREMENT:
-Every quote MUST exist verbatim inside the designated chunk text. Any claim whose quote cannot be found verbatim in the text will be immediately rejected.`
-}
-
-export type ExtractionStrategy = 'single_pass' | 'sectioned' | 'table_first'
 export const DEFAULT_SINGLE_PASS_MAX_CHARS = 30_000
+
+export type ExtractionStrategy = 'single_pass' | 'chunk_by_chunk' | 'hierarchical'
+
+export type UpdateTaskStatusFn = (
+  taskId: string,
+  status: 'succeeded' | 'failed' | 'rejected' | 'retried',
+  error?: string | null,
+) => Promise<void>
 
 export interface ExtractClaimsOptions {
   workspaceId: string
@@ -57,6 +27,38 @@ export interface ExtractClaimsOptions {
   maxChars?: number
   /** Injected callModel implementation (defaults to production callModel) */
   callModelFn?: CallModel
+  /** Injected status updater (defaults to direct Drizzle DB update) */
+  updateTaskStatusFn?: UpdateTaskStatusFn
+}
+
+/**
+ * Builds the structured prompt asking Gemini to extract claims, methods, and datasets.
+ */
+export function buildExtractionPrompt(
+  chunks: ChunkRef[],
+  sourceTitle?: string,
+): string {
+  const context = chunks
+    .map(
+      (c) =>
+        `--- CHUNK ID: ${c.id || c.ordinal} (Page ${c.page ?? '?'}) ---\n${c.text}`,
+    )
+    .join('\n\n')
+
+  return `Document: ${sourceTitle || 'Unknown Document'}
+
+EVIDENCE PASSAGES:
+${context}
+
+INSTRUCTIONS:
+You are an expert scientific claim extraction system. Extract key empirical claims, methods, datasets, and code URLs from the text passages above.
+
+CRITICAL REQUIREMENT:
+1. Every claim MUST include an exact, VERBATIM quote copied directly from the text of the passage.
+2. The "chunkId" field MUST be the chunk ID or integer ordinal of the passage containing the verbatim quote (e.g. "0", "1").
+3. Do not paraphrase or alter words inside the "quote". Any claim with an altered or missing quote will be rejected.
+4. If a claim makes a quantitative assertion, record "metric", "reportedValue", "comparator" ("gt", "lt", "eq"), and "againstValue" if stated.
+5. Limit to at most 12 claims, 8 datasets, and 8 methods.`
 }
 
 /**
@@ -67,6 +69,7 @@ export interface ExtractClaimsOptions {
  * - Enforces max 12 claims
  * - single_pass strategy restricts input to the first 30,000 characters per docs/03
  * - Rejects any claim whose quote does not appear verbatim in its source chunk
+ * - When all claims are rejected, updates the agent_tasks row to 'rejected' per docs/03
  */
 export async function extractClaims(
   options: ExtractClaimsOptions,
@@ -125,6 +128,34 @@ export async function extractClaims(
 
   // Validate verbatim quotes against actual source chunks
   const { accepted, rejected } = validateClaimQuotes(raw.claims, targetChunks)
+
+  // docs/03: "A claim whose quote is unverifiable is dropped and counted as a rejected task"
+  // When no proposed claim survives validation (all were rejected), update the task row to 'rejected'
+  // so dashboard #22 doesn't count a complete fabrication as a success.
+  if (result.task?.id && raw.claims.length > 0 && accepted.length === 0) {
+    if (result.task) {
+      result.task.status = 'rejected'
+    }
+    const updateStatus =
+      options.updateTaskStatusFn ??
+      (async (taskId, status, error) => {
+        if (process.env.DATABASE_URL) {
+          const { getDb } = await import('../../db/client')
+          const { agentTasks } = await import('../../db/schema')
+          const { eq } = await import('drizzle-orm')
+          await getDb()
+            .update(agentTasks)
+            .set({ status, error: error ?? null })
+            .where(eq(agentTasks.id, taskId))
+        }
+      })
+
+    await updateStatus(
+      result.task.id,
+      'rejected',
+      'All proposed claims were rejected due to unverified verbatim quotes.',
+    ).catch(() => {})
+  }
 
   return {
     acceptedClaims: accepted,
