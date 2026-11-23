@@ -208,9 +208,9 @@ export async function proposeEdges(
     }
   }
 
-  const prompt = buildProposeEdgesPrompt(nodes, chunks, { topKChunks })
-  const topK = options.topKChunks ?? chunks.length
+  const topK = options.topKChunks ?? 8
   const selectedChunks = chunks.slice(0, topK)
+  const prompt = buildProposeEdgesPrompt(nodes, chunks, { topKChunks: topK })
 
   const result = await callModelFn<ProposeEdgesResult>(
     ProposeEdgesResultSchema,
@@ -285,7 +285,9 @@ export async function storeEdges(
         !UUID_REGEX.test(edge.toNodeId) ||
         !UUID_REGEX.test(edge.evidenceChunkId)
       ) {
-        continue
+        throw new Error(
+          `Invalid UUID in edge persistence: fromNodeId=${edge.fromNodeId}, toNodeId=${edge.toNodeId}, evidenceChunkId=${edge.evidenceChunkId}`,
+        )
       }
       const rows = await tx
         .insert(edges)

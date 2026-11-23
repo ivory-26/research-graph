@@ -449,6 +449,53 @@ describe('proposeEdges runner and prompt builder', () => {
     expect(updatedTaskId).toBe('task-edges-reject-1')
   })
 
+  it('defaults topKChunks to 8 and rejects edges citing chunks beyond the top 8 slice', async () => {
+    const nodes: NodeSummary[] = [
+      { id: 'node-a', type: 'claim', title: 'Claim A' },
+      { id: 'node-b', type: 'method', title: 'Method B' },
+    ]
+    // 10 valid UUID chunks
+    const tenChunks: ChunkRef[] = Array.from({ length: 10 }, (_, i) => ({
+      id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      ordinal: i,
+      page: i + 1,
+      text: `Evidence passage for chunk ${i} in text.`,
+    }))
+
+    // Model proposes an edge citing chunk index 9 (the 10th chunk)
+    const mockCallModel = vi.fn(async () => ({
+      output: {
+        edges: [
+          {
+            fromNodeId: 'node-a',
+            toNodeId: 'node-b',
+            relation: 'supports',
+            confidence: 0.9,
+            evidenceChunkId: tenChunks[9].id!,
+            quote: 'Evidence passage for chunk 9 in text.',
+            rationale: 'Valid quote in 10th chunk',
+          },
+        ],
+      },
+      task: { id: 'task-edges-topk-default' },
+      attempts: [],
+    }))
+
+    // Omits topKChunks option -> should default to 8
+    const outcome = await proposeEdges({
+      workspaceId: 'ws-topk-default',
+      nodes,
+      chunks: tenChunks,
+      // @ts-expect-error test mock injection
+      callModelFn: mockCallModel,
+    })
+
+    // Chunk 9 is outside the rendered slice [0..7], so it MUST be rejected with CHUNK_NOT_FOUND
+    expect(outcome.acceptedEdges).toHaveLength(0)
+    expect(outcome.rejectedEdges).toHaveLength(1)
+    expect(outcome.rejectedEdges[0].reason).toBe('CHUNK_NOT_FOUND')
+  })
+
   it('persists accepted edges via storeEdges when db option is provided', async () => {
     const nodes: NodeSummary[] = [
       { id: 'node-a', type: 'claim', title: 'Claim A' },
@@ -723,6 +770,27 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
     expect(inserted[0].targetNodeId).toBe('22222222-2222-4222-8222-222222222222')
     expect(inserted[0].status).toBe('accepted')
     expect(inserted[0].relation).toBe('supports')
+  })
+
+  it('throws an error if an edge to persist has a non-UUID node or chunk ID', async () => {
+    const fakeDb = {
+      transaction: vi.fn(async (cb: any) => cb({ insert: vi.fn() })),
+    } as unknown as Database
+
+    const invalidEdge: ValidatedEdge = {
+      fromNodeId: 'non-uuid-node',
+      toNodeId: '22222222-2222-4222-8222-222222222222',
+      relation: 'supports',
+      confidence: 0.9,
+      status: 'accepted',
+      evidenceChunkId: '33333333-3333-4333-8333-333333333333',
+      matchedQuote: 'Verified evidence chunk text.',
+      rationale: 'Direct empirical support',
+    }
+
+    await expect(storeEdges(fakeDb, 'ws-test-unit', [invalidEdge])).rejects.toThrow(
+      'Invalid UUID in edge persistence',
+    )
   })
 
   const hasDb = Boolean(process.env.DATABASE_URL)
