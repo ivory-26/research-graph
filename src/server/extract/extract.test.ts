@@ -290,6 +290,7 @@ describe('extractClaims with model wrapper', () => {
       strategyId: 'single_pass', // Not a uuid!
       // @ts-expect-error test mock injection
       callModelFn: mockCallModel,
+      updateTaskStatusFn: vi.fn(),
     })
 
     expect(capturedCallContext.strategyId).toBeNull()
@@ -525,6 +526,7 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
       strategy: 'single_pass',
       maxChars: 30000,
       callModelFn: mockCallModel as any,
+      updateTaskStatusFn: vi.fn(),
     })
 
     // The prompt should include at most ~30 chunks (~30k characters), not all 50
