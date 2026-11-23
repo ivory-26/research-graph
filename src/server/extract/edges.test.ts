@@ -276,6 +276,24 @@ describe('proposeEdges runner and prompt builder', () => {
     expect(prompt).not.toContain('CHUNK ID: chunk-5')
   })
 
+  it('throws error in proposeEdges if chunks do not carry valid UUID ids', async () => {
+    const nodes: NodeSummary[] = [
+      { id: 'node-a', type: 'claim', title: 'Claim A' },
+      { id: 'node-b', type: 'method', title: 'Method B' },
+    ]
+    const idLessChunks: ChunkRef[] = [
+      { ordinal: 0, page: 1, text: 'Evidence passage in text.' },
+    ]
+
+    await expect(
+      proposeEdges({
+        workspaceId: 'ws-1',
+        nodes,
+        chunks: idLessChunks,
+      }),
+    ).rejects.toThrow(/Every chunk passed to proposeEdges must have a valid UUID id/)
+  })
+
   it('proposeEdges calls model and partitions accepted and rejected edges', async () => {
     const nodes: NodeSummary[] = [
       { id: 'node-a', type: 'claim', title: 'Claim A' },
