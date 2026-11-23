@@ -556,12 +556,12 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
       const q2 = 'The random forest approach was shown to outperform'
 
       // Paper 2 (Strobl 2008)
-      const q3 = 'conditional variable importance'
-      const q4 = 'permutation importance'
+      const q3 = 'Based on these considerations we develop a new, conditional permutation scheme for the computation of the variable importance measure.'
+      const q4 = 'Lunetta et al. [2] find that genetic markers relevant in interactions with other markers or environmental variables can be detected more efficiently by means of random forests'
 
       // Paper 3 (Kursa 2010 Boruta)
-      const q5 = 'The importance measure itself varies due to stochasticity of the random forest classifier.'
-      const q6 = 'Boruta Package'
+      const q5 = 'The algorithm uses a wrapper approach built around a random forest (Breiman 2001) classifier (Boruta is a god of the forest in the Slavic mythology).'
+      const q6 = 'This article describes a R package Boruta, implementing a novel feature selection algorithm for finding all relevant variables.'
 
       const c1 = findIn2007(q1)
       const c2 = findIn2007(q2)
@@ -749,10 +749,10 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
 
       const c1 = findIn2007('random forest variable importance measures are a sensible means')
       const c2 = findIn2007('The random forest approach was shown to outperform')
-      const c3 = findIn2008('conditional variable importance')
-      const c4 = findIn2008('permutation importance')
-      const c5 = findIn2010('The importance measure itself varies due to stochasticity')
-      const c6 = findIn2010('Boruta Package')
+      const c3 = findIn2008('Based on these considerations we develop a new, conditional permutation scheme')
+      const c4 = findIn2008('Lunetta et al. [2] find that genetic markers')
+      const c5 = findIn2010('The algorithm uses a wrapper approach built around a random forest')
+      const c6 = findIn2010('This article describes a R package Boruta')
 
       try {
         await db.insert(workspaces).values({
