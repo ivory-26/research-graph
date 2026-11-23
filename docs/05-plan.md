@@ -31,6 +31,18 @@ If everything else is missing and that spine works, the submission succeeds. If 
 
 Friday 27 is the compression point. If the pipeline is not wired by end of Friday, cut in this order: scoring dashboard → Firecrawl → notebook export → retry loop. Do not cut what-if, and do not cut the comparison view.
 
+## Landed
+
+The plan above is intent; this table is what is on `main`. Updated as PRs merge.
+
+| Date | Landed | PR |
+|---|---|---|
+| 23 Nov | TanStack Start scaffold, shared contracts, `ExperimentRunner` interface | [#31](https://github.com/ivory-26/research-graph/pull/31) |
+| 23 Nov | Drizzle schema, 11 tables, evidence and self-loop checks, pgvector migration, Neon client | [#32](https://github.com/ivory-26/research-graph/pull/32) |
+| 23 Nov | SSE transport primitives: framing and `Last-Event-ID` parsing, 15 s heartbeat, abort-aware 500 ms approval polling, 240 s stream budget | [#33](https://github.com/ivory-26/research-graph/pull/33) |
+
+#33 is transport only. It is not the pipeline endpoint: `GET /api/pipeline/:experimentId`, the durable event journal and ordered reads, the execution claim, the approval write path and the database-backed `ReadApproval` are still pending in #6's Foundation DB PR and delivery. Approval state is read through an injected reader for exactly that reason.
+
 ## Workstreams
 
 Not assigned to people — assign on the day, by who is free. The seams are chosen so that any stream can stall for a day without blocking the others.
