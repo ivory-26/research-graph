@@ -121,11 +121,37 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
   })
 
   describe('retrieveCrossSourcePassages', () => {
-    it('throws error when query is empty or whitespace', async () => {
+    it('throws error when workspaceId is missing for multi-tenant isolation', async () => {
       const mockDb = {} as unknown as Database
-      await expect(retrieveCrossSourcePassages(mockDb, '   ')).rejects.toThrow(
-        'Query string cannot be empty.',
+      await expect(retrieveCrossSourcePassages(mockDb, 'random forests bias')).rejects.toThrow(
+        'workspaceId is required for cross-source retrieval multi-tenant isolation.',
       )
+    })
+
+    it('forwards workspaceId to embedQuery for agent_tasks model accounting', async () => {
+      const mockLimit = vi.fn().mockResolvedValue([])
+      const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit })
+      const mockWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy })
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin })
+      const mockSelect = vi.fn().mockReturnValue({ from: mockFrom })
+      const mockDb = { select: mockSelect } as unknown as Database
+
+      let capturedEmbedOptions: any = null
+      const fakeEmbedQuery = vi.fn(async (_query: string, opts: any) => {
+        capturedEmbedOptions = opts
+        return new Array(768).fill(0.01)
+      })
+
+      await retrieveCrossSourcePassages(
+        mockDb,
+        'what is permutation importance',
+        { workspaceId: 'ws-tenant-42' },
+        { embedQueryFn: fakeEmbedQuery as any },
+      )
+
+      expect(fakeEmbedQuery).toHaveBeenCalledTimes(1)
+      expect(capturedEmbedOptions.workspaceId).toBe('ws-tenant-42')
     })
 
     it('executes database query joining sources and sourceChunks with cosine similarity', async () => {
@@ -189,8 +215,15 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       await expect(askAcrossSources('  ')).rejects.toThrow('Query string cannot be empty.')
     })
 
+    it('throws error if workspaceId is missing', async () => {
+      await expect(askAcrossSources('valid query', { passages: [] })).rejects.toThrow(
+        'workspaceId is required for askAcrossSources.',
+      )
+    })
+
     it('returns empty result when no passages are found', async () => {
       const result = await askAcrossSources('something irrelevant', {
+        workspaceId: 'ws-empty',
         passages: [],
       })
 
@@ -199,7 +232,7 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       expect(result.sourcesConsulted).toHaveLength(0)
     })
 
-    it('synthesizes answer across multiple sources and validates citations', async () => {
+    it('synthesizes answer across multiple sources and validates citations with honest taskKind and strategyId: null', async () => {
       const mockModelAnswer: RetrievalAnswer = {
         answer:
           'Strobl et al. (2007) demonstrate that Gini importance is biased towards features with many categories. In response, Strobl et al. (2008) developed conditional permutation importance to eliminate spurious correlations, while Kursa & Rudnicki (2010) proposed Boruta to detect all relevant attributes by comparing against shadow features.',
@@ -239,13 +272,15 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
         ],
       }
 
+      let capturedContext: any = null
       const mockCallModel: CallModel = vi.fn().mockImplementation(async (_schema, _prompt, ctx) => {
+        capturedContext = ctx
         return {
           output: mockModelAnswer,
           task: {
             id: 'task-ask-1',
             workspaceId: ctx.workspaceId,
-            strategyId: 'ask_across_sources',
+            strategyId: ctx.strategyId,
             taskKind: ctx.taskKind,
             model: 'gemini-3.8-flash',
             status: 'succeeded',
@@ -273,6 +308,9 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       )
 
       expect(mockCallModel).toHaveBeenCalledTimes(1)
+      expect(capturedContext.taskKind).toBe('ask_across_sources')
+      expect(capturedContext.strategyId).toBeNull() // Sanitized to null to avoid Postgres 22P02 FK error
+      expect(capturedContext.inputRef.strategy).toBe('ask_across_sources')
       expect(result.question).toBe(
         'How do random forest variable importance measures handle bias and correlation?',
       )
@@ -297,6 +335,43 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       // 1 hallucinated citation rejected
       expect(result.rejectedCitations).toHaveLength(1)
       expect(result.rejectedCitations[0]?.reason).toBe('quote_not_found_in_chunk')
+    })
+
+    it('rejects citations where cit.sourceId does not match passage.sourceId', async () => {
+      const mismatchedCitations: RetrievalCitation[] = [
+        {
+          sourceId: 'source-wrong-paper', // Mismatched!
+          sourceTitle: 'Wrong Paper Title',
+          chunkId: 'chunk-s07-1',
+          page: 99,
+          quote: 'the Gini importance measure is biased toward features with more categories',
+          claimSupported: 'Wrong source ID test',
+        },
+      ]
+
+      const { accepted, rejected } = verifyCitationQuotes(mismatchedCitations, samplePassages)
+      expect(accepted).toHaveLength(0)
+      expect(rejected).toHaveLength(1)
+      expect(rejected[0]?.reason).toBe('quote_not_found_in_chunk')
+    })
+
+    it('unconditionally sets sourceTitle and page from authentic passage data', async () => {
+      const citationsWithBadMetadata: RetrievalCitation[] = [
+        {
+          sourceId: 'source-strobl-2007',
+          sourceTitle: 'Hallucinated Title',
+          chunkId: 'chunk-s07-1',
+          page: 999, // Hallucinated page number
+          quote: 'the Gini importance measure is biased toward features with more categories',
+          claimSupported: 'Authentic metadata verification',
+        },
+      ]
+
+      const { accepted } = verifyCitationQuotes(citationsWithBadMetadata, samplePassages)
+      expect(accepted).toHaveLength(1)
+      // Must take sourceTitle and page from samplePassages, NOT the model citation
+      expect(accepted[0]?.sourceTitle).toBe(samplePassages[0]!.sourceTitle)
+      expect(accepted[0]?.page).toBe(1)
     })
   })
 

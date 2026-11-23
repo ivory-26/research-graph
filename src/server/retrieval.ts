@@ -12,6 +12,8 @@ import { agentTaskStore, callModel as defaultCallModel } from './model'
 import { embedQuery, type EmbedDeps } from './ingest/embed'
 import { normalizeQuote, verifyVerbatimQuote } from './extract/quote'
 
+export const DEFAULT_MIN_RETRIEVAL_SIMILARITY = 0.5
+
 /**
  * Zod schema for structured output from the LLM when synthesizing
  * an answer across retrieved source passages.
@@ -29,6 +31,7 @@ export const RetrievalAnswerSchema = z.object({
   answer: z.string().describe('Synthesized answer answering the query across the sources'),
   citations: z
     .array(RetrievalCitationSchema)
+    .max(12)
     .describe('List of specific citations with verbatim quotes supporting the answer'),
 })
 
@@ -124,17 +127,21 @@ export async function retrieveCrossSourcePassages(
     workspaceId,
     sourceIds,
     topK = 6,
-    minSimilarity,
+    minSimilarity = DEFAULT_MIN_RETRIEVAL_SIMILARITY,
     abortSignal,
   } = options
 
-  // 1. Resolve embedding for the query
+  if (!workspaceId) {
+    throw new Error('workspaceId is required for cross-source retrieval multi-tenant isolation.')
+  }
+
+  // 1. Resolve embedding for the query (forwarding workspaceId for agent_tasks accounting)
   let queryVec = options.queryEmbedding
   if (!queryVec) {
     const embedFn = deps.embedQueryFn ?? embedQuery
     queryVec = await embedFn(
       trimmed,
-      { abortSignal },
+      { workspaceId, abortSignal },
       deps.embedDeps ?? {},
     )
   }
@@ -213,13 +220,22 @@ export function verifyCitationQuotes(
       continue
     }
 
+    // Invariant: citation must match the authentic passage's sourceId
+    if (cit.sourceId && cit.sourceId !== passage.sourceId) {
+      rejected.push({
+        ...cit,
+        reason: 'quote_not_found_in_chunk',
+      })
+      continue
+    }
+
     const isValid = verifyVerbatimQuote(cit.quote, passage.text)
     if (isValid) {
       accepted.push({
-        sourceId: cit.sourceId,
-        sourceTitle: cit.sourceTitle || passage.sourceTitle,
+        sourceId: passage.sourceId,
+        sourceTitle: passage.sourceTitle,
         chunkId: cit.chunkId,
-        page: cit.page ?? passage.page,
+        page: passage.page,
         quote: cit.quote,
         claimSupported: cit.claimSupported,
         verified: true,
@@ -251,6 +267,11 @@ export async function askAcrossSources(
   const trimmed = query.trim()
   if (!trimmed) {
     throw new Error('Query string cannot be empty.')
+  }
+
+  const workspaceId = options.workspaceId ?? options.context?.workspaceId
+  if (!workspaceId) {
+    throw new Error('workspaceId is required for askAcrossSources.')
   }
 
   let passages = options.passages
@@ -319,12 +340,18 @@ ${passageContext}`
 
   const callModelFn = deps.callModelFn ?? defaultCallModel
 
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const validStrategyId =
+    options.context?.strategyId && UUID_REGEX.test(options.context.strategyId)
+      ? options.context.strategyId
+      : null
+
   const ctx: CallModelContext = {
-    workspaceId: options.workspaceId ?? options.context?.workspaceId ?? '00000000-0000-0000-0000-000000000000',
-    taskKind: 'extract_claims',
+    workspaceId,
+    taskKind: 'ask_across_sources',
     store: options.context?.store ?? agentTaskStore,
-    strategyId: options.context?.strategyId ?? 'ask_across_sources',
-    inputRef: { query: trimmed, passageCount: passages.length },
+    strategyId: validStrategyId,
+    inputRef: { query: trimmed, passageCount: passages.length, strategy: 'ask_across_sources' },
     signal: options.abortSignal,
     ...options.context,
   }
