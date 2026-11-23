@@ -303,7 +303,6 @@ describe('extractClaims with model wrapper', () => {
         workspaceId: 'ws-test',
         sourceId: 'src-1',
         chunks,
-        // @ts-expect-error invalid strategy test
         strategy: 'sectioned',
       }),
     ).rejects.toThrow(/Extraction strategy 'sectioned' is not yet supported/)
