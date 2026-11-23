@@ -265,6 +265,73 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       expect(passages.filter((p) => p.sourceId === 'src-a')).toHaveLength(2)
       expect(passages.filter((p) => p.sourceId === 'src-b')).toHaveLength(2)
     })
+
+    it('does not collapse cross-source diversity when candidates contain multiple sources, and only backfills when fewer than 2 sources exist', async () => {
+      // Scenario 1: Multiple sources present in candidates, top 3 are src-a, 4th is src-b.
+      // maxPassagesPerSource is 2, topK is 4.
+      // Should pick 2 from src-a and 1 from src-b (total 3, NOT backfilling past cap with src-a because multiple sources exist!)
+      const multiSourceRows = [
+        { chunk: { id: 'c-a1', page: 1, ordinal: 0, charStart: 0, charEnd: 10, text: 'A1' }, source: { id: 'src-a', title: 'Paper A', kind: 'paper' }, similarity: 0.95 },
+        { chunk: { id: 'c-a2', page: 2, ordinal: 1, charStart: 0, charEnd: 10, text: 'A2' }, source: { id: 'src-a', title: 'Paper A', kind: 'paper' }, similarity: 0.94 },
+        { chunk: { id: 'c-a3', page: 3, ordinal: 2, charStart: 0, charEnd: 10, text: 'A3' }, source: { id: 'src-a', title: 'Paper A', kind: 'paper' }, similarity: 0.93 },
+        { chunk: { id: 'c-b1', page: 1, ordinal: 0, charStart: 0, charEnd: 10, text: 'B1' }, source: { id: 'src-b', title: 'Paper B', kind: 'paper' }, similarity: 0.88 },
+      ]
+      const mockDb1 = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            innerJoin: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                orderBy: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue(multiSourceRows),
+                }),
+              }),
+            }),
+          }),
+        }),
+      } as unknown as Database
+
+      const passages1 = await retrieveCrossSourcePassages(mockDb1, 'diversity test', {
+        workspaceId: 'ws-div',
+        topK: 4,
+        maxPassagesPerSource: 2,
+        queryEmbedding: new Array(768).fill(0.1),
+      })
+      // Does not backfill past cap because candidates have >= 2 distinct sources
+      expect(passages1.filter((p) => p.sourceId === 'src-a')).toHaveLength(2)
+      expect(passages1.filter((p) => p.sourceId === 'src-b')).toHaveLength(1)
+      expect(passages1).toHaveLength(3)
+
+      // Scenario 2: Single source only exists in workspace/candidates.
+      // Should backfill past cap to satisfy topK.
+      const singleSourceRows = [
+        { chunk: { id: 'c-a1', page: 1, ordinal: 0, charStart: 0, charEnd: 10, text: 'A1' }, source: { id: 'src-a', title: 'Paper A', kind: 'paper' }, similarity: 0.95 },
+        { chunk: { id: 'c-a2', page: 2, ordinal: 1, charStart: 0, charEnd: 10, text: 'A2' }, source: { id: 'src-a', title: 'Paper A', kind: 'paper' }, similarity: 0.94 },
+        { chunk: { id: 'c-a3', page: 3, ordinal: 2, charStart: 0, charEnd: 10, text: 'A3' }, source: { id: 'src-a', title: 'Paper A', kind: 'paper' }, similarity: 0.93 },
+      ]
+      const mockDb2 = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            innerJoin: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                orderBy: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue(singleSourceRows),
+                }),
+              }),
+            }),
+          }),
+        }),
+      } as unknown as Database
+
+      const passages2 = await retrieveCrossSourcePassages(mockDb2, 'single source test', {
+        workspaceId: 'ws-single',
+        topK: 3,
+        maxPassagesPerSource: 2,
+        queryEmbedding: new Array(768).fill(0.1),
+      })
+      // Backfills past cap because only 1 distinct source exists in candidates
+      expect(passages2).toHaveLength(3)
+      expect(passages2.filter((p) => p.sourceId === 'src-a')).toHaveLength(3)
+    })
   })
 
   describe('askAcrossSources', () => {
@@ -545,7 +612,7 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
     })
   })
 
-  describe('Integration with real 3 demo papers (Issue #14 acceptance criteria)', () => {
+  describe('Integration with real 3 demo papers (synthesis and citation verification)', () => {
     it('answers cross-paper question and verifies verbatim citations across Strobl 2007, Strobl 2008, and Kursa 2010', async () => {
       const papersDir = path.resolve(process.cwd(), 'fixtures/papers')
       const strobl2007Pdf = path.join(papersDir, 'strobl-2007.pdf')
