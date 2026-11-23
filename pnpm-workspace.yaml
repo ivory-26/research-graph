@@ -3,3 +3,6 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@ai-sdk/mcp@2.0.103'
   - '@ai-sdk/react@4.0.184'
+  - '@xyflow/react@13.0.3'
+  - '@xyflow/system@1.0.1'
+  - unpdf@2.2.2

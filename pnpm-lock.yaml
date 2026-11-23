@@ -201,8 +201,8 @@ importers:
         specifier: 1.169.7
         version: 1.169.7(esbuild@0.28.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(rolldown@1.2.19)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
       '@xyflow/react':
-        specifier: 13.0.2
-        version: 13.0.2(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(use-sync-external-store@1.7.0(react@19.3.1))
+        specifier: 13.0.3
+        version: 13.0.3(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(use-sync-external-store@1.7.0(react@19.3.1))
       ai:
         specifier: 7.0.179
         version: 7.0.179(zod@4.6.7)
@@ -219,8 +219,8 @@ importers:
         specifier: 19.3.1
         version: 19.3.1(react@19.3.1)
       unpdf:
-        specifier: 2.2.1
-        version: 2.2.1
+        specifier: 2.2.2
+        version: 2.2.2
       zod:
         specifier: 4.6.7
         version: 4.6.7
@@ -1303,8 +1303,8 @@ packages:
   '@workflow/serde@4.1.0':
     resolution: {integrity: sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ==}
 
-  '@xyflow/react@13.0.2':
-    resolution: {integrity: sha512-dURQCKhz4TEYc43pp9yY4LeEvC7rmHLPeit396VKA9wSNjda245nA4JTZV3ieekB2dx7kwGjvXQELmsZ0FpVAA==}
+  '@xyflow/react@13.0.3':
+    resolution: {integrity: sha512-deKfJUYe1aAMd2j6g/LL+5YRbqIeebOXNfwHhdu6qk4L+h7XRY9UcBgqVSYT8WyXSX+3k6ZGr/hnfx7hLfgUtA==}
     engines: {node: '>=20'}
     peerDependencies:
       '@types/react': '>=18'
@@ -1317,8 +1317,8 @@ packages:
       '@types/react-dom':
         optional: true
 
-  '@xyflow/system@1.0.0':
-    resolution: {integrity: sha512-mOeG0ZIkEUY5V5XQS+LE3QKlJqL7gu5ukqxAniuDDpfxtkA4uagOmBiWKh3w59wZ5nBC7ojBcNrBukM3hUJBKg==}
+  '@xyflow/system@1.0.1':
+    resolution: {integrity: sha512-0vMyv9EbnV9lNe15USaIbBxJVuLF2awbzZNT+foIOd59Mpc2rw04oaozoms1TaSetTa376aHl7mJ/YNKqIoqJA==}
     engines: {node: '>=20'}
 
   ai@7.0.179:
@@ -1938,8 +1938,8 @@ packages:
     resolution: {integrity: sha512-Kt7EaPjh0s93lJH/PmW3d5rhkcpUa6fS3jqZ7+YGxNd9L7Xy/i827xe4C2uhhq+pJebM4tQOl5AgHmW11G5Skg==}
     engines: {node: '>=22.19.0'}
 
-  unpdf@2.2.1:
-    resolution: {integrity: sha512-tstQpe/fhxkDGY1ZtpejwnU14QZ9w0SYLo9lIZooB1zQ7QXVE4t+SBQUN/2a9+EBg9UrrO2bWlqdzV+UtoebHw==}
+  unpdf@2.2.2:
+    resolution: {integrity: sha512-oYnk0gwtIFVtkDbrll9SOEpXT4yCpCVkqQ/pxgxm9oNZ0GwpkEtRsrJZdyAvXHjaerrQTDFMaGWKWG+CKnb4cw==}
     engines: {node: '>=24'}
     peerDependencies:
       '@napi-rs/canvas': ^0.1.69 || ^1.0.0
@@ -2923,9 +2923,9 @@ snapshots:
 
   '@workflow/serde@4.1.0': {}
 
-  '@xyflow/react@13.0.2(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(use-sync-external-store@1.7.0(react@19.3.1))':
+  '@xyflow/react@13.0.3(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(use-sync-external-store@1.7.0(react@19.3.1))':
     dependencies:
-      '@xyflow/system': 1.0.0
+      '@xyflow/system': 1.0.1
       classcat: 5.0.5
       react: 19.3.1
       react-compiler-runtime: 1.0.0(react@19.3.1)
@@ -2938,7 +2938,7 @@ snapshots:
       - immer
       - use-sync-external-store
 
-  '@xyflow/system@1.0.0':
+  '@xyflow/system@1.0.1':
     dependencies:
       '@types/d3-drag': 3.0.7
       '@types/d3-interpolate': 3.0.4
@@ -3477,7 +3477,7 @@ snapshots:
 
   undici@8.13.1: {}
 
-  unpdf@2.2.1: {}
+  unpdf@2.2.2: {}
 
   unplugin@3.7.0(esbuild@0.28.2)(rolldown@1.2.19)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)):
     dependencies:
