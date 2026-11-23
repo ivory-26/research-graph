@@ -66,6 +66,27 @@ meta.botReview =
     .at(-1) ?? null
 
 writeFileSync("pr-context.json", JSON.stringify(meta, null, 2) + "\n")
+writeFileSync("pr-body.md", (meta.body ?? "") + "\n")
+
+// The JSON keeps the structured data, but long bodies arrive as one line and
+// can be truncated by a reader. The Markdown copies preserve line breaks.
+const discussion = []
+for (const review of meta.reviews) {
+  discussion.push(
+    `## Review by @${review.author ?? "unknown"} — ${review.state} — ${review.submittedAt ?? ""}\n\n${review.body || "(no body)"}\n`,
+  )
+}
+for (const comment of meta.inlineReviewComments) {
+  discussion.push(
+    `## Inline review comment by @${comment.author ?? "unknown"} on \`${comment.path}:${comment.line ?? "?"}\` — ${comment.createdAt ?? ""}\n\n${comment.body || "(no body)"}\n`,
+  )
+}
+for (const comment of meta.issueComments) {
+  discussion.push(
+    `## Comment by @${comment.author ?? "unknown"} — ${comment.createdAt ?? ""}\n\n${comment.body || "(no body)"}\n`,
+  )
+}
+writeFileSync("pr-discussion.md", discussion.join("\n---\n\n") || "No reviews or comments.\n")
 
 // The model has a 1M-token window; a 1MB diff is a safe ceiling and leaves room for the repo.
 const MAX_DIFF = 1_000_000

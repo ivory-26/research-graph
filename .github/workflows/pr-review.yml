@@ -127,6 +127,10 @@ jobs:
             run_check db-check pnpm db:check
           fi
           cat "$checks"
+          if grep -qE '^\- [a-z-]+: (FAIL|NOT RUN)' "$checks"; then
+            echo "::error::One or more automated checks failed."
+            exit 1
+          fi
 
       - name: Upload check results
         if: always()
@@ -211,7 +215,15 @@ jobs:
           git checkout "origin/${BASE_REF}" -- docs
           rm -f CLAUDE.md GLOSSARY.md
           git checkout "origin/${BASE_REF}" -- CLAUDE.md GLOSSARY.md
-          for f in AGENTS.md .npmrc opencode.jsonc opencode.json; do
+          # AGENTS.md is an instruction source at any depth. Remove every
+          # tracked copy, then restore only the base branch's files.
+          { git ls-files | grep -E '(^|/)AGENTS\.md$' || true; } | while read -r f; do rm -f "$f"; done
+          { git ls-tree -r --name-only "origin/${BASE_REF}" | grep -E '(^|/)AGENTS\.md$' || true; } | while read -r f; do
+            mkdir -p "$(dirname "$f")"
+            git show "origin/${BASE_REF}:${f}" > "$f"
+          done
+
+          for f in .npmrc opencode.jsonc opencode.json; do
             if git cat-file -e "origin/${BASE_REF}:${f}" 2>/dev/null; then
               git checkout "origin/${BASE_REF}" -- "$f"
             else
@@ -244,14 +256,24 @@ jobs:
             fi
           done
 
-          # Integrity pins: the reviewer and the scripts that run with the
-          # workflow token are fixed even if the checkout is PR-supplied.
-          printf '%s  %s\n' \
-            "3efcddf97caa8f285d79872279f3c0e2a60c14844a947694812bcfcb12674ba7" ".opencode/agents/pr-review.md" \
-            "f61924d69a43cca65365e332d01aba56d47146615eb1d470738e393544158f9e" ".github/scripts/pr-context.mjs" \
-            "4588a67967b901dc7c37cab0e9619d23cf968a49405af35b8b2fd8107cf7842b" ".github/scripts/extract-review.mjs" \
-            "b68a33ea69e864024a994f305c91c347f095f196932911704a1b6df698fcffd9" ".github/scripts/extract-review.test.mjs" \
-            | sha256sum --check --status
+          # Integrity pins are a transitional guard: when the base branch
+          # cannot supply the reviewer and scripts, the PR-supplied versions
+          # must match. Once the base has them, the base restore is the trust
+          # boundary, so ordinary updates do not need to rewrite these pins.
+          if ! git cat-file -e "origin/${BASE_REF}:.opencode/agents/pr-review.md" 2>/dev/null \
+             || ! git cat-file -e "origin/${BASE_REF}:.github/scripts/pr-context.mjs" 2>/dev/null \
+             || ! git cat-file -e "origin/${BASE_REF}:.github/scripts/extract-review.mjs" 2>/dev/null \
+             || ! git cat-file -e "origin/${BASE_REF}:.github/scripts/extract-review.test.mjs" 2>/dev/null; then
+            if ! printf '%s  %s\n' \
+              "822cec85099635e611203df5859ce81143763f8d092a77449440e0cb740b42f4" ".opencode/agents/pr-review.md" \
+              "1ad127c72085c2e1985b589f44fa247db5a5573e8c9253ed8126e8cc98b8be83" ".github/scripts/pr-context.mjs" \
+              "4588a67967b901dc7c37cab0e9619d23cf968a49405af35b8b2fd8107cf7842b" ".github/scripts/extract-review.mjs" \
+              "b68a33ea69e864024a994f305c91c347f095f196932911704a1b6df698fcffd9" ".github/scripts/extract-review.test.mjs" \
+              | sha256sum --check; then
+              echo "::error::Pinned review files changed. Update the pins in .github/workflows/pr-review.yml in the same PR."
+              exit 1
+            fi
+          fi
 
           # The model step must not inherit a git credential.
           git config --local --unset-all http.https://github.com/.extraheader || true
@@ -308,7 +330,7 @@ jobs:
             --agent pr-review \
             --model opencode-go/deepseek-v4.1-flash \
             --format json \
-            "Review the pull request described in pr-context.json. Read pr.diff, linked-issues.md, checks.md, CLAUDE.md, GLOSSARY.md, and the docs they reference. Verify the source issue's definition of done, cross-check every human review and your previous review, and follow your output contract exactly. Do not modify files, run commands, or post anything; the workflow handles the comment." \
+            "Review the pull request described in pr-context.json and pr-body.md. Read pr.diff, pr-discussion.md, linked-issues.md, checks.md, CLAUDE.md, GLOSSARY.md, and the docs they reference. Verify the source issue's definition of done, cross-check every human review and your previous review, and follow your output contract exactly. Do not modify files, run commands, or post anything; the workflow handles the comment." \
             > opencode-events.ndjson
 
       - name: Post the review
@@ -376,6 +398,18 @@ jobs:
             {
               echo "## Blockers"
               echo "- Automated checks did not pass. See \`checks.md\` in the workflow artifact."
+              echo
+              cat review-body.md
+            } > review-body-gated.md
+            mv review-body-gated.md review-body.md
+          fi
+
+          review_decision=$(node -p "require('./pr-context.json').reviewDecision ?? ''")
+          if [[ "$gate" == "READY" && "$review_decision" == "CHANGES_REQUESTED" ]]; then
+            gate=FINDINGS
+            {
+              echo "## Blockers"
+              echo "- A human review requested changes. Resolve it and request a re-review before this can be READY."
               echo
               cat review-body.md
             } > review-body-gated.md
@@ -492,6 +526,18 @@ jobs:
             gh pr comment "$PR_NUMBER" --body-file notify.md
           fi
 
+      - name: Report review failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          author=$(gh pr view "$PR_NUMBER" --json author --jq .author.login)
+          sha=$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)
+          printf '@%s — the automated review did not complete for `%s`. See the Actions run: %s\n' \
+            "$author" "${sha:0:7}" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > review-failed.md
+          gh pr comment "$PR_NUMBER" --body-file review-failed.md
+
       - name: Keep the review output
         if: always()
         uses: actions/upload-artifact@v7
@@ -499,6 +545,8 @@ jobs:
           name: pr-review-${{ github.event.pull_request.number || inputs.pr }}
           path: |
             pr-context.json
+            pr-body.md
+            pr-discussion.md
             pr.diff
             linked-issues.md
             checks.md
