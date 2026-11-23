@@ -1,16 +1,11 @@
 import { and, cosineDistance, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database } from '../db/client'
-import {
-  sourceChunks,
-  sources,
-  type SourceChunkRow,
-  type SourceRow,
-} from '../db/schema'
+import { sourceChunks, sources } from '../db/schema'
 import type { CallModel, CallModelContext } from './model'
 import { agentTaskStore, callModel as defaultCallModel } from './model'
 import { embedQuery, type EmbedDeps } from './ingest/embed'
-import { normalizeQuote, verifyVerbatimQuote } from './extract/quote'
+import { verifyVerbatimQuote } from './extract/quote'
 
 export const DEFAULT_MIN_RETRIEVAL_SIMILARITY = 0.5
 
@@ -360,6 +355,7 @@ Guidelines:
    - quote: the exact verbatim substring from the passage text supporting the statement (do not paraphrase within the quote!)
    - claimSupported: brief description of what the quote proves
 4. Do NOT cite anything that is not in the provided passages.
+5. Limit citations to at most 12 citations.
 
 User Question:
 ${trimmed}
@@ -404,7 +400,7 @@ ${passageContext}`
     const updateStatus =
       options.updateTaskStatusFn ??
       (async (taskId, status, error) => {
-        if (process.env.DATABASE_URL) {
+        if (process.env.DATABASE_URL && UUID_REGEX.test(taskId)) {
           const { getDb } = await import('../db/client')
           const { agentTasks } = await import('../db/schema')
           const { eq } = await import('drizzle-orm')
