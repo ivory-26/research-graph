@@ -1,7 +1,7 @@
 import { embed, embedMany, type EmbeddingModel } from 'ai'
 import { createGoogleGenerativeAI, google } from '@ai-sdk/google'
 import type { Chunk, EmbedOptions } from './types'
-import { agentTaskStore, isRateLimitError } from '../model'
+import { agentTaskStore, enqueueProcessTask, isRateLimitError } from '../model'
 
 /** The pinned embedding model (CLAUDE.md & Issue #11). */
 export const DEFAULT_EMBEDDING_MODEL_ID = 'gemini-embedding-2'
@@ -34,14 +34,8 @@ function backoffDelayMs(retryIndex: number): number {
   return Math.floor(jitter * ceiling)
 }
 
-// Global sequential queue for all embedding calls (ADR 0009: sequential rate-limited execution)
-let queueTail: Promise<unknown> = Promise.resolve()
-
-function enqueue<T>(task: () => Promise<T>): Promise<T> {
-  const next = queueTail.then(task, task)
-  queueTail = next.then(() => {}, () => {})
-  return next
-}
+// Shared process-wide sequential queue for all model calls (ADR 0009: sequential rate-limited execution)
+const enqueue = enqueueProcessTask
 
 const modelCache = new Map<string, EmbeddingModel>()
 

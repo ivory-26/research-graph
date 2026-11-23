@@ -9,7 +9,7 @@ import {
 
 export const DEFAULT_SINGLE_PASS_MAX_CHARS = 30_000
 
-export type ExtractionStrategy = 'single_pass' | 'chunk_by_chunk' | 'hierarchical'
+export type ExtractionStrategy = 'single_pass' | 'sectioned' | 'table_first'
 
 export type UpdateTaskStatusFn = (
   taskId: string,
@@ -164,7 +164,7 @@ export async function extractClaims(
         ? 'Model returned no claims.'
         : 'All proposed claims were rejected due to unverified verbatim quotes.'
 
-    await updateStatus(result.task.id, 'rejected', rejectReason).catch(() => {})
+    await updateStatus(result.task.id, 'rejected', rejectReason)
   }
 
   return {

@@ -453,8 +453,8 @@ describe('Issue #11 Acceptance Test: Real Embedding & Stored Vector Search', () 
         const { chunks } = await ingestPdf(buf)
         expect(chunks.length).toBeGreaterThan(0)
 
-        // Take first 20 chunks to cover both abstract and methods on Gini/permutation importance
-        const testChunks = chunks.slice(0, 20)
+        // Ingest and store the full chunk set of Strobl 2007
+        const testChunks = chunks
 
         // 2. Insert test workspace and source
         await db.insert(workspaces).values({
