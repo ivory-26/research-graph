@@ -68,7 +68,7 @@ export interface RejectedCitation {
   page: number | null
   quote: string
   claimSupported: string
-  reason: 'quote_not_found_in_chunk' | 'chunk_not_found'
+  reason: 'quote_not_found_in_chunk' | 'chunk_not_found' | 'mismatched_source'
 }
 
 export interface RetrievePassagesOptions {
@@ -224,7 +224,7 @@ export function verifyCitationQuotes(
     if (cit.sourceId && cit.sourceId !== passage.sourceId) {
       rejected.push({
         ...cit,
-        reason: 'quote_not_found_in_chunk',
+        reason: 'mismatched_source',
       })
       continue
     }
@@ -282,7 +282,7 @@ export async function askAcrossSources(
       const { getDb } = await import('../db/client')
       deps.db = getDb()
     }
-    passages = await retrieveCrossSourcePassages(deps.db, trimmed, options, deps)
+    passages = await retrieveCrossSourcePassages(deps.db, trimmed, { ...options, workspaceId }, deps)
   }
 
   // Deduplicate sources consulted
@@ -347,13 +347,18 @@ ${passageContext}`
       : null
 
   const ctx: CallModelContext = {
-    workspaceId,
-    taskKind: 'ask_across_sources',
     store: options.context?.store ?? agentTaskStore,
-    strategyId: validStrategyId,
-    inputRef: { query: trimmed, passageCount: passages.length, strategy: 'ask_across_sources' },
     signal: options.abortSignal,
     ...options.context,
+    workspaceId,
+    taskKind: 'ask_across_sources',
+    strategyId: validStrategyId,
+    inputRef: {
+      ...(options.context?.inputRef ?? {}),
+      query: trimmed,
+      passageCount: passages.length,
+      strategy: 'ask_across_sources',
+    },
   }
 
   const modelResult = await callModelFn(RetrievalAnswerSchema, prompt, ctx)
