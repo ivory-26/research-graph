@@ -183,6 +183,15 @@ describe('PDF Ingestion Integration with Fixtures', () => {
         expect(result.fullText.slice(page.charStart, page.charEnd)).toBe(page.text)
       }
 
+      // Verify Page 1 reading order
+      const page1 = result.pages[0]
+      expect(page1.page).toBe(1)
+      expect(page1.text).toContain('Bias in random forest variable importance measures')
+      expect(page1.text).toContain('Abstract')
+      expect(page1.text).toContain('Background:')
+      expect(page1.text).toContain('Conclusion:')
+      expect(page1.text.indexOf('Background:')).toBeLessThan(page1.text.indexOf('Conclusion:'))
+
       // Verify Page 2 reading order preserves column 1 before column 2
       const page2 = result.pages[1]
       expect(page2.page).toBe(2)
@@ -224,6 +233,20 @@ describe('PDF Ingestion Integration with Fixtures', () => {
         expect(result.fullText.slice(page.charStart, page.charEnd)).toBe(page.text)
       }
 
+      // Verify reading order on page 1 of Strobl 2008 (no column-interleaving)
+      const page1 = result.pages[0]
+      expect(page1).toBeDefined()
+      expect(page1.text).toContain('1 Background')
+      expect(page1.text).toContain('Within the past few years, random forests')
+      expect(page1.text).toContain('Identifying relevant predictor variables')
+      expect(page1.text).not.toContain('varpredictive accuracy')
+      expect(page1.text).toContain('predictive accuracy')
+      expect(page1.text).toContain('candidate predictor variables')
+
+      const p1Col1Idx = page1.text.indexOf('Within the past few years, random forests')
+      const p1Col2Idx = page1.text.indexOf('Identifying relevant predictor variables')
+      expect(p1Col1Idx).toBeLessThan(p1Col2Idx)
+
       // Verify reading order preserves two-column layout on page 2 (column 1 before column 2)
       const page2 = result.pages[1]
       expect(page2).toBeDefined()
@@ -252,10 +275,14 @@ describe('PDF Ingestion Integration with Fixtures', () => {
         expect(result.fullText.slice(page.charStart, page.charEnd)).toBe(page.text)
       }
 
-      // Page 1 should contain title and abstract
+      // Page 1 should contain title and abstract in proper reading order
       const page1 = result.pages[0]
       expect(page1.text).toContain('Feature Selection with the Boruta Package')
       expect(page1.text).toContain('Abstract')
+      expect(page1.text).toContain('1. Introduction')
+      expect(page1.text.indexOf('Feature Selection with the Boruta Package')).toBeLessThan(
+        page1.text.indexOf('1. Introduction'),
+      )
     },
     15000,
   )
