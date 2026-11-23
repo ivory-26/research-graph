@@ -59,7 +59,7 @@ export const ProposedEdgeSchema = z.object({
 })
 
 export const ProposeEdgesResultSchema = z.object({
-  edges: z.array(ProposedEdgeSchema),
+  edges: z.array(ProposedEdgeSchema).max(12),
 })
 
 export type ExtractedClaim = z.infer<typeof ExtractedClaimSchema>

@@ -1,3 +1,5 @@
+import type { Database } from '../../db/client'
+import { edges, type EdgeRow } from '../../db/schema'
 import { callModel as defaultCallModel, type CallModel } from '../model'
 import { normalizeQuote, verifyVerbatimQuote } from './quote'
 import {
@@ -21,6 +23,7 @@ export const ACCEPTANCE_CONFIDENCE_THRESHOLD = 0.65
  * 1. No self-loops: `fromNodeId !== toNodeId` (matches `edges_no_self_loop` check constraint)
  * 2. Node references must exist in the workspace
  * 3. Evidence chunk must exist and contain the quote verbatim (matches `edges_have_evidence` constraint)
+ *    NO SILENT RE-BINDING: if quote is in chunk-2 but edge cites chunk-1, it is strictly rejected.
  * 4. `confidence < 0.65` lands as `suggested`
  * 5. `contradicts` ALWAYS lands as `suggested`, regardless of confidence
  */
@@ -65,28 +68,15 @@ export function validateProposedEdges(
       continue
     }
 
-    // 4. Chunk resolution
-    let targetChunk = chunkMap.get(edge.evidenceChunkId)
-    if (!targetChunk) {
-      const parsedOrdinal = parseInt(edge.evidenceChunkId, 10)
-      if (!Number.isNaN(parsedOrdinal)) {
-        targetChunk = chunks.find((c) => c.ordinal === parsedOrdinal)
-      }
-    }
-    // Fallback: search if quote uniquely matches any chunk
-    if (!targetChunk) {
-      const match = chunks.find((c) => verifyVerbatimQuote(edge.quote, c.text))
-      if (match) {
-        targetChunk = match
-      }
-    }
-
+    // 4. Chunk resolution: strictly lookup the chunk referenced by evidenceChunkId.
+    // Invariant: no silent fallback scanning across all chunks.
+    const targetChunk = chunkMap.get(edge.evidenceChunkId)
     if (!targetChunk) {
       rejected.push({ edge, reason: 'CHUNK_NOT_FOUND' })
       continue
     }
 
-    // 5. Verbatim quote validation in evidence chunk
+    // 5. Verbatim quote validation strictly within the cited evidence chunk
     const isVerbatim = verifyVerbatimQuote(edge.quote, targetChunk.text)
     if (!isVerbatim) {
       rejected.push({ edge, reason: 'VERBATIM_QUOTE_NOT_FOUND' })
@@ -109,7 +99,7 @@ export function validateProposedEdges(
       status,
       evidenceChunkId: targetChunk.id || String(targetChunk.ordinal),
       matchedQuote: normalizeQuote(edge.quote),
-      rationale: edge.rationale.trim(),
+      rationale: (edge.rationale || '').trim(),
     })
   }
 
@@ -118,16 +108,21 @@ export function validateProposedEdges(
 
 /**
  * Builds the prompt asking Gemini to propose typed edges between existing workspace nodes.
+ * Caps the evidence chunks to top-k (default: 8) to maintain focus and prevent token exhaustion.
  */
 export function buildProposeEdgesPrompt(
   nodes: NodeSummary[],
   chunks: ChunkRef[],
+  options?: { topKChunks?: number },
 ): string {
+  const topK = options?.topKChunks ?? 8
+  const selectedChunks = chunks.slice(0, topK)
+
   const nodeList = nodes
     .map((n) => `[ID: ${n.id}] (${n.type}) ${n.title}: ${n.summary || ''}`)
     .join('\n')
 
-  const chunkList = chunks
+  const chunkList = selectedChunks
     .map((c) => `--- CHUNK ID: ${c.id || c.ordinal} (Page ${c.page ?? '?'}) ---\n${c.text}`)
     .join('\n\n')
 
@@ -152,13 +147,15 @@ RULES:
 1. No self-loops: fromNodeId and toNodeId MUST be different.
 2. Every edge MUST have an exact, VERBATIM quote from one of the evidence chunks proving this relationship.
 3. Assign a calibrated confidence score between 0.0 and 1.0 based on how directly the quote substantiates the relation.
-4. "evidenceChunkId" must be the exact CHUNK ID containing the quote.`
+4. "evidenceChunkId" must be the exact CHUNK ID containing the quote.
+5. Limit proposals to at most 12 edges.`
 }
 
 export interface ProposeEdgesOptions {
   workspaceId: string
   nodes: NodeSummary[]
   chunks: ChunkRef[]
+  topKChunks?: number
   /** Injected callModel implementation (defaults to production callModel) */
   callModelFn?: CallModel
 }
@@ -169,13 +166,13 @@ export interface ProposeEdgesOptions {
 export async function proposeEdges(
   options: ProposeEdgesOptions,
 ): Promise<ProposeEdgesOutcome> {
-  const { workspaceId, nodes, chunks, callModelFn = defaultCallModel } = options
+  const { workspaceId, nodes, chunks, topKChunks, callModelFn = defaultCallModel } = options
 
   if (nodes.length < 2 || chunks.length === 0) {
     return { acceptedEdges: [], rejectedEdges: [] }
   }
 
-  const prompt = buildProposeEdgesPrompt(nodes, chunks)
+  const prompt = buildProposeEdgesPrompt(nodes, chunks, { topKChunks })
 
   const result = await callModelFn<ProposeEdgesResult>(
     ProposeEdgesResultSchema,
@@ -196,4 +193,36 @@ export async function proposeEdges(
     rejectedEdges: rejected,
     taskId: result.task?.id,
   }
+}
+
+/**
+ * Persists accepted edges into the database inside a transaction.
+ * Satisfies the `edges_have_evidence` foreign key / check constraint.
+ */
+export async function storeEdges(
+  db: Database,
+  workspaceId: string,
+  edgesToStore: ValidatedEdge[],
+): Promise<EdgeRow[]> {
+  if (edgesToStore.length === 0) return []
+
+  return await db.transaction(async (tx) => {
+    const inserted: EdgeRow[] = []
+    for (const edge of edgesToStore) {
+      const rows = await tx
+        .insert(edges)
+        .values({
+          workspaceId,
+          sourceNodeId: edge.fromNodeId,
+          targetNodeId: edge.toNodeId,
+          relation: edge.relation,
+          confidence: edge.confidence,
+          status: edge.status,
+          evidenceChunkId: edge.evidenceChunkId,
+        })
+        .returning()
+      if (rows[0]) inserted.push(rows[0])
+    }
+    return inserted
+  })
 }
