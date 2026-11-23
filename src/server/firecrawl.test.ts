@@ -22,6 +22,12 @@ describe('Firecrawl Web & Repo Ingestion (Issue #15)', () => {
       expect(isPdfUrl('https://github.com/cran/party')).toBe(false)
       expect(isPdfUrl('https://cran.r-project.org/web/packages/party/index.html')).toBe(false)
     })
+
+    it('detects PDF from scrape metadata content-type even without .pdf extension', () => {
+      expect(isPdfUrl('https://arxiv.org/abs/2103.00020', { 'content-type': 'application/pdf' })).toBe(true)
+      expect(isPdfUrl('https://example.com/stream/document', { mimeType: 'application/pdf; charset=binary' })).toBe(true)
+      expect(isPdfUrl('https://example.com/article', { 'content-type': 'text/html' })).toBe(false)
+    })
   })
 
   describe('scrapeWithFirecrawl', () => {
@@ -147,6 +153,12 @@ cforest implements conditional permutation importance which removes spurious cor
       expect(res.embeddings.length).toBe(res.chunks.length)
       expect(res.embeddings[0]).toHaveLength(768)
       expect(mockEmbedder).toHaveBeenCalledTimes(1)
+      expect(mockEmbedder).toHaveBeenCalledWith(
+        res.chunks,
+        { workspaceId: 'ws-1' },
+        expect.anything(),
+      )
+      expect(mockDb.transaction).toHaveBeenCalled()
     })
 
     it('auto-detects github.com URLs as repo kind', async () => {

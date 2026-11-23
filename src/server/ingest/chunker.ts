@@ -52,19 +52,27 @@ export function chunkDocument(
       charEnd = boundary
     }
 
-    const chunkText = fullText.slice(charStart, charEnd).trim()
+    const rawSlice = fullText.slice(charStart, charEnd)
+    const leadingMatch = rawSlice.match(/^\s+/)
+    const leadingOffset = leadingMatch ? leadingMatch[0].length : 0
+    const trailingMatch = rawSlice.match(/\s+$/)
+    const trailingOffset = trailingMatch ? trailingMatch[0].length : 0
+
+    const chunkText = rawSlice.trim()
     // docs/03: "if a chunk contains no alphanumeric content it is dropped, not embedded"
     const hasAlphanumeric = /[a-zA-Z0-9]/.test(chunkText)
     if (chunkText.length > 0 && hasAlphanumeric) {
-      const page = findPageForCharOffset(charStart, pages)
+      const actualStart = charStart + leadingOffset
+      const actualEnd = charEnd - trailingOffset
+      const page = findPageForCharOffset(actualStart, pages)
       const tokenCount = estimateTokens(chunkText, charsPerToken)
 
       chunks.push({
         ordinal,
         text: chunkText,
         page,
-        charStart,
-        charEnd,
+        charStart: actualStart,
+        charEnd: actualEnd,
         tokenCount,
       })
       ordinal++
