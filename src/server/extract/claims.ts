@@ -44,11 +44,17 @@ CRITICAL REQUIREMENT:
 Every quote MUST exist verbatim inside the designated chunk text. Any claim whose quote cannot be found verbatim in the text will be immediately rejected.`
 }
 
+export type ExtractionStrategy = 'single_pass' | 'sectioned' | 'table_first'
+export const DEFAULT_SINGLE_PASS_MAX_CHARS = 30_000
+
 export interface ExtractClaimsOptions {
   workspaceId: string
   sourceId: string
   chunks: ChunkRef[]
   sourceTitle?: string
+  strategy?: ExtractionStrategy
+  strategyId?: string | null
+  maxChars?: number
   /** Injected callModel implementation (defaults to production callModel) */
   callModelFn?: CallModel
 }
@@ -59,12 +65,21 @@ export interface ExtractClaimsOptions {
  * Rules:
  * - One structured model call per source
  * - Enforces max 12 claims
+ * - single_pass strategy restricts input to the first 30,000 characters per docs/03
  * - Rejects any claim whose quote does not appear verbatim in its source chunk
  */
 export async function extractClaims(
   options: ExtractClaimsOptions,
 ): Promise<ExtractionOutcome> {
-  const { workspaceId, sourceId, chunks, sourceTitle, callModelFn = defaultCallModel } = options
+  const {
+    workspaceId,
+    sourceId,
+    chunks,
+    sourceTitle,
+    strategy = 'single_pass',
+    strategyId = strategy,
+    callModelFn = defaultCallModel,
+  } = options
 
   if (chunks.length === 0) {
     return {
@@ -76,7 +91,22 @@ export async function extractClaims(
     }
   }
 
-  const prompt = buildExtractionPrompt(chunks, sourceTitle)
+  // docs/03: single_pass — first 30k characters, one call
+  let targetChunks = chunks
+  if (strategy === 'single_pass') {
+    const maxChars = options.maxChars ?? DEFAULT_SINGLE_PASS_MAX_CHARS
+    let accumulatedChars = 0
+    targetChunks = []
+    for (const chunk of chunks) {
+      if (accumulatedChars >= maxChars && targetChunks.length > 0) {
+        break
+      }
+      targetChunks.push(chunk)
+      accumulatedChars += chunk.text.length
+    }
+  }
+
+  const prompt = buildExtractionPrompt(targetChunks, sourceTitle)
 
   const result = await callModelFn<ExtractionResult>(
     ExtractionResultSchema,
@@ -84,16 +114,17 @@ export async function extractClaims(
     {
       workspaceId,
       taskKind: 'extract_claims',
+      strategyId,
       // Lazily import the agentTaskStore to avoid DB imports in pure unit test runs
       store: (await import('../model')).agentTaskStore,
-      inputRef: { sourceId, chunkCount: chunks.length },
+      inputRef: { sourceId, chunkCount: targetChunks.length, strategy },
     },
   )
 
   const raw = result.output
 
   // Validate verbatim quotes against actual source chunks
-  const { accepted, rejected } = validateClaimQuotes(raw.claims, chunks)
+  const { accepted, rejected } = validateClaimQuotes(raw.claims, targetChunks)
 
   return {
     acceptedClaims: accepted,
