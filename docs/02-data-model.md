@@ -2,6 +2,8 @@
 
 Postgres on Neon, accessed through Drizzle. Six tables carry the product; the rest are supporting.
 
+The executable form is [`src/db/schema.ts`](../src/db/schema.ts), with generated SQL in [`src/db/migrations/`](../src/db/migrations/); exports and connection usage are documented in [`src/db/README.md`](../src/db/README.md). If the code and this document disagree, this document wins and the schema is the bug.
+
 ## Enums
 
 ```ts

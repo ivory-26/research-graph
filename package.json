@@ -11,7 +11,9 @@
     "dev": "vite dev",
     "build": "vite build",
     "start": "node .output/server/index.mjs",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/server/pipeline-transport/*.test.ts\" && vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "node src/db/bootstrap.mjs && drizzle-kit push",
@@ -21,6 +23,7 @@
   "dependencies": {
     "@ai-sdk/google": "4.0.124",
     "@ai-sdk/react": "4.0.184",
+    "@neon/auth": "0.8.2",
     "@neondatabase/serverless": "1.2.1",
     "@tanstack/react-router": "1.170.46",
     "@tanstack/react-start": "1.169.7",
@@ -41,6 +44,7 @@
     "drizzle-kit": "0.31.11",
     "nitro": "3.0.261103-rc",
     "typescript": "7.0.2",
-    "vite": "8.3.8"
+    "vite": "8.3.8",
+    "vitest": "5.1.1"
   }
 }
