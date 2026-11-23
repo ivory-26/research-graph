@@ -11,6 +11,7 @@ import {
   type RetrievedPassage,
   type RetrievalAnswer,
   type RetrievalCitation,
+  type RetrievalDeps,
 } from './retrieval'
 
 describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
@@ -337,7 +338,7 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       expect(result.rejectedCitations[0]?.reason).toBe('quote_not_found_in_chunk')
     })
 
-    it('rejects citations where cit.sourceId does not match passage.sourceId', async () => {
+    it('rejects citations where cit.sourceId does not match passage.sourceId with mismatched_source', async () => {
       const mismatchedCitations: RetrievalCitation[] = [
         {
           sourceId: 'source-wrong-paper', // Mismatched!
@@ -352,7 +353,75 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       const { accepted, rejected } = verifyCitationQuotes(mismatchedCitations, samplePassages)
       expect(accepted).toHaveLength(0)
       expect(rejected).toHaveLength(1)
-      expect(rejected[0]?.reason).toBe('quote_not_found_in_chunk')
+      expect(rejected[0]?.reason).toBe('mismatched_source')
+    })
+
+    it('forwards resolved workspaceId when supplied only via context override', async () => {
+      let passedWorkspaceId: string | undefined
+      const fakeEmbedQuery = vi.fn().mockImplementation(async (_query, opts) => {
+        passedWorkspaceId = opts?.workspaceId
+        return new Array(768).fill(0.05)
+      })
+
+      const mockLimit = vi.fn().mockResolvedValue([])
+      const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit })
+      const mockWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy })
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin })
+      const mockSelect = vi.fn().mockReturnValue({ from: mockFrom })
+      const mockDb = { select: mockSelect } as unknown as Database
+
+      const fakeDeps: RetrievalDeps = {
+        db: mockDb,
+        embedQueryFn: fakeEmbedQuery,
+        callModelFn: vi.fn().mockResolvedValue({
+          output: { answer: 'Synthesized answer', citations: [] },
+          task: { id: 'task-c1' },
+          attempts: [],
+        }),
+      }
+
+      await askAcrossSources(
+        'What is the answer?',
+        {
+          context: { workspaceId: 'ws-context-only', strategyId: 'invalid-non-uuid-string' },
+        },
+        fakeDeps,
+      )
+
+      expect(passedWorkspaceId).toBe('ws-context-only')
+      expect(mockSelect).toHaveBeenCalled()
+    })
+
+    it('prevents caller context from overriding sanitized strategyId or taskKind', async () => {
+      let capturedCtx: any = null
+      const fakeDeps: RetrievalDeps = {
+        callModelFn: vi.fn().mockImplementation(async (_schema, _prompt, ctx) => {
+          capturedCtx = ctx
+          return {
+            output: { answer: 'Answer', citations: [] },
+            task: { id: 'task-override-check' },
+            attempts: [],
+          }
+        }),
+      }
+
+      await askAcrossSources(
+        'Check context override safety',
+        {
+          passages: samplePassages,
+          workspaceId: 'ws-safe-1',
+          context: {
+            strategyId: 'not-a-uuid-format',
+            taskKind: 'extract_claims' as any, // Attemped spoof!
+          },
+        },
+        fakeDeps,
+      )
+
+      expect(capturedCtx.strategyId).toBeNull()
+      expect(capturedCtx.taskKind).toBe('ask_across_sources')
+      expect(capturedCtx.workspaceId).toBe('ws-safe-1')
     })
 
     it('unconditionally sets sourceTitle and page from authentic passage data', async () => {

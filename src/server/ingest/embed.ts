@@ -1,7 +1,7 @@
 import { embed, embedMany, type EmbeddingModel } from 'ai'
 import { createGoogleGenerativeAI, google } from '@ai-sdk/google'
 import type { Chunk, EmbedOptions } from './types'
-import { agentTaskStore, isRateLimitError } from '../model'
+import { agentTaskStore, enqueueProcessTask, isRateLimitError } from '../model'
 
 /** The pinned embedding model (CLAUDE.md & Issue #11). */
 export const DEFAULT_EMBEDDING_MODEL_ID = 'gemini-embedding-2'
@@ -34,14 +34,8 @@ function backoffDelayMs(retryIndex: number): number {
   return Math.floor(jitter * ceiling)
 }
 
-// Global sequential queue for all embedding calls (ADR 0009: sequential rate-limited execution)
-let queueTail: Promise<unknown> = Promise.resolve()
-
-function enqueue<T>(task: () => Promise<T>): Promise<T> {
-  const next = queueTail.then(task, task)
-  queueTail = next.then(() => {}, () => {})
-  return next
-}
+// Shared process-wide sequential queue for all model calls (ADR 0009: sequential rate-limited execution)
+const enqueue = enqueueProcessTask
 
 const modelCache = new Map<string, EmbeddingModel>()
 
@@ -196,7 +190,29 @@ export async function embedChunks(
         ? ((promptTokens * DEFAULT_EMBEDDING_PRICE_PER_MILLION) / 1_000_000).toFixed(6)
         : null
 
-    // Validate dimensions BEFORE inserting success row
+    // Validate embeddings count and dimensions BEFORE inserting success row
+    if (result.embeddings.length !== batch.length) {
+      if (options.workspaceId) {
+        await taskStore.insert({
+          workspaceId: options.workspaceId,
+          strategyId: options.strategyId ?? null,
+          taskKind: 'ingest',
+          model: DEFAULT_EMBEDDING_MODEL_ID,
+          status: 'failed',
+          inputRef: { batchIndex: i / batchSize, itemCount: batch.length },
+          output: null,
+          error: `Embedding batch returned ${result.embeddings.length} vectors, expected ${batch.length}.`,
+          promptTokens,
+          completionTokens: 0,
+          costUsd,
+          latencyMs,
+        })
+      }
+      throw new Error(
+        `Embedding batch returned ${result.embeddings.length} vectors, expected ${batch.length}.`,
+      )
+    }
+
     for (const vec of result.embeddings) {
       if (vec.length !== dimensions) {
         if (options.workspaceId) {

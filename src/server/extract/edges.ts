@@ -1,6 +1,6 @@
 import type { Database } from '../../db/client'
 import { edges, type EdgeRow } from '../../db/schema'
-import { callModel as defaultCallModel, type CallModel } from '../model'
+import { callModel as defaultCallModel, type CallModel, agentTaskStore } from '../model'
 import { normalizeQuote, verifyVerbatimQuote } from './quote'
 import {
   ProposeEdgesResultSchema,
@@ -137,7 +137,7 @@ export function buildProposeEdgesPrompt(
     .join('\n')
 
   const chunkList = selectedChunks
-    .map((c) => `--- CHUNK ID: ${c.id || c.ordinal} (Page ${c.page ?? '?'}) ---\n${c.text}`)
+    .map((c) => `--- CHUNK ID: ${c.id} (Page ${c.page ?? '?'}) ---\n${c.text}`)
     .join('\n\n')
 
   return `WORKSPACE NODES:
@@ -188,6 +188,15 @@ export async function proposeEdges(
     return { acceptedEdges: [], rejectedEdges: [] }
   }
 
+  // Enforce that evidence chunks carry valid UUIDs so proposed edges can be persisted
+  for (const chunk of chunks) {
+    if (!chunk.id || !UUID_REGEX.test(chunk.id)) {
+      throw new Error(
+        `Every chunk passed to proposeEdges must have a valid UUID id. Received: ${chunk.id}`,
+      )
+    }
+  }
+
   const prompt = buildProposeEdgesPrompt(nodes, chunks, { topKChunks })
   const topK = options.topKChunks ?? 8
   const selectedChunks = chunks.slice(0, topK)
@@ -198,7 +207,7 @@ export async function proposeEdges(
     {
       workspaceId,
       taskKind: 'propose_edges',
-      store: (await import('../model')).agentTaskStore,
+      store: agentTaskStore,
       inputRef: { nodeCount: nodes.length, chunkCount: selectedChunks.length },
     },
   )
