@@ -31,7 +31,6 @@ import {
   MapPin,
   Lock,
   Unlock,
-  Layers,
   Sparkles,
   Zap,
   X,
@@ -356,7 +355,7 @@ function CanvasInner({
           </div>
 
           {/* Lineage Focus Badge with Sharp Corners */}
-          {hasLineage ? (
+          {hasLineage && (
             <div className="flex items-center gap-2 rounded-none border border-[#f97316]/60 bg-[#f97316]/10 px-3 py-1.5 text-[11px] font-mono text-[#f97316] shadow-xl backdrop-blur-md animate-fade-in">
               <Zap className="h-3.5 w-3.5 text-[#f97316]" />
               <span>Tracing: <strong className="text-[var(--text-primary)]">{selectedNodeTitle}</strong> ({connectedNodeIds.size} nodes)</span>
@@ -367,23 +366,6 @@ function CanvasInner({
               >
                 <X className="h-3 w-3" />
               </button>
-            </div>
-          ) : (
-            <div className="hidden md:flex items-center gap-2 rounded-none border border-[var(--border-primary)] bg-[var(--bg-surface)] px-3 py-1.5 text-[11px] font-mono text-[var(--text-dim)] shadow-xl backdrop-blur-md">
-              <Layers className="h-3.5 w-3.5 text-[var(--accent-orange)]" />
-              <span>3 SOURCES · 1 CLAIM · 2 METHODS · 2 RUNS</span>
-            </div>
-          )}
-
-          {/* Image 2 Citation Network Badges when in Round Nodes mode */}
-          {nodeShape === 'circles' && (
-            <div className="hidden lg:flex items-center gap-1 font-mono text-[10px] animate-fade-in">
-              <span className="border border-sky-500/40 bg-sky-950/30 px-2 py-1 text-sky-300 shadow-md">
-                PAPERS: <strong className="text-white ml-0.5">{initialNodes.filter((n) => n.type === 'source').length}</strong>
-              </span>
-              <span className="border border-emerald-500/40 bg-emerald-950/30 px-2 py-1 text-emerald-300 shadow-md">
-                LINKS: <strong className="text-white ml-0.5">{initialEdges.length}</strong>
-              </span>
             </div>
           )}
         </Panel>
