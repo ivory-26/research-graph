@@ -165,6 +165,9 @@ jobs:
       - name: Check out
         uses: actions/checkout@v7
         with:
+          # The reviewer reads the PR head, not refs/pull/N/merge; the checks
+          # job still exercises the merge result.
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
           fetch-depth: 0
           persist-credentials: ${{ github.event_name == 'workflow_dispatch' }}
 
@@ -435,7 +438,7 @@ jobs:
             if awk '
               tolower($0) ~ /^##[[:space:]]+definition[[:space:]]+of[[:space:]]+done/ { in_section=1; next }
               /^##[[:space:]]/ { in_section=0 }
-              in_section && /- \[[ ?]\]/ { found=1 }
+              in_section && /^[[:space:]]*-[[:space:]]+\[[ ?]\]/ { found=1 }
               END { exit (found ? 0 : 1) }
             ' review-body.md; then
               gate=FINDINGS
@@ -522,13 +525,24 @@ jobs:
           '
 
           comment_url=""
+          replaced_stale=0
           if [[ -n "$prev_id" ]]; then
-            if ! comment_url=$(gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${prev_id}" --input comment-payload.json --jq .html_url 2>/dev/null); then
+            for attempt in 1 2 3; do
+              if comment_url=$(gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${prev_id}" --input comment-payload.json --jq .html_url 2>/dev/null); then
+                break
+              fi
               comment_url=""
-            fi
+              sleep 2
+            done
           fi
           if [[ -z "$comment_url" ]]; then
             comment_url=$(gh pr comment "$PR_NUMBER" --body-file review-comment.md)
+            if [[ -n "$prev_id" ]]; then
+              replaced_stale=1
+            fi
+          fi
+          if [[ "$replaced_stale" -eq 1 ]]; then
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/comments/${prev_id}" >/dev/null 2>&1 || true
           fi
 
           : > notify.md
