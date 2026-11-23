@@ -2,7 +2,7 @@ name: PR review
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review, synchronize]
   workflow_dispatch:
     inputs:
       pr:
@@ -28,9 +28,8 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.pull_request.user.type != 'Bot')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
-      GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
       BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -39,9 +38,13 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # Only the manual path needs git credentials for `gh pr checkout`.
+          persist-credentials: ${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Check out the dispatched PR
         if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           cross=$(gh pr view "$PR_NUMBER" --json isCrossRepository --jq .isCrossRepository)
@@ -56,7 +59,15 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 12.23.0
+          run_install: false
+
       - name: Use review rules and scripts from the base branch
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [[ -z "${BASE_REF:-}" ]]; then
@@ -64,29 +75,120 @@ jobs:
           fi
           echo "BASE_REF=${BASE_REF}" >> "$GITHUB_ENV"
 
-          # Standards are read from the base branch, never from the PR under review.
-          git checkout "origin/${BASE_REF}" -- CLAUDE.md GLOSSARY.md docs
-          for f in AGENTS.md opencode.jsonc opencode.json; do
+          # Standards come from the base branch, never from the PR under review.
+          rm -rf docs
+          git checkout "origin/${BASE_REF}" -- docs
+          rm -f CLAUDE.md GLOSSARY.md
+          git checkout "origin/${BASE_REF}" -- CLAUDE.md GLOSSARY.md
+          for f in AGENTS.md .npmrc opencode.jsonc opencode.json; do
             if git cat-file -e "origin/${BASE_REF}:${f}" 2>/dev/null; then
               git checkout "origin/${BASE_REF}" -- "$f"
             else
               rm -f "$f"
             fi
           done
+
           if git cat-file -e "origin/${BASE_REF}:.opencode" 2>/dev/null; then
             rm -rf .opencode
             git checkout "origin/${BASE_REF}" -- .opencode
+          else
+            # Transitional: the base predates the reviewer, so there is no
+            # trusted config tree. Keep only the agent file from the PR and
+            # strip plugins/config that could run with the job's secrets.
+            if [[ ! -f .opencode/agents/pr-review.md ]]; then
+              echo "::error::No .opencode/agents/pr-review.md on the base branch or in the PR."
+              exit 1
+            fi
+            agent=$(mktemp)
+            cp .opencode/agents/pr-review.md "$agent"
+            rm -rf .opencode
+            mkdir -p .opencode/agents
+            cp "$agent" .opencode/agents/pr-review.md
+            rm -f "$agent"
           fi
 
-          # The workflow must not run review tooling supplied by the PR.
-          for f in .github/scripts/pr-context.mjs .github/scripts/extract-review.mjs; do
+          # Restore the review tooling from the base branch where it exists.
+          for f in .github/scripts/pr-context.mjs .github/scripts/extract-review.mjs .github/scripts/extract-review.test.mjs; do
             if git cat-file -e "origin/${BASE_REF}:${f}" 2>/dev/null; then
               git checkout "origin/${BASE_REF}" -- "$f"
             fi
           done
 
+          # Integrity pins: a PR cannot change the reviewer or the scripts that
+          # run with the workflow token.
+          printf '%s  %s\n' \
+            "0631f1c5facb71170b2d8e6a3103a8da062646e236993aef221c973ef1978813" ".opencode/agents/pr-review.md" \
+            "9398354a8be0d29d1d1fc9269ab5df026ae43020aeba950014514bc1663a32a7" ".github/scripts/pr-context.mjs" \
+            "168e88804e7ee88580bd2f3ce42fffb8eed4219eacd5c34194a326125079db6a" ".github/scripts/extract-review.mjs" \
+            | sha256sum --check --status
+
+          # The model step must not inherit a git credential.
+          git config --local --unset-all http.https://github.com/.extraheader || true
+
       - name: Build PR context
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node .github/scripts/pr-context.mjs "$PR_NUMBER"
+
+      - name: Test review scripts
+        run: node --test .github/scripts/extract-review.test.mjs
+
+      - name: Install dependencies
+        id: install
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          if pnpm install --frozen-lockfile > check-install.log 2>&1; then
+            tail -30 check-install.log
+          else
+            code=$?
+            tail -60 check-install.log
+            exit "$code"
+          fi
+
+      - name: Run checks
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+        run: |
+          set -uo pipefail
+          : > checks.md
+          echo "## Automated checks" >> checks.md
+          if [[ "$INSTALL_OUTCOME" != "success" ]]; then
+            echo "- install: FAIL" >> checks.md
+            echo "" >> checks.md
+            echo "<details><summary>install output (tail)</summary>" >> checks.md
+            echo "" >> checks.md
+            echo '```text' >> checks.md
+            tail -60 check-install.log >> checks.md
+            echo '```' >> checks.md
+            echo "</details>" >> checks.md
+            echo "" >> checks.md
+          else
+            echo "- install: PASS" >> checks.md
+            run_check() {
+              name="$1"
+              shift
+              log="check-${name}.log"
+              if "$@" > "$log" 2>&1; then
+                echo "- ${name}: PASS" >> checks.md
+              else
+                code=$?
+                echo "- ${name}: FAIL (exit ${code})" >> checks.md
+                echo "" >> checks.md
+                echo "<details><summary>${name} output (tail)</summary>" >> checks.md
+                echo "" >> checks.md
+                echo '```text' >> checks.md
+                tail -60 "$log" >> checks.md
+                echo '```' >> checks.md
+                echo "</details>" >> checks.md
+                echo "" >> checks.md
+              fi
+            }
+            run_check typecheck pnpm typecheck
+            run_check test pnpm test
+            run_check db-check pnpm db:check
+          fi
+          cat checks.md
 
       - name: Install OpenCode
         run: |
@@ -119,10 +221,12 @@ jobs:
             --agent pr-review \
             --model opencode-go/deepseek-v4.1-flash \
             --format json \
-            "Review the pull request described in pr-context.json. Read pr.diff, linked-issues.md, CLAUDE.md, GLOSSARY.md, and the docs they reference. Judge the change against the project rules and the linked issue's acceptance criteria. Follow your output contract exactly. Do not modify files, run commands, or post anything; the workflow handles the comment." \
+            "Review the pull request described in pr-context.json. Read pr.diff, linked-issues.md, checks.md, CLAUDE.md, GLOSSARY.md, and the docs they reference. Verify the source issue's definition of done, cross-check every human review and your previous review, and follow your output contract exactly. Do not modify files, run commands, or post anything; the workflow handles the comment." \
             > opencode-events.ndjson
 
       - name: Post the review
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           node .github/scripts/extract-review.mjs opencode-events.ndjson > review-raw.md
@@ -136,6 +240,73 @@ jobs:
           fi
 
           verdict=$(head -n 1 review-verdict.md | sed -E 's/^VERDICT:[[:space:]]*//' | awk '{print $1}')
+          case "$verdict" in
+            READY|FINDINGS) ;;
+            *)
+              echo "::error::Unknown verdict: ${verdict}"
+              exit 1
+              ;;
+          esac
+
+          tail -n +2 review-verdict.md > review-body.md
+          if [[ ! -s review-body.md ]]; then
+            echo "::error::${verdict} verdict with an empty review body."
+            exit 1
+          fi
+
+          if ! grep -qiE '^##[[:space:]]+definition[[:space:]]+of[[:space:]]+done' review-body.md; then
+            echo "::error::Review is missing the '## Definition of done' section."
+            cat review-body.md
+            exit 1
+          fi
+          if ! grep -qiE '^##[[:space:]]+checks' review-body.md; then
+            echo "::error::Review is missing the '## Checks' section."
+            cat review-body.md
+            exit 1
+          fi
+
+          if [[ ! -f checks.md ]]; then
+            echo "::error::checks.md is missing."
+            exit 1
+          fi
+          for name in install typecheck test db-check; do
+            if ! grep -q "^- ${name}: PASS$" checks.md; then
+              echo "::error::checks.md has no PASS for ${name}."
+              cat checks.md
+              exit 1
+            fi
+          done
+          if [[ "$verdict" == "READY" ]]; then
+            if grep -qE '^\- [a-z-]+: (FAIL|NOT RUN)' checks.md; then
+              echo "::error::Reviewer said READY but automated checks did not pass."
+              cat checks.md
+              exit 1
+            fi
+            if awk '
+              tolower($0) ~ /^##[[:space:]]+definition[[:space:]]+of[[:space:]]+done/ { in_section=1; next }
+              /^##[[:space:]]/ { in_section=0 }
+              in_section && /- \[[ ?]\]/ { found=1 }
+              END { exit (found ? 0 : 1) }
+            ' review-body.md; then
+              echo "::error::Reviewer said READY but the definition of done has unchecked items."
+              exit 1
+            fi
+            if grep -qiE '^##[[:space:]]+(blockers|should fix)' review-body.md; then
+              echo "::error::Reviewer said READY but the review contains blockers or should-fix items."
+              exit 1
+            fi
+          fi
+
+          # The model must not generate notifications or inject the sticky marker.
+          node -e '
+            const fs = require("node:fs")
+            const file = "review-body.md"
+            let body = fs.readFileSync(file, "utf8")
+            body = body.replace(/<!--\s*research-graph-pr-review[\s\S]*?-->/g, "")
+            body = body.replace(/(^|[\s(])@([A-Za-z0-9][A-Za-z0-9-]{0,38})/gm, "$1@\u200B$2")
+            fs.writeFileSync(file, body)
+          '
+
           head_sha=$(node -p "require('./pr-context.json').headRefOid")
           author=$(node -p "require('./pr-context.json').author.login")
           short_sha=${head_sha:0:7}
@@ -148,35 +319,35 @@ jobs:
             echo "- Verdict: **${verdict}**"
             echo
             cat review-verdict.md
+            echo
+            echo "### Checks"
+            echo
+            cat checks.md
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [[ "$verdict" == "CLEAN" ]]; then
-            echo "No actionable findings; no comment posted."
-            exit 0
-          fi
-          if [[ "$verdict" != "FINDINGS" ]]; then
-            echo "::error::Unknown verdict: ${verdict}"
-            exit 1
-          fi
+          new_hash=$(sha256sum review-body.md | cut -d' ' -f1)
+          prev_info=$(node -e '
+            const comment = require("./pr-context.json").botReview
+            if (!comment || typeof comment.body !== "string") process.exit(0)
+            const match = comment.body.match(/<!--\s*research-graph-pr-review hash=([0-9a-f]+) verdict=([A-Z]+)\s*-->/)
+            if (match) process.stdout.write(match[1] + " " + match[2])
+          ')
+          prev_hash=$(echo "$prev_info" | awk '{print $1}')
+          prev_verdict=$(echo "$prev_info" | awk '{print $2}')
+          prev_id=$(node -p "require('./pr-context.json').botReview?.id ?? ''")
 
-          tail -n +2 review-verdict.md > review-body.md
-          if [[ ! -s review-body.md ]]; then
-            echo "::error::FINDINGS verdict with an empty review body."
-            exit 1
-          fi
-
-          mention=""
-          if [[ "$author" != *"[bot]" ]]; then
-            mention="@${author}"
+          if [[ "$verdict" == "READY" ]]; then
+            header="@${author} — automated review of \`${short_sha}\` confirms all definition-of-done items are complete and checks pass. This is ready to merge."
+          else
+            header="@${author} — automated review of \`${short_sha}\` found issues to address."
           fi
 
           {
-            if [[ -n "$mention" ]]; then
-              printf '%s — automated review of `%s` found issues to address.\n\n' "$mention" "$short_sha"
-            else
-              printf 'Automated review of `%s` found issues to address.\n\n' "$short_sha"
+            printf '<!-- research-graph-pr-review hash=%s verdict=%s -->\n' "$new_hash" "$verdict"
+            printf '%s\n\n' "$header"
+            if [[ "$verdict" == "FINDINGS" ]]; then
+              printf '> This review is read-only: nothing was edited, committed, or pushed. Please address the findings below before merging, or reply if you disagree.\n\n'
             fi
-            printf '> This review is read-only: nothing was edited, committed, or pushed. Please address the findings below before merging, or reply if you disagree.\n\n'
             cat review-body.md
           } > review-comment.md
 
@@ -190,7 +361,35 @@ jobs:
             }
           '
 
-          gh pr comment "$PR_NUMBER" --body-file review-comment.md
+          node -e '
+            const fs = require("node:fs")
+            fs.writeFileSync("comment-payload.json", JSON.stringify({ body: fs.readFileSync("review-comment.md", "utf8") }))
+          '
+
+          comment_url=""
+          if [[ -n "$prev_id" ]]; then
+            if ! comment_url=$(gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${prev_id}" --input comment-payload.json --jq .html_url 2>/dev/null); then
+              comment_url=""
+            fi
+          fi
+          if [[ -z "$comment_url" ]]; then
+            comment_url=$(gh pr comment "$PR_NUMBER" --body-file review-comment.md)
+          fi
+
+          : > notify.md
+          if [[ "$verdict" == "READY" && -n "$prev_id" && ( "$prev_verdict" != "READY" || "$new_hash" != "$prev_hash" ) ]]; then
+            printf '@%s — re-reviewed `%s`: all definition-of-done items are complete and checks pass. Ready to merge: %s\n' "$author" "$short_sha" "$comment_url" > notify.md
+          elif [[ "$verdict" == "FINDINGS" && -n "$prev_id" && -n "$prev_hash" && "$new_hash" != "$prev_hash" ]]; then
+            if [[ "$prev_verdict" == "READY" ]]; then
+              printf '@%s — re-reviewed `%s`: a regression was found; this is no longer ready to merge. See %s\n' "$author" "$short_sha" "$comment_url" > notify.md
+            else
+              printf '@%s — re-reviewed `%s`: findings changed. See %s\n' "$author" "$short_sha" "$comment_url" > notify.md
+            fi
+          fi
+
+          if [[ -s notify.md ]]; then
+            gh pr comment "$PR_NUMBER" --body-file notify.md
+          fi
 
       - name: Keep the review output
         if: always()
@@ -201,7 +400,13 @@ jobs:
             pr-context.json
             pr.diff
             linked-issues.md
+            checks.md
+            check-install.log
+            check-typecheck.log
+            check-test.log
+            check-db-check.log
             opencode-events.ndjson
             review-raw.md
+            review-comment.md
           if-no-files-found: ignore
           retention-days: 7

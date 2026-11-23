@@ -8,6 +8,11 @@ if (!pr) {
 }
 
 const gh = (...args) => execFileSync("gh", args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 })
+const api = (path) => JSON.parse(gh("api", "--paginate", "--slurp", path)).flat()
+
+const repo =
+  process.env.GH_REPO ??
+  JSON.parse(gh("repo", "view", "--json", "nameWithOwner")).nameWithOwner
 
 const meta = JSON.parse(
   gh(
@@ -15,9 +20,42 @@ const meta = JSON.parse(
     "view",
     pr,
     "--json",
-    "number,title,body,author,baseRefName,headRefName,headRefOid,url,isDraft,files,commits,closingIssuesReferences,comments,reviews",
+    "number,title,body,author,baseRefName,headRefName,headRefOid,url,isDraft,reviewDecision,files,commits,closingIssuesReferences",
   ),
 )
+
+// Reviews, review bodies, inline comments and issue comments are all input to
+// the cross-verification step. Keep only the fields the reviewer needs.
+meta.reviews = api(`repos/${repo}/pulls/${pr}/reviews`).map((review) => ({
+  id: review.id,
+  author: review.user?.login ?? null,
+  state: review.state,
+  body: review.body ?? "",
+  submittedAt: review.submitted_at ?? null,
+  url: review.html_url ?? null,
+}))
+
+meta.inlineReviewComments = api(`repos/${repo}/pulls/${pr}/comments`).map((comment) => ({
+  id: comment.id,
+  author: comment.user?.login ?? null,
+  path: comment.path,
+  line: comment.line ?? comment.original_line ?? null,
+  body: comment.body ?? "",
+  createdAt: comment.created_at ?? null,
+  inReplyToId: comment.in_reply_to_id ?? null,
+  url: comment.html_url ?? null,
+}))
+
+meta.issueComments = api(`repos/${repo}/issues/${pr}/comments`).map((comment) => ({
+  id: comment.id,
+  author: comment.user?.login ?? null,
+  body: comment.body ?? "",
+  createdAt: comment.created_at ?? null,
+  url: comment.html_url ?? null,
+}))
+
+const marker = "<!-- research-graph-pr-review"
+meta.botReview = meta.issueComments.filter((comment) => comment.body.includes(marker)).at(-1) ?? null
 
 writeFileSync("pr-context.json", JSON.stringify(meta, null, 2) + "\n")
 
@@ -57,5 +95,7 @@ writeFileSync(
 )
 
 console.log(
-  `PR #${meta.number}: ${meta.files.length} changed file(s), ${issues.length} linked issue(s), ${diff.length} diff characters`,
+  `PR #${meta.number}: ${meta.files.length} changed file(s), ${issues.length} linked issue(s), ` +
+    `${meta.reviews.length} review(s), ${meta.inlineReviewComments.length} inline review comment(s), ` +
+    `${meta.issueComments.length} issue comment(s), ${diff.length} diff characters`,
 )
