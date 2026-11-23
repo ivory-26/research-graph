@@ -53,7 +53,9 @@ export function chunkDocument(
     }
 
     const chunkText = fullText.slice(charStart, charEnd).trim()
-    if (chunkText.length > 0) {
+    // docs/03: "if a chunk contains no alphanumeric content it is dropped, not embedded"
+    const hasAlphanumeric = /[a-zA-Z0-9]/.test(chunkText)
+    if (chunkText.length > 0 && hasAlphanumeric) {
       const page = findPageForCharOffset(charStart, pages)
       const tokenCount = estimateTokens(chunkText, charsPerToken)
 
