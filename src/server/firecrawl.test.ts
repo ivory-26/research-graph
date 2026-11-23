@@ -106,7 +106,7 @@ cforest implements conditional permutation importance which removes spurious cor
         createdAt: new Date(),
       }
 
-      const mockDb = {
+      const mockDb: any = {
         insert: vi.fn().mockImplementation((table) => {
           return {
             values: vi.fn().mockImplementation((values) => {
@@ -120,7 +120,8 @@ cforest implements conditional permutation importance which removes spurious cor
             }),
           }
         }),
-      } as unknown as Database
+      }
+      mockDb.transaction = vi.fn().mockImplementation(async (cb) => cb(mockDb))
 
       const mockEmbedder = vi.fn().mockImplementation(async (chunks) => {
         return chunks.map(() => new Array(768).fill(0.02))
@@ -163,7 +164,7 @@ cforest implements conditional permutation importance which removes spurious cor
       }
 
       let insertedKind = ''
-      const mockDb = {
+      const mockDb: any = {
         insert: vi.fn().mockImplementation(() => ({
           values: vi.fn().mockImplementation((val) => {
             if (!Array.isArray(val)) {
@@ -176,7 +177,8 @@ cforest implements conditional permutation importance which removes spurious cor
             }
           }),
         })),
-      } as unknown as Database
+      }
+      mockDb.transaction = vi.fn().mockImplementation(async (cb) => cb(mockDb))
 
       const mockEmbedder = vi.fn().mockResolvedValue([new Array(768).fill(0.01)])
 
@@ -199,7 +201,7 @@ cforest implements conditional permutation importance which removes spurious cor
     it('verifies that ingested web chunks can be cited with verbatim quotes', async () => {
       // Acceptance test: "Done when: a project page ingests as a source with chunks and can be cited."
       const mockEmbedder = vi.fn().mockResolvedValue([new Array(768).fill(0.01)])
-      const mockDb = {
+      const mockDb: any = {
         insert: vi.fn().mockImplementation(() => ({
           values: vi.fn().mockImplementation((val) => ({
             returning: vi.fn().mockResolvedValue(
@@ -209,7 +211,8 @@ cforest implements conditional permutation importance which removes spurious cor
             ),
           })),
         })),
-      } as unknown as Database
+      }
+      mockDb.transaction = vi.fn().mockImplementation(async (cb) => cb(mockDb))
 
       const ingestResult = await ingestWebSource(
         'https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-8-25',
