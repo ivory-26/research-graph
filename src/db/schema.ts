@@ -15,6 +15,7 @@ import { sql } from 'drizzle-orm'
 import {
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -26,10 +27,12 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
   vector,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
+import type { PipelineEvent, PipelineEventType } from '../shared/events'
 import type {
   AgentTaskStatus,
   ApprovalState,
@@ -239,25 +242,35 @@ export const edges = pgTable(
 // Experiments and runs
 // ---------------------------------------------------------------------------
 
-export const experiments = pgTable('experiments', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  workspaceId: uuid('workspace_id')
-    .references(() => workspaces.id, { onDelete: 'cascade' })
-    .notNull(),
-  claimNodeId: uuid('claim_node_id')
-    .references(() => nodes.id, { onDelete: 'cascade' })
-    .notNull(),
-  spec: jsonb('spec').$type<ExperimentSpec>().notNull(),
-  mode: runMode('mode').notNull(),
-  /** pending | approved | rejected */
-  approvalState: text('approval_state')
-    .$type<ApprovalState>()
-    .notNull()
-    .default('pending'),
-  approvedBy: text('approved_by'),
-  approvedAt: timestamp('approved_at'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-})
+export const experiments = pgTable(
+  'experiments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: uuid('workspace_id')
+      .references(() => workspaces.id, { onDelete: 'cascade' })
+      .notNull(),
+    claimNodeId: uuid('claim_node_id')
+      .references(() => nodes.id, { onDelete: 'cascade' })
+      .notNull(),
+    spec: jsonb('spec').$type<ExperimentSpec>().notNull(),
+    mode: runMode('mode').notNull(),
+    /** pending | approved | rejected */
+    approvalState: text('approval_state')
+      .$type<ApprovalState>()
+      .notNull()
+      .default('pending'),
+    approvedBy: text('approved_by'),
+    approvedAt: timestamp('approved_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    // Redundant on its own (id is already unique), but required so pipeline
+    // rows can carry a composite foreign key on (experiment_id, workspace_id).
+    // That makes a row whose workspace disagrees with its experiment
+    // unrepresentable, rather than a query-scoping convention.
+    unique('experiments_id_workspace_id_unique').on(t.id, t.workspaceId),
+  ],
+)
 
 export const runs = pgTable('runs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -300,6 +313,216 @@ export const runArtifacts = pgTable('run_artifacts', {
   /** Inline for small artifacts; null if external. */
   content: text('content'),
 })
+
+// ---------------------------------------------------------------------------
+// Pipeline foundation: durable events, execution claims, approval gates
+//
+// These tables are the cross-request state for docs/01-architecture.md's SSE
+// request lifecycle. They deliberately do not create or mutate `runs`: a
+// claim is permission to start, not a run, and the DB layer never computes a
+// verdict or a stage outcome.
+// ---------------------------------------------------------------------------
+
+/** How an execution claim ended. Not a run status. */
+export type ExecutionClaimCloseReason = 'completed' | 'failed' | 'cancelled'
+
+/** Mirrors the `ApprovalState` values; a gate is pending until decided. */
+export type ApprovalGateStatus = 'pending' | 'approved' | 'rejected'
+
+/**
+ * The durable, per-experiment event log behind SSE replay (docs/01, docs/03).
+ *
+ * `seq` is assigned by `appendPipelineEvent` while holding the experiment row
+ * lock, so commit order and sequence order cannot disagree. The event payload
+ * is stored whole; the duplicated columns are for ordering and integrity
+ * checks. `pipeline_events_event_*` checks make a row whose embedded seq,
+ * experiment id or type disagrees with its columns unrepresentable.
+ */
+export const pipelineEvents = pgTable(
+  'pipeline_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    experimentId: uuid('experiment_id').notNull(),
+    workspaceId: uuid('workspace_id').notNull(),
+    /** Monotonic per experiment, starting at 1. The SSE event id. */
+    seq: integer('seq').notNull(),
+    type: text('type').$type<PipelineEventType>().notNull(),
+    /** The frozen PipelineEvent from src/shared/events.ts, complete. */
+    event: jsonb('event').$type<PipelineEvent>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    unique('pipeline_events_experiment_seq_unique').on(t.experimentId, t.seq),
+    index('pipeline_events_experiment_type_idx').on(t.experimentId, t.type),
+    foreignKey({
+      name: 'pipeline_events_experiment_workspace_fk',
+      columns: [t.experimentId, t.workspaceId],
+      foreignColumns: [experiments.id, experiments.workspaceId],
+    }).onDelete('cascade'),
+    check('pipeline_events_seq_positive', sql`${t.seq} > 0`),
+    check(
+      'pipeline_events_event_seq_matches',
+      sql`(${t.event} ->> 'seq')::integer = ${t.seq}`,
+    ),
+    check(
+      'pipeline_events_event_experiment_matches',
+      sql`${t.event} ->> 'experimentId' = ${t.experimentId}::text`,
+    ),
+    check(
+      'pipeline_events_event_type_matches',
+      sql`${t.event} ->> 'type' = ${t.type}`,
+    ),
+  ],
+)
+
+/**
+ * One execution-start lease per experiment, for the whole life of the row.
+ *
+ * There is deliberately no second claim: a reconnect, a replay after a
+ * terminal event, or a reconnect after expiry must observe this row and not
+ * start another run. A future explicit retry needs a deliberate API change,
+ * not a new `claimId` on this one.
+ *
+ * `expiresAt` is an observation boundary, not a state transition. An expired
+ * claim stays expired until an explicit terminal event closes it; it is never
+ * silently renewed.
+ */
+export const executionClaims = pgTable(
+  'execution_claims',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    experimentId: uuid('experiment_id').notNull(),
+    workspaceId: uuid('workspace_id').notNull(),
+    /**
+     * Caller-supplied idempotency key (a UUID). Repeating the same key yields
+     * the `duplicate` outcome and never a new start; a different key yields
+     * `already_claimed`.
+     */
+    claimId: uuid('claim_id').notNull(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    /** Set atomically when a terminal pipeline event is appended. */
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    closeReason: text('close_reason').$type<ExecutionClaimCloseReason>(),
+  },
+  (t) => [
+    unique('execution_claims_experiment_unique').on(t.experimentId),
+    unique('execution_claims_claim_id_unique').on(t.claimId),
+    // Referenced by approval_gates' composite FK, which proves the gate
+    // belongs to this claim and to the same experiment and workspace.
+    unique('execution_claims_id_scope_unique').on(
+      t.id,
+      t.experimentId,
+      t.workspaceId,
+    ),
+    foreignKey({
+      name: 'execution_claims_experiment_workspace_fk',
+      columns: [t.experimentId, t.workspaceId],
+      foreignColumns: [experiments.id, experiments.workspaceId],
+    }).onDelete('cascade'),
+    check(
+      'execution_claims_expiry_after_claim',
+      sql`${t.expiresAt} > ${t.claimedAt}`,
+    ),
+    check(
+      'execution_claims_close_consistent',
+      sql`(${t.closedAt} is null and ${t.closeReason} is null) or (${t.closedAt} is not null and ${t.closeReason} is not null)`,
+    ),
+    check(
+      'execution_claims_close_reason_values',
+      sql`${t.closeReason} is null or ${t.closeReason} in ('completed', 'failed', 'cancelled')`,
+    ),
+  ],
+)
+
+/**
+ * The human gate for one execution claim.
+ *
+ * `gateSeq` is the seq of the persisted `approval.requested` event, not an
+ * independently generated id: the gate identity and the event the approval
+ * screen saw are the same fact. `offeredSpec` is the exact plan version that
+ * was offered; a decision names `gateSeq` and therefore cannot be applied to a
+ * different plan. The composite foreign keys make the gate/event/claim scope
+ * mismatch unrepresentable.
+ *
+ * `experiments.approvalState` / `approvedBy` / `approvedAt` remain the
+ * cross-request source the SSE handler polls; this row is the audit record of
+ * which gate was decided, by whom, and with which event.
+ */
+export const approvalGates = pgTable(
+  'approval_gates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    experimentId: uuid('experiment_id').notNull(),
+    workspaceId: uuid('workspace_id').notNull(),
+    executionClaimId: uuid('execution_claim_id').notNull(),
+    /** The seq of the `approval.requested` event that opened this gate. */
+    gateSeq: integer('gate_seq').notNull(),
+    offeredSpec: jsonb('offered_spec').$type<ExperimentSpec>().notNull(),
+    status: text('status')
+      .$type<ApprovalGateStatus>()
+      .notNull()
+      .default('pending'),
+    /** Verified actor id supplied by the transport; never inferred here. */
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    /** The seq of the `approval.resolved` event written with the decision. */
+    decisionEventSeq: integer('decision_event_seq'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    unique('approval_gates_experiment_gate_seq_unique').on(
+      t.experimentId,
+      t.gateSeq,
+    ),
+    unique('approval_gates_execution_claim_unique').on(t.executionClaimId),
+    // At most one outstanding gate per experiment, even if a future migration
+    // permits more than one claim.
+    uniqueIndex('approval_gates_one_pending_per_experiment')
+      .on(t.experimentId)
+      .where(sql`${t.status} = 'pending'`),
+    foreignKey({
+      name: 'approval_gates_experiment_workspace_fk',
+      columns: [t.experimentId, t.workspaceId],
+      foreignColumns: [experiments.id, experiments.workspaceId],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'approval_gates_claim_scope_fk',
+      columns: [t.executionClaimId, t.experimentId, t.workspaceId],
+      foreignColumns: [
+        executionClaims.id,
+        executionClaims.experimentId,
+        executionClaims.workspaceId,
+      ],
+    }).onDelete('cascade'),
+    // The gate identity must be a persisted event, and the decision event
+    // must be a persisted event of the same experiment.
+    foreignKey({
+      name: 'approval_gates_gate_event_fk',
+      columns: [t.experimentId, t.gateSeq],
+      foreignColumns: [pipelineEvents.experimentId, pipelineEvents.seq],
+    }).onDelete('cascade'),
+    foreignKey({
+      name: 'approval_gates_decision_event_fk',
+      columns: [t.experimentId, t.decisionEventSeq],
+      foreignColumns: [pipelineEvents.experimentId, pipelineEvents.seq],
+    }).onDelete('cascade'),
+    check(
+      'approval_gates_status_values',
+      sql`${t.status} in ('pending', 'approved', 'rejected')`,
+    ),
+    check(
+      'approval_gates_decision_consistent',
+      sql`(${t.status} = 'pending' and ${t.decidedBy} is null and ${t.decidedAt} is null and ${t.decisionEventSeq} is null) or (${t.status} in ('approved', 'rejected') and ${t.decidedBy} is not null and ${t.decidedAt} is not null and ${t.decisionEventSeq} is not null)`,
+    ),
+  ],
+)
 
 // ---------------------------------------------------------------------------
 // Agents
@@ -390,3 +613,12 @@ export type NewAgentStrategy = typeof agentStrategies.$inferInsert
 
 export type AgentTaskRow = typeof agentTasks.$inferSelect
 export type NewAgentTask = typeof agentTasks.$inferInsert
+
+export type PipelineEventRow = typeof pipelineEvents.$inferSelect
+export type NewPipelineEvent = typeof pipelineEvents.$inferInsert
+
+export type ExecutionClaimRow = typeof executionClaims.$inferSelect
+export type NewExecutionClaim = typeof executionClaims.$inferInsert
+
+export type ApprovalGateRow = typeof approvalGates.$inferSelect
+export type NewApprovalGate = typeof approvalGates.$inferInsert
