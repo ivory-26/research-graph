@@ -71,6 +71,7 @@ export type ProposeEdgesResult = z.infer<typeof ProposeEdgesResultSchema>
 
 export interface ChunkRef {
   id?: string
+  sourceId?: string
   ordinal: number
   text: string
   page?: number | null
@@ -128,5 +129,6 @@ export interface RejectedEdge {
 export interface ProposeEdgesOutcome {
   acceptedEdges: ValidatedEdge[]
   rejectedEdges: RejectedEdge[]
+  storedRows?: any[]
   taskId?: string
 }

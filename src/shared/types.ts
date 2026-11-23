@@ -107,6 +107,7 @@ export type TaskKind =
   | 'plan_experiment'
   | 'repair_script'
   | 'explain_gap'
+  | 'ask_across_sources'
 
 /** `agent_tasks.status` values. A failed call still has a row. */
 export type AgentTaskStatus = 'succeeded' | 'failed' | 'rejected' | 'retried'

@@ -6,6 +6,9 @@ import { buildProposeEdgesPrompt, proposeEdges, storeEdges, validateProposedEdge
 import { verifyVerbatimQuote } from './quote'
 import type { ChunkRef, NodeSummary, ProposedEdge, ValidatedEdge } from './types'
 
+const CHUNK_UUID_1 = '11111111-1111-4111-8111-111111111111'
+const CHUNK_UUID_2 = '22222222-2222-4222-8222-222222222222'
+
 describe('Edge Validation Invariants (Issue #13)', () => {
   const nodes: NodeSummary[] = [
     { id: 'node-claim-1', type: 'claim', title: 'Gini Importance Bias' },
@@ -15,13 +18,13 @@ describe('Edge Validation Invariants (Issue #13)', () => {
 
   const chunks: ChunkRef[] = [
     {
-      id: 'chunk-1',
+      id: CHUNK_UUID_1,
       ordinal: 0,
       page: 2,
       text: 'Random forests are an ensemble learning method using tree predictors.',
     },
     {
-      id: 'chunk-2',
+      id: CHUNK_UUID_2,
       ordinal: 1,
       page: 5,
       text: 'Permutation importance measures variable importance by permuting out-of-bag samples.',
@@ -35,7 +38,7 @@ describe('Edge Validation Invariants (Issue #13)', () => {
         toNodeId: 'node-claim-1', // Self-loop
         relation: 'supports',
         confidence: 0.9,
-        evidenceChunkId: 'chunk-1',
+        evidenceChunkId: CHUNK_UUID_1,
         quote: 'Random forests are an ensemble learning method',
         rationale: 'Self-referencing',
       },
@@ -54,7 +57,7 @@ describe('Edge Validation Invariants (Issue #13)', () => {
         toNodeId: 'non-existent-node',
         relation: 'supports',
         confidence: 0.9,
-        evidenceChunkId: 'chunk-1',
+        evidenceChunkId: CHUNK_UUID_1,
         quote: 'Random forests are an ensemble learning method',
         rationale: 'Bad target',
       },
@@ -72,7 +75,7 @@ describe('Edge Validation Invariants (Issue #13)', () => {
         toNodeId: 'node-method-1',
         relation: 'tests',
         confidence: 0.9,
-        evidenceChunkId: 'chunk-1',
+        evidenceChunkId: CHUNK_UUID_1,
         quote: 'Random forests are completely useless and invalid', // Mangled quote
         rationale: 'False citation',
       },
@@ -90,7 +93,7 @@ describe('Edge Validation Invariants (Issue #13)', () => {
         toNodeId: 'node-method-1',
         relation: 'supports',
         confidence: 0.9,
-        evidenceChunkId: 'chunk-1', // Citing chunk-1
+        evidenceChunkId: CHUNK_UUID_1, // Citing chunk-1
         quote: 'Permutation importance measures variable importance by permuting out-of-bag samples.', // Exists only in chunk-2!
         rationale: 'Wrong chunk cited',
       },
@@ -109,7 +112,7 @@ describe('Edge Validation Invariants (Issue #13)', () => {
         toNodeId: 'node-method-1',
         relation: 'supports',
         confidence: 0.9,
-        evidenceChunkId: 'chunk-999', // Does not exist
+        evidenceChunkId: '99999999-9999-4999-8999-999999999999', // Does not exist
         quote: 'Random forests are an ensemble learning method',
         rationale: 'Missing chunk',
       },
@@ -121,6 +124,68 @@ describe('Edge Validation Invariants (Issue #13)', () => {
     expect(rejected[0].reason).toBe('CHUNK_NOT_FOUND')
   })
 
+  it('rejects edge citing non-UUID chunk ID to avoid Postgres 22P02 syntax error', () => {
+    const proposed: ProposedEdge[] = [
+      {
+        fromNodeId: 'node-claim-1',
+        toNodeId: 'node-method-1',
+        relation: 'supports',
+        confidence: 0.9,
+        evidenceChunkId: 'non-uuid-string',
+        quote: 'Random forests are an ensemble learning method',
+        rationale: 'Non-UUID ID',
+      },
+    ]
+
+    const nonUuidChunks: ChunkRef[] = [
+      { id: 'non-uuid-string', ordinal: 0, text: 'Random forests are an ensemble learning method' },
+    ]
+
+    const { accepted, rejected } = validateProposedEdges(proposed, nodes, nonUuidChunks)
+    expect(accepted.length).toBe(0)
+    expect(rejected.length).toBe(1)
+    expect(rejected[0].reason).toBe('CHUNK_NOT_FOUND')
+  })
+
+  it('rejects bare ordinal alias without UUID to prevent cross-source ordinal collisions', () => {
+    const proposed: ProposedEdge[] = [
+      {
+        fromNodeId: 'node-claim-1',
+        toNodeId: 'node-method-1',
+        relation: 'supports',
+        confidence: 0.9,
+        evidenceChunkId: '0', // Bare ordinal alias
+        quote: 'Random forests are an ensemble learning method',
+        rationale: 'Bare ordinal',
+      },
+    ]
+
+    const { accepted, rejected } = validateProposedEdges(proposed, nodes, chunks)
+    expect(accepted.length).toBe(0)
+    expect(rejected.length).toBe(1)
+    expect(rejected[0].reason).toBe('CHUNK_NOT_FOUND')
+  })
+
+  it('strictly rejects edge quote with case-only differences (exact casing required)', () => {
+    const proposed: ProposedEdge[] = [
+      {
+        fromNodeId: 'node-claim-1',
+        toNodeId: 'node-method-1',
+        relation: 'supports',
+        confidence: 0.9,
+        evidenceChunkId: CHUNK_UUID_1,
+        // Lowercase "random forests" vs capitalized "Random forests" in chunk
+        quote: 'random forests are an ensemble learning method using tree predictors.',
+        rationale: 'Case mismatch',
+      },
+    ]
+
+    const { accepted, rejected } = validateProposedEdges(proposed, nodes, chunks)
+    expect(accepted.length).toBe(0)
+    expect(rejected.length).toBe(1)
+    expect(rejected[0].reason).toBe('VERBATIM_QUOTE_NOT_FOUND')
+  })
+
   it('assigns status=suggested when confidence < 0.65', () => {
     const proposed: ProposedEdge[] = [
       {
@@ -128,8 +193,8 @@ describe('Edge Validation Invariants (Issue #13)', () => {
         toNodeId: 'node-method-1',
         relation: 'tests',
         confidence: 0.55, // < 0.65 threshold
-        evidenceChunkId: 'chunk-1',
-        quote: 'Random forests are an ensemble learning method',
+        evidenceChunkId: CHUNK_UUID_1,
+        quote: 'Random forests are an ensemble learning method using tree predictors.',
         rationale: 'Moderate confidence',
       },
     ]
@@ -147,7 +212,7 @@ describe('Edge Validation Invariants (Issue #13)', () => {
         toNodeId: 'node-method-1',
         relation: 'derived_from',
         confidence: 0.85,
-        evidenceChunkId: 'chunk-2',
+        evidenceChunkId: CHUNK_UUID_2,
         quote: 'Permutation importance measures variable importance by permuting out-of-bag samples.',
         rationale: 'High confidence derivation',
       },
@@ -166,7 +231,7 @@ describe('Edge Validation Invariants (Issue #13)', () => {
         toNodeId: 'node-claim-1',
         relation: 'contradicts',
         confidence: 0.99, // Extremely high confidence
-        evidenceChunkId: 'chunk-2',
+        evidenceChunkId: CHUNK_UUID_2,
         quote: 'Permutation importance measures variable importance by permuting out-of-bag samples.',
         rationale: 'Disagreement asserted',
       },
@@ -217,7 +282,7 @@ describe('proposeEdges runner and prompt builder', () => {
       { id: 'node-b', type: 'method', title: 'Method B' },
     ]
     const chunks: ChunkRef[] = [
-      { id: 'chunk-1', ordinal: 0, page: 1, text: 'Evidence passage in text.' },
+      { id: CHUNK_UUID_1, ordinal: 0, page: 1, text: 'Evidence passage in text.' },
     ]
 
     const mockCallModel = vi.fn(async () => ({
@@ -228,7 +293,7 @@ describe('proposeEdges runner and prompt builder', () => {
             toNodeId: 'node-b',
             relation: 'tests',
             confidence: 0.8,
-            evidenceChunkId: 'chunk-1',
+            evidenceChunkId: CHUNK_UUID_1,
             quote: 'Evidence passage in text.',
             rationale: 'Direct test relation',
           },
@@ -252,6 +317,66 @@ describe('proposeEdges runner and prompt builder', () => {
     expect(outcome.acceptedEdges[0].relation).toBe('tests')
     expect(outcome.taskId).toBe('task-edges-1')
   })
+
+  it('persists accepted edges via storeEdges when db option is provided', async () => {
+    const nodes: NodeSummary[] = [
+      { id: 'node-a', type: 'claim', title: 'Claim A' },
+      { id: 'node-b', type: 'method', title: 'Method B' },
+    ]
+    const chunks: ChunkRef[] = [
+      { id: CHUNK_UUID_1, ordinal: 0, page: 1, text: 'Evidence passage in text.' },
+    ]
+
+    const mockCallModel = vi.fn(async () => ({
+      output: {
+        edges: [
+          {
+            fromNodeId: 'node-a',
+            toNodeId: 'node-b',
+            relation: 'supports',
+            confidence: 0.9,
+            evidenceChunkId: CHUNK_UUID_1,
+            quote: 'Evidence passage in text.',
+            rationale: 'Solid support',
+          },
+        ],
+      },
+      task: { id: 'task-edges-persist' },
+      attempts: [],
+    }))
+
+    const mockStoreEdges = vi.fn(async () => [
+      {
+        id: 'edge-row-1',
+        workspaceId: 'ws-persist',
+        sourceNodeId: 'node-a',
+        targetNodeId: 'node-b',
+        relation: 'supports' as const,
+        confidence: 0.9,
+        status: 'accepted' as const,
+        evidenceChunkId: CHUNK_UUID_1,
+        evidenceRunId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]) as any
+
+    const fakeDb = {} as any
+    const outcome = await proposeEdges({
+      workspaceId: 'ws-persist',
+      nodes,
+      chunks,
+      db: fakeDb,
+      storeEdgesFn: mockStoreEdges,
+      // @ts-expect-error test mock injection
+      callModelFn: mockCallModel,
+    })
+
+    expect(outcome.acceptedEdges).toHaveLength(1)
+    expect(mockStoreEdges).toHaveBeenCalledWith(fakeDb, 'ws-persist', outcome.acceptedEdges)
+    expect(outcome.storedRows).toHaveLength(1)
+    expect(outcome.storedRows![0].id).toBe('edge-row-1')
+  })
 })
 
 describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)', () => {
@@ -272,22 +397,25 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
       const { chunks: chunks2008 } = await ingestPdf(fs.readFileSync(strobl2008Path))
       const { chunks: chunks2010 } = await ingestPdf(fs.readFileSync(kursa2010Path))
 
-      // Tag chunks with prefix IDs
+      // Tag chunks with valid UUIDs
       const allChunks: ChunkRef[] = [
         ...chunks2007.map((c) => ({
-          id: `s07-${c.ordinal}`,
+          id: crypto.randomUUID(),
+          sourceId: 'src-s07',
           ordinal: c.ordinal,
           text: c.text,
           page: c.page,
         })),
         ...chunks2008.map((c) => ({
-          id: `s08-${c.ordinal}`,
+          id: crypto.randomUUID(),
+          sourceId: 'src-s08',
           ordinal: c.ordinal,
           text: c.text,
           page: c.page,
         })),
         ...chunks2010.map((c) => ({
-          id: `k10-${c.ordinal}`,
+          id: crypto.randomUUID(),
+          sourceId: 'src-k10',
           ordinal: c.ordinal,
           text: c.text,
           page: c.page,

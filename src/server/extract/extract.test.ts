@@ -23,6 +23,12 @@ describe('Quote Normalization and Verbatim Verification (Issue #12)', () => {
     expect(verifyVerbatimQuote(quoteWithEmDash, chunkText)).toBe(true)
   })
 
+  it('strictly rejects case-only alterations (exact case required per docs/03)', () => {
+    const chunkText = 'Random forests are an ensemble method.'
+    const lowerQuote = 'random forests are an ensemble method.'
+    expect(verifyVerbatimQuote(lowerQuote, chunkText)).toBe(false)
+  })
+
   it('matches verbatim quotes despite line breaks and irregular spacing', () => {
     const chunkText = `In bioinformatics and related scientific fields, an important
 task is the prediction of a categorical response variable (such as the disease status
@@ -220,6 +226,87 @@ describe('extractClaims with model wrapper', () => {
     expect(mockUpdateStatus).toHaveBeenCalledTimes(1)
     expect(updatedStatus).toBe('rejected')
     expect(updatedTaskId).toBe('task-fabricated-1')
+  })
+
+  it('updates task row to rejected when model returns zero claims (empty claim list)', async () => {
+    const chunks: ChunkRef[] = [
+      { id: 'c1', ordinal: 0, text: 'Real chunk text here.' },
+    ]
+    let updatedStatus = ''
+    let updatedTaskId = ''
+    const mockUpdateStatus = vi.fn(async (taskId: string, status: any) => {
+      updatedTaskId = taskId
+      updatedStatus = status
+    })
+
+    const mockCallModel = vi.fn(async () => ({
+      output: {
+        claims: [],
+        datasets: [],
+        methods: [],
+        codeUrls: [],
+      },
+      task: { id: 'task-empty-1', status: 'succeeded' as const },
+      attempts: [],
+    }))
+
+    const outcome = await extractClaims({
+      workspaceId: 'ws-test',
+      sourceId: 'src-1',
+      chunks,
+      // @ts-expect-error test mock injection
+      callModelFn: mockCallModel,
+      updateTaskStatusFn: mockUpdateStatus,
+    })
+
+    expect(outcome.acceptedClaims.length).toBe(0)
+    expect(mockUpdateStatus).toHaveBeenCalledWith(
+      'task-empty-1',
+      'rejected',
+      'Model returned no claims.',
+    )
+    expect(updatedStatus).toBe('rejected')
+  })
+
+  it('sanitizes non-uuid strategyId to null and preserves strategy in inputRef', async () => {
+    const chunks: ChunkRef[] = [
+      { id: 'c1', ordinal: 0, text: 'Real chunk text here.' },
+    ]
+    let capturedCallContext: any = null
+    const mockCallModel = vi.fn(async (_schema, _prompt, context) => {
+      capturedCallContext = context
+      return {
+        output: { claims: [], datasets: [], methods: [], codeUrls: [] },
+        task: { id: 'task-strat-null' },
+        attempts: [],
+      }
+    })
+
+    await extractClaims({
+      workspaceId: 'ws-test',
+      sourceId: 'src-1',
+      chunks,
+      strategy: 'single_pass',
+      strategyId: 'single_pass', // Not a uuid!
+      // @ts-expect-error test mock injection
+      callModelFn: mockCallModel,
+    })
+
+    expect(capturedCallContext.strategyId).toBeNull()
+    expect(capturedCallContext.inputRef.strategy).toBe('single_pass')
+  })
+
+  it('throws descriptive error on unsupported strategy', async () => {
+    const chunks: ChunkRef[] = [{ id: 'c1', ordinal: 0, text: 'Some text' }]
+    await expect(
+      extractClaims({
+        workspaceId: 'ws-test',
+        sourceId: 'src-1',
+        chunks,
+        // @ts-expect-error invalid strategy test
+        strategy: 'sectioned',
+      }),
+    ).rejects.toThrow(/Extraction strategy 'sectioned' is not yet supported/)
   })
 
   it('buildExtractionPrompt formats chunks cleanly', () => {

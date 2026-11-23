@@ -16,13 +16,15 @@ import {
 /** Confidence threshold below which edges land as suggested rather than accepted. */
 export const ACCEPTANCE_CONFIDENCE_THRESHOLD = 0.65
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /**
  * Validates proposed edges against graph nodes and source chunks (Issue #13).
  *
  * Enforces hard database constraints and invariant pipeline rules:
  * 1. No self-loops: `fromNodeId !== toNodeId` (matches `edges_no_self_loop` check constraint)
  * 2. Node references must exist in the workspace
- * 3. Evidence chunk must exist and contain the quote verbatim (matches `edges_have_evidence` constraint)
+ * 3. Evidence chunk must exist, resolve to a valid UUID, and contain the quote verbatim
  *    NO SILENT RE-BINDING: if quote is in chunk-2 but edge cites chunk-1, it is strictly rejected.
  * 4. `confidence < 0.65` lands as `suggested`
  * 5. `contradicts` ALWAYS lands as `suggested`, regardless of confidence
@@ -40,10 +42,16 @@ export function validateProposedEdges(
     nodeMap.set(node.id, node)
   }
 
+  // Key chunkMap only by chunk.id (and namespaced sourceId:ordinal if available).
+  // Do NOT key by bare String(ordinal) to prevent cross-source ordinal collisions.
   const chunkMap = new Map<string, ChunkRef>()
   for (const chunk of chunks) {
-    if (chunk.id) chunkMap.set(chunk.id, chunk)
-    chunkMap.set(String(chunk.ordinal), chunk)
+    if (chunk.id) {
+      chunkMap.set(chunk.id, chunk)
+    }
+    if (chunk.sourceId) {
+      chunkMap.set(`${chunk.sourceId}:${chunk.ordinal}`, chunk)
+    }
   }
 
   for (const edge of proposedEdges) {
@@ -76,7 +84,13 @@ export function validateProposedEdges(
       continue
     }
 
-    // 5. Verbatim quote validation strictly within the cited evidence chunk
+    // Invariant: evidenceChunkId MUST resolve to a valid UUID (Postgres uuid FK to source_chunks.id)
+    if (!targetChunk.id || !UUID_REGEX.test(targetChunk.id)) {
+      rejected.push({ edge, reason: 'CHUNK_NOT_FOUND' })
+      continue
+    }
+
+    // 5. Verbatim quote validation strictly within the cited evidence chunk (exact case, no dash folding)
     const isVerbatim = verifyVerbatimQuote(edge.quote, targetChunk.text)
     if (!isVerbatim) {
       rejected.push({ edge, reason: 'VERBATIM_QUOTE_NOT_FOUND' })
@@ -97,7 +111,7 @@ export function validateProposedEdges(
       relation: edge.relation,
       confidence: edge.confidence,
       status,
-      evidenceChunkId: targetChunk.id || String(targetChunk.ordinal),
+      evidenceChunkId: targetChunk.id,
       matchedQuote: normalizeQuote(edge.quote),
       rationale: (edge.rationale || '').trim(),
     })
@@ -156,6 +170,8 @@ export interface ProposeEdgesOptions {
   nodes: NodeSummary[]
   chunks: ChunkRef[]
   topKChunks?: number
+  db?: Database
+  storeEdgesFn?: typeof storeEdges
   /** Injected callModel implementation (defaults to production callModel) */
   callModelFn?: CallModel
 }
@@ -173,6 +189,8 @@ export async function proposeEdges(
   }
 
   const prompt = buildProposeEdgesPrompt(nodes, chunks, { topKChunks })
+  const topK = options.topKChunks ?? 8
+  const selectedChunks = chunks.slice(0, topK)
 
   const result = await callModelFn<ProposeEdgesResult>(
     ProposeEdgesResultSchema,
@@ -181,16 +199,23 @@ export async function proposeEdges(
       workspaceId,
       taskKind: 'propose_edges',
       store: (await import('../model')).agentTaskStore,
-      inputRef: { nodeCount: nodes.length, chunkCount: chunks.length },
+      inputRef: { nodeCount: nodes.length, chunkCount: selectedChunks.length },
     },
   )
 
   const raw = result.output
   const { accepted, rejected } = validateProposedEdges(raw.edges ?? [], nodes, chunks)
 
+  let storedRows: EdgeRow[] | undefined
+  const storeFn = options.storeEdgesFn ?? storeEdges
+  if (options.db && accepted.length > 0) {
+    storedRows = await storeFn(options.db, workspaceId, accepted)
+  }
+
   return {
     acceptedEdges: accepted,
     rejectedEdges: rejected,
+    storedRows,
     taskId: result.task?.id,
   }
 }
