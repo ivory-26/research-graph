@@ -2,12 +2,13 @@ import { posix } from 'node:path'
 import type { ExperimentSpec } from '../shared/types'
 
 /**
- * Hard rules that an ExperimentSpec must satisfy, as specified in docs/03-agent-pipeline.md:
+ * Hard rules that an ExperimentSpec must satisfy, as specified in docs/03-agent-pipeline.md
+ * and Issue #23:
  * - mode is present and is not 'exact' (current product only produces 'adapted' or 'conceptual').
  * - Exactly one entrypoint, and it must exist in files (e.g. entrypoint "python main.py" -> "main.py" exists in files).
  * - Every dataset has a valid, resolvable URL (http/https).
  * - The script writes its metrics as json.dump to /output/metrics.json.
- * - Estimated runtime (timeoutSeconds) is under or equal to 60 seconds (or timeoutSeconds <= 120 per spec contract).
+ * - Estimated runtime (timeoutSeconds) is under or equal to 60 seconds (Issue #23 / docs/03:83).
  * - No `pip install` inside any script file.
  * - Structural: network is 'none', language is 'python'.
  */
@@ -19,18 +20,54 @@ export interface SpecValidationResult {
 
 /**
  * Extracts the normalized file path from an entrypoint command string like "python main.py" or "python3 script.py"
+ * Only accepts python / python3 or direct .py scripts. Rejects arbitrary shell commands.
  */
 export function extractEntrypointFile(entrypoint: string): string | null {
   const parts = entrypoint.trim().split(/\s+/)
   if (parts.length >= 2 && (parts[0] === 'python' || parts[0] === 'python3')) {
     const raw = parts[1] ?? null
-    return raw ? posix.normalize(raw.replace(/\\/g, '/')) : null
+    return raw && raw.endsWith('.py') ? posix.normalize(raw.replace(/\\/g, '/')) : null
   }
   if (parts.length === 1 && parts[0]?.endsWith('.py')) {
     return posix.normalize(parts[0].replace(/\\/g, '/'))
   }
-  const fallback = parts[parts.length - 1] ?? null
-  return fallback ? posix.normalize(fallback.replace(/\\/g, '/')) : null
+  return null
+}
+
+/**
+ * Strips comments and docstrings from python source code so comments cannot satisfy validation.
+ */
+export function stripPythonComments(source: string): string {
+  // Remove single line comments
+  const lines = source.split('\n').map((line) => {
+    let inSingle = false
+    let inDouble = false
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i]
+      if (char === "'" && !inDouble) inSingle = !inSingle
+      else if (char === '"' && !inSingle) inDouble = !inDouble
+      else if (char === '#' && !inSingle && !inDouble) {
+        return line.slice(0, i)
+      }
+    }
+    return line
+  })
+  return lines.join('\n')
+}
+
+/**
+ * Validates that the python source writes metrics via json.dump to /output/metrics.json.
+ * Requires actual json.dump and the exact /output/metrics.json path in executable code.
+ */
+export function validateScriptMetricsOutput(source: string): boolean {
+  const code = stripPythonComments(source)
+  // Must contain json.dump and /output/metrics.json
+  const hasJsonDump = /\bjson\.dump\s*\(/.test(code)
+  const hasMetricsPath =
+    /\/output\/metrics\.json/.test(code) ||
+    (/(["'])\/output\1/.test(code) && /(["'])metrics\.json\1/.test(code)) ||
+    (/os\.environ\.get\([^)]*\/output[^)]*\)/.test(code) && /metrics\.json/.test(code))
+  return hasJsonDump && hasMetricsPath
 }
 
 export function validateExperimentSpec(spec: unknown): SpecValidationResult {
@@ -74,17 +111,21 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
   // 6. entrypoint exists in files (normalized via posix)
   if (!s.entrypoint || typeof s.entrypoint !== 'string') {
     errors.push('entrypoint must be a non-empty string')
-  } else if (s.files && typeof s.files === 'object') {
+  } else {
     const entryFile = extractEntrypointFile(s.entrypoint)
-    const normalizedFiles = new Set(
-      Object.keys(s.files).map((f) => posix.normalize(f.replace(/\\/g, '/'))),
-    )
-    if (!entryFile || !normalizedFiles.has(entryFile)) {
-      errors.push(`entrypoint '${s.entrypoint}' references file '${entryFile}', which does not exist in files`)
+    if (!entryFile) {
+      errors.push(`entrypoint '${s.entrypoint}' must invoke python with a .py script`)
+    } else if (s.files && typeof s.files === 'object') {
+      const normalizedFiles = new Set(
+        Object.keys(s.files).map((f) => posix.normalize(f.replace(/\\/g, '/'))),
+      )
+      if (!normalizedFiles.has(entryFile)) {
+        errors.push(`entrypoint '${s.entrypoint}' references file '${entryFile}', which does not exist in files`)
+      }
     }
   }
 
-  // 7. No pip install in files, and must write to /output/metrics.json
+  // 7. No pip install in files, and must write to /output/metrics.json via json.dump
   if (s.files && typeof s.files === 'object') {
     let hasMetricsOutput = false
     for (const [filename, source] of Object.entries(s.files)) {
@@ -92,10 +133,11 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
         errors.push(`file '${filename}' content must be a string`)
         continue
       }
-      if (/pip\s+install/i.test(source)) {
+      const stripped = stripPythonComments(source)
+      if (/\bpip\s+install\b/i.test(stripped)) {
         errors.push(`file '${filename}' contains prohibited 'pip install'. Base image already includes required libraries.`)
       }
-      if (source.includes('/output/metrics.json') || (source.includes('metrics.json') && source.includes('/output'))) {
+      if (validateScriptMetricsOutput(source)) {
         hasMetricsOutput = true
       }
     }
@@ -136,11 +178,11 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
     }
   }
 
-  // 9. timeoutSeconds
+  // 9. timeoutSeconds: Issue #23 and docs/03:83 mandate estimated runtime under 60 seconds (timeoutSeconds <= 60).
   if (typeof s.timeoutSeconds !== 'number' || s.timeoutSeconds <= 0) {
     errors.push('timeoutSeconds must be a positive number')
-  } else if (s.timeoutSeconds > 120) {
-    errors.push('timeoutSeconds cannot exceed 120 seconds')
+  } else if (s.timeoutSeconds > 60) {
+    errors.push('timeoutSeconds cannot exceed 60 seconds (runtime under 60s rule per Issue #23)')
   }
 
   // 10. criteria
@@ -180,123 +222,4 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
     valid: errors.length === 0,
     errors,
   }
-}
-
-/**
- * Hand-written hero spec (Strobl et al. 2007 - Run A: Impurity Importance Bias)
- * Source paper: Strobl et al., "Bias in random forest variable importance measures", BMC Bioinformatics 2007.
- * Tests breast-w dataset with added noise variables.
- * Uses dynamic paths resolved via Python pathlib.Path.
- */
-export const HERO_EXPERIMENT_SPEC_RUN_A: ExperimentSpec = {
-  claimNodeId: 'claim-strobl-2007-gini-bias',
-  mode: 'adapted',
-  language: 'python',
-  image: 'default',
-  entrypoint: 'python main.py',
-  files: {
-    'main.py': `import json
-import os
-import pathlib
-import numpy as np
-import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-
-# 1. Output directory: dynamic resolution from env or standard default
-out_dir = pathlib.Path(os.environ.get("OUTPUT_DIR", "/output"))
-out_dir.mkdir(parents=True, exist_ok=True)
-
-# 2. Seed for reproducibility
-np.random.seed(42)
-
-# 3. Load dataset dynamically: check env, relative path, or synthetic fallback
-data_env = os.environ.get("DATA_PATH")
-candidates = [pathlib.Path(data_env)] if data_env else []
-candidates.extend([
-    pathlib.Path("data") / "breast-w.csv",
-    pathlib.Path(__file__).parent / "data" / "breast-w.csv",
-])
-
-df = None
-for p in candidates:
-    if p.exists() and p.is_file():
-        try:
-            df = pd.read_csv(p)
-            break
-        except Exception:
-            pass
-
-if df is not None:
-    X = df.iloc[:, :-1].select_dtypes(include=[np.number]).values
-    y = df.iloc[:, -1].astype('category').cat.codes.values
-else:
-    # Synthetic fallback with 569 rows and 30 features matching breast-w dimensions
-    X = np.random.randn(569, 30)
-    y = (X[:, 0] + X[:, 1] > 0).astype(int)
-
-n_samples = X.shape[0]
-
-# 4. Append three uninformative (noise) categorical variables with 2, 5, and 20 levels
-noise_c2 = np.random.choice(2, size=(n_samples, 1))
-noise_c5 = np.random.choice(5, size=(n_samples, 1))
-noise_c20 = np.random.choice(20, size=(n_samples, 1))
-
-X_augmented = np.hstack([X, noise_c2, noise_c5, noise_c20])
-n_total_features = X_augmented.shape[1]
-noise_20_index = n_total_features - 1  # Last column is noise with 20 levels
-
-# 5. Fit Random Forest
-rf = RandomForestClassifier(n_estimators=100, random_state=42)
-rf.fit(X_augmented, y)
-
-# 6. Compute impurity-based feature importances (Gini importance)
-importances = rf.feature_importances_
-# Rank features: rank 1 is highest importance
-ranked_indices = np.argsort(-importances)
-ranks = {idx: int(rank + 1) for rank, idx in enumerate(ranked_indices)}
-
-rank_impurity_noise_20 = ranks[noise_20_index]
-
-# 7. Write metrics to /output/metrics.json dynamically
-metrics = {
-    "rank_impurity_noise_20": float(rank_impurity_noise_20),
-    "n_features": float(n_total_features),
-    "noise_20_importance": float(importances[noise_20_index]),
-}
-
-metrics_file = out_dir / "metrics.json"
-with open(metrics_file, "w") as f:
-    json.dump(metrics, f, indent=2)
-
-print(f"Computed metrics written to {metrics_file}: {metrics}")
-`,
-  },
-  datasets: [
-    {
-      name: 'breast-w',
-      url: 'https://raw.githubusercontent.com/datasets/breast-cancer/master/data/data.csv',
-      path: 'data/breast-w.csv',
-      sha256: null,
-      bytes: null,
-    },
-  ],
-  parameters: {
-    importance_method: 'impurity',
-    n_estimators: 100,
-    seed: 42,
-  },
-  criteria: {
-    mode: 'all',
-    checks: [
-      {
-        metric: 'rank_impurity_noise_20',
-        op: 'lte',
-        value: 5,
-      },
-    ],
-  },
-  timeoutSeconds: 60,
-  memoryMb: 2048,
-  cpuCount: 1,
-  network: 'none',
 }
