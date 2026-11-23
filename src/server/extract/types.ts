@@ -32,13 +32,6 @@ export const ExtractionMethodSchema = z.object({
 })
 
 export const ExtractionResultSchema = z.object({
-  _provenance: z
-    .object({
-      model: z.string(),
-      capturedAt: z.string(),
-      promptHash: z.string().optional(),
-    })
-    .optional(),
   claims: z.array(ExtractedClaimSchema).max(12),
   datasets: z.array(ExtractionDatasetSchema).max(8).optional().default([]),
   methods: z.array(ExtractionMethodSchema).max(8).optional().default([]),
