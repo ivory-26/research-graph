@@ -1,6 +1,8 @@
 # Plan — 30 November
 
-Ten days, four people part-time, two of them lost to exams on 23 and 26 November. Roughly 70 useful hours.
+Seven days, from 23 November to 30 November, four people part-time, one day lost to an exam on 26 November. Roughly 50 useful hours.
+
+Re-baselined on 23 November. The earlier version of this plan assumed a ten-day run starting on the 20th; that start did not happen, so everything moved and the cut list moved up. The per-person sequence lives in [07-workstreams](./07-workstreams.md).
 
 The plan is ordered so that the demo is *recordable* as early as possible. A feature that is not in the five-minute video did not ship, regardless of how much of it works.
 
@@ -16,21 +18,18 @@ If everything else is missing and that spine works, the submission succeeds. If 
 
 ## Days
 
-| Day | Date | Work | Definition of done |
-|---|---|---|---|
-| 0 | Fri 20 | Repo scaffold, Neon project, **verify Neon Auth end to end**, E2B hello-world, pin every dependency | A signed-in user exists and a Python snippet has run in a sandbox |
-| 1 | Sat 21 | Schema + migrations; `INGEST_SOURCE` for the three demo PDFs; chunks + embeddings stored | Three sources with chunks and embeddings in the database |
-| 2 | Sun 22 | `EXTRACT_CLAIMS` with verbatim-quote validation; claim / method / dataset nodes; edge proposal | The hero claim and at least six evidenced edges exist, seeded from a script |
-| — | **Mon 23** | **Exam day.** Reserve for deck outline only | — |
-| 3 | Tue 24 | Graph API + React Flow canvas; node cards; evidence panel on edge click | The seeded workspace renders and an edge shows its quote |
-| 4 | Wed 25 | `PLAN_EXPERIMENT` + spec validation + approval screen | A valid spec is generated for the hero claim and can be approved |
-| — | **Thu 26** | **Exam day.** Reserve for nothing | — |
-| 5 | Fri 27 | `EXECUTE` via E2B; metrics capture; result nodes; `EVALUATE`; verdict display | Run A produces a verdict on screen without manual steps |
-| 6 | Sat 28 | `BRANCH_WHAT_IF` + one-parameter diff; comparison view; retry loop; notebook export; Firecrawl | Run B renders beside Run A with the delta explained |
-| 7 | Sun 29 | Scoring dashboard; ask-across-sources; **record the video**; re-record the failure beat | A complete five-minute recording exists, twice over |
-| 8 | Mon 30 | Deck, deploy check, submission form | Submitted |
+| Date | Milestone across all four streams |
+|---|---|
+| **Mon 23** | Contracts frozen — types, events, runner interface, schema, scaffold, workspace fixture. Everything else can start |
+| **Tue 24** | Ingestion runs on the three PDFs; canvas renders the fixture; auth works; E2B runs a script |
+| **Wed 25** | Claims extracted with quotes; runner returns an `ExperimentResult`; SSE endpoint exists |
+| **Thu 26** | *Exam day.* Deck outline only |
+| **Fri 27** | **The pipeline is wired end to end.** Run A produces a verdict on screen. This is the pivot |
+| **Sat 28** | Run B beside Run A; retry loop; notebook export; dashboard. **Segments recorded** |
+| **Sun 29** | Video assembled, deck finished, deploy checked, what the recording exposed gets fixed |
+| **Mon 30** | Submitted |
 
-Days 6 and 7 are the compression point. If the spine is late, cut in this order: scoring dashboard → Firecrawl → notebook export → retry loop. Do not cut what-if, and do not cut the comparison view.
+Friday 27 is the compression point. If the pipeline is not wired by end of Friday, cut in this order: scoring dashboard → Firecrawl → notebook export → retry loop. Do not cut what-if, and do not cut the comparison view.
 
 ## Workstreams
 
