@@ -137,7 +137,7 @@ export function buildProposeEdgesPrompt(
     .join('\n')
 
   const chunkList = selectedChunks
-    .map((c) => `--- CHUNK ID: ${c.id || c.ordinal} (Page ${c.page ?? '?'}) ---\n${c.text}`)
+    .map((c) => `--- CHUNK ID: ${c.id} (Page ${c.page ?? '?'}) ---\n${c.text}`)
     .join('\n\n')
 
   return `WORKSPACE NODES:
@@ -186,6 +186,15 @@ export async function proposeEdges(
 
   if (nodes.length < 2 || chunks.length === 0) {
     return { acceptedEdges: [], rejectedEdges: [] }
+  }
+
+  // Enforce that evidence chunks carry valid UUIDs so proposed edges can be persisted
+  for (const chunk of chunks) {
+    if (!chunk.id || !UUID_REGEX.test(chunk.id)) {
+      throw new Error(
+        `Every chunk passed to proposeEdges must have a valid UUID id. Received: ${chunk.id}`,
+      )
+    }
   }
 
   const prompt = buildProposeEdgesPrompt(nodes, chunks, { topKChunks })
