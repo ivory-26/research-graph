@@ -54,8 +54,16 @@ meta.issueComments = api(`repos/${repo}/issues/${pr}/comments`).map((comment) =>
   url: comment.html_url ?? null,
 }))
 
-const marker = "<!-- research-graph-pr-review"
-meta.botReview = meta.issueComments.filter((comment) => comment.body.includes(marker)).at(-1) ?? null
+const botMarker =
+  /<!--\s*research-graph-pr-review hash=([0-9a-f]+) (?:gate|verdict)=([A-Z]+)\s*-->/
+meta.botReview =
+  meta.issueComments
+    .filter(
+      (comment) =>
+        (comment.author === "github-actions[bot]" || comment.author === "github-actions") &&
+        botMarker.test(comment.body),
+    )
+    .at(-1) ?? null
 
 writeFileSync("pr-context.json", JSON.stringify(meta, null, 2) + "\n")
 

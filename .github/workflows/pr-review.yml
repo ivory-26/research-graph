@@ -10,25 +10,149 @@ on:
         required: true
         type: number
 
+# Read-only by default. The review job opts into comment permissions.
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
 
 concurrency:
   group: pr-review-${{ github.event.pull_request.number || inputs.pr }}
   cancel-in-progress: true
 
 jobs:
-  review:
-    name: Review PR
+  checks:
+    name: Run checks
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.draft == false &&
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.pull_request.user.type != 'Bot')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: ${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Check out the dispatched PR
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cross=$(gh pr view "$PR_NUMBER" --json isCrossRepository --jq .isCrossRepository)
+          if [[ "$cross" == "true" ]]; then
+            echo "::error::Fork pull requests are not checked by this workflow."
+            exit 1
+          fi
+          gh pr checkout "$PR_NUMBER"
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 12.23.0
+          run_install: false
+
+      # This job runs PR code. It has no repository secrets and no persisted
+      # git credentials, so install scripts and tests cannot reach the reviewer.
+      - name: Install dependencies
+        id: install
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/pr-checks"
+          if pnpm install --frozen-lockfile > "$RUNNER_TEMP/pr-checks/check-install.log" 2>&1; then
+            tail -30 "$RUNNER_TEMP/pr-checks/check-install.log"
+          else
+            code=$?
+            tail -60 "$RUNNER_TEMP/pr-checks/check-install.log"
+            exit "$code"
+          fi
+
+      - name: Run checks
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+        run: |
+          set -uo pipefail
+          dir="$RUNNER_TEMP/pr-checks"
+          mkdir -p "$dir"
+          checks="$dir/checks.md"
+          : > "$checks"
+          echo "## Automated checks" >> "$checks"
+          if [[ "$INSTALL_OUTCOME" != "success" ]]; then
+            echo "- install: FAIL" >> "$checks"
+            echo "- typecheck: NOT RUN" >> "$checks"
+            echo "- test: NOT RUN" >> "$checks"
+            echo "- db-check: NOT RUN" >> "$checks"
+            echo "" >> "$checks"
+            echo "<details><summary>install output (tail)</summary>" >> "$checks"
+            echo "" >> "$checks"
+            echo '```text' >> "$checks"
+            tail -60 "$dir/check-install.log" >> "$checks"
+            echo '```' >> "$checks"
+            echo "</details>" >> "$checks"
+          else
+            echo "- install: PASS" >> "$checks"
+            run_check() {
+              name="$1"
+              shift
+              log="$dir/check-${name}.log"
+              if "$@" > "$log" 2>&1; then
+                echo "- ${name}: PASS" >> "$checks"
+              else
+                code=$?
+                echo "- ${name}: FAIL (exit ${code})" >> "$checks"
+                echo "" >> "$checks"
+                echo "<details><summary>${name} output (tail)</summary>" >> "$checks"
+                echo "" >> "$checks"
+                echo '```text' >> "$checks"
+                tail -60 "$log" >> "$checks"
+                echo '```' >> "$checks"
+                echo "</details>" >> "$checks"
+              fi
+            }
+            run_check typecheck pnpm typecheck
+            run_check test pnpm test
+            run_check db-check pnpm db:check
+          fi
+          cat "$checks"
+
+      - name: Upload check results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-checks
+          path: ${{ runner.temp }}/pr-checks
+          if-no-files-found: ignore
+          retention-days: 7
+
+  review:
+    name: Review PR
+    needs: checks
+    if: |
+      always() &&
+      needs.checks.result != 'cancelled' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.user.type != 'Bot'))
+    runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
     env:
       GH_REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
@@ -38,7 +162,6 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          # Only the manual path needs git credentials for `gh pr checkout`.
           persist-credentials: ${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Check out the dispatched PR
@@ -57,13 +180,8 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
-          node-version-file: .nvmrc
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 12.23.0
-          run_install: false
+          # Fixed for the reviewer; the PR's .nvmrc is used only in checks.
+          node-version: "26.13.1"
 
       - name: Use review rules and scripts from the base branch
         env:
@@ -75,7 +193,20 @@ jobs:
           fi
           echo "BASE_REF=${BASE_REF}" >> "$GITHUB_ENV"
 
-          # Standards come from the base branch, never from the PR under review.
+          # Once the workflow exists on the base branch, a PR that changes the
+          # workflow needs a human: the job would otherwise run a PR-supplied
+          # definition with the OpenCode secret. The introducing PR (base has
+          # no workflow yet) is the one exception, and it warns.
+          if git cat-file -e "origin/${BASE_REF}:.github/workflows/pr-review.yml" 2>/dev/null; then
+            if ! git diff --quiet "origin/${BASE_REF}"...HEAD -- .github/workflows/pr-review.yml; then
+              echo "::error::This PR changes the review workflow. A maintainer must review it."
+              exit 1
+            fi
+          else
+            echo "::warning::The base branch has no review workflow yet; running the introducing PR's version."
+          fi
+
+          # Standards and review tooling come from the base branch, never the PR.
           rm -rf docs
           git checkout "origin/${BASE_REF}" -- docs
           rm -f CLAUDE.md GLOSSARY.md
@@ -107,23 +238,36 @@ jobs:
             rm -f "$agent"
           fi
 
-          # Restore the review tooling from the base branch where it exists.
           for f in .github/scripts/pr-context.mjs .github/scripts/extract-review.mjs .github/scripts/extract-review.test.mjs; do
             if git cat-file -e "origin/${BASE_REF}:${f}" 2>/dev/null; then
               git checkout "origin/${BASE_REF}" -- "$f"
             fi
           done
 
-          # Integrity pins: a PR cannot change the reviewer or the scripts that
-          # run with the workflow token.
+          # Integrity pins: the reviewer and the scripts that run with the
+          # workflow token are fixed even if the checkout is PR-supplied.
           printf '%s  %s\n' \
-            "0631f1c5facb71170b2d8e6a3103a8da062646e236993aef221c973ef1978813" ".opencode/agents/pr-review.md" \
-            "9398354a8be0d29d1d1fc9269ab5df026ae43020aeba950014514bc1663a32a7" ".github/scripts/pr-context.mjs" \
-            "168e88804e7ee88580bd2f3ce42fffb8eed4219eacd5c34194a326125079db6a" ".github/scripts/extract-review.mjs" \
+            "3efcddf97caa8f285d79872279f3c0e2a60c14844a947694812bcfcb12674ba7" ".opencode/agents/pr-review.md" \
+            "f61924d69a43cca65365e332d01aba56d47146615eb1d470738e393544158f9e" ".github/scripts/pr-context.mjs" \
+            "4588a67967b901dc7c37cab0e9619d23cf968a49405af35b8b2fd8107cf7842b" ".github/scripts/extract-review.mjs" \
+            "b68a33ea69e864024a994f305c91c347f095f196932911704a1b6df698fcffd9" ".github/scripts/extract-review.test.mjs" \
             | sha256sum --check --status
 
           # The model step must not inherit a git credential.
           git config --local --unset-all http.https://github.com/.extraheader || true
+
+      - name: Download check results
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: pr-checks
+          path: .
+
+      - name: Ensure check results exist
+        run: |
+          if [[ ! -f checks.md ]]; then
+            printf '%s\n' '- install: NOT RUN' '- typecheck: NOT RUN' '- test: NOT RUN' '- db-check: NOT RUN' > checks.md
+          fi
 
       - name: Build PR context
         env:
@@ -132,63 +276,6 @@ jobs:
 
       - name: Test review scripts
         run: node --test .github/scripts/extract-review.test.mjs
-
-      - name: Install dependencies
-        id: install
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          if pnpm install --frozen-lockfile > check-install.log 2>&1; then
-            tail -30 check-install.log
-          else
-            code=$?
-            tail -60 check-install.log
-            exit "$code"
-          fi
-
-      - name: Run checks
-        env:
-          INSTALL_OUTCOME: ${{ steps.install.outcome }}
-        run: |
-          set -uo pipefail
-          : > checks.md
-          echo "## Automated checks" >> checks.md
-          if [[ "$INSTALL_OUTCOME" != "success" ]]; then
-            echo "- install: FAIL" >> checks.md
-            echo "" >> checks.md
-            echo "<details><summary>install output (tail)</summary>" >> checks.md
-            echo "" >> checks.md
-            echo '```text' >> checks.md
-            tail -60 check-install.log >> checks.md
-            echo '```' >> checks.md
-            echo "</details>" >> checks.md
-            echo "" >> checks.md
-          else
-            echo "- install: PASS" >> checks.md
-            run_check() {
-              name="$1"
-              shift
-              log="check-${name}.log"
-              if "$@" > "$log" 2>&1; then
-                echo "- ${name}: PASS" >> checks.md
-              else
-                code=$?
-                echo "- ${name}: FAIL (exit ${code})" >> checks.md
-                echo "" >> checks.md
-                echo "<details><summary>${name} output (tail)</summary>" >> checks.md
-                echo "" >> checks.md
-                echo '```text' >> checks.md
-                tail -60 "$log" >> checks.md
-                echo '```' >> checks.md
-                echo "</details>" >> checks.md
-                echo "" >> checks.md
-              fi
-            }
-            run_check typecheck pnpm typecheck
-            run_check test pnpm test
-            run_check db-check pnpm db:check
-          fi
-          cat checks.md
 
       - name: Install OpenCode
         run: |
@@ -231,26 +318,26 @@ jobs:
           set -euo pipefail
           node .github/scripts/extract-review.mjs opencode-events.ndjson > review-raw.md
 
-          # Keep everything from the first VERDICT line onward; drop any preamble.
-          awk 'BEGIN{found=0} /^VERDICT: /{found=1} found' review-raw.md > review-verdict.md
-          if [[ ! -s review-verdict.md ]]; then
-            echo "::error::OpenCode did not return a VERDICT line."
+          # Keep everything from the first GATE line onward; drop any preamble.
+          awk 'BEGIN{found=0} /^GATE: /{found=1} found' review-raw.md > review-gate.md
+          if [[ ! -s review-gate.md ]]; then
+            echo "::error::OpenCode did not return a GATE line."
             cat review-raw.md
             exit 1
           fi
 
-          verdict=$(head -n 1 review-verdict.md | sed -E 's/^VERDICT:[[:space:]]*//' | awk '{print $1}')
-          case "$verdict" in
+          gate=$(head -n 1 review-gate.md | sed -E 's/^GATE:[[:space:]]*//' | awk '{print $1}')
+          case "$gate" in
             READY|FINDINGS) ;;
             *)
-              echo "::error::Unknown verdict: ${verdict}"
+              echo "::error::Unknown gate: ${gate}"
               exit 1
               ;;
           esac
 
-          tail -n +2 review-verdict.md > review-body.md
+          tail -n +2 review-gate.md > review-body.md
           if [[ ! -s review-body.md ]]; then
-            echo "::error::${verdict} verdict with an empty review body."
+            echo "::error::${gate} gate with an empty review body."
             exit 1
           fi
 
@@ -270,18 +357,32 @@ jobs:
             exit 1
           fi
           for name in install typecheck test db-check; do
-            if ! grep -q "^- ${name}: PASS$" checks.md; then
-              echo "::error::checks.md has no PASS for ${name}."
+            if ! grep -q "^- ${name}: " checks.md; then
+              echo "::error::checks.md has no result for ${name}."
               cat checks.md
               exit 1
             fi
           done
-          if [[ "$verdict" == "READY" ]]; then
-            if grep -qE '^\- [a-z-]+: (FAIL|NOT RUN)' checks.md; then
-              echo "::error::Reviewer said READY but automated checks did not pass."
-              cat checks.md
-              exit 1
-            fi
+
+          checks_failed=0
+          if grep -qE '^\- [a-z-]+: (FAIL|NOT RUN)' checks.md; then
+            checks_failed=1
+          fi
+
+          # A failing check must produce a FINDINGS comment, not an aborted
+          # step. If the model wrongly says READY, the workflow adds the blocker.
+          if [[ "$checks_failed" -eq 1 && "$gate" == "READY" ]]; then
+            gate=FINDINGS
+            {
+              echo "## Blockers"
+              echo "- Automated checks did not pass. See \`checks.md\` in the workflow artifact."
+              echo
+              cat review-body.md
+            } > review-body-gated.md
+            mv review-body-gated.md review-body.md
+          fi
+
+          if [[ "$gate" == "READY" ]]; then
             if awk '
               tolower($0) ~ /^##[[:space:]]+definition[[:space:]]+of[[:space:]]+done/ { in_section=1; next }
               /^##[[:space:]]/ { in_section=0 }
@@ -303,7 +404,7 @@ jobs:
             const file = "review-body.md"
             let body = fs.readFileSync(file, "utf8")
             body = body.replace(/<!--\s*research-graph-pr-review[\s\S]*?-->/g, "")
-            body = body.replace(/(^|[\s(])@([A-Za-z0-9][A-Za-z0-9-]{0,38})/gm, "$1@\u200B$2")
+            body = body.replace(/(^|[^A-Za-z0-9_])@([A-Za-z0-9][A-Za-z0-9-]{0,38})/gm, "$1@\u200B$2")
             fs.writeFileSync(file, body)
           '
 
@@ -316,9 +417,9 @@ jobs:
             echo
             echo "- PR: #${PR_NUMBER}"
             echo "- Commit: \`${head_sha}\`"
-            echo "- Verdict: **${verdict}**"
+            echo "- Gate: **${gate}**"
             echo
-            cat review-verdict.md
+            cat review-body.md
             echo
             echo "### Checks"
             echo
@@ -329,23 +430,23 @@ jobs:
           prev_info=$(node -e '
             const comment = require("./pr-context.json").botReview
             if (!comment || typeof comment.body !== "string") process.exit(0)
-            const match = comment.body.match(/<!--\s*research-graph-pr-review hash=([0-9a-f]+) verdict=([A-Z]+)\s*-->/)
+            const match = comment.body.match(/<!--\s*research-graph-pr-review hash=([0-9a-f]+) (?:gate|verdict)=([A-Z]+)\s*-->/)
             if (match) process.stdout.write(match[1] + " " + match[2])
           ')
           prev_hash=$(echo "$prev_info" | awk '{print $1}')
-          prev_verdict=$(echo "$prev_info" | awk '{print $2}')
+          prev_gate=$(echo "$prev_info" | awk '{print $2}')
           prev_id=$(node -p "require('./pr-context.json').botReview?.id ?? ''")
 
-          if [[ "$verdict" == "READY" ]]; then
+          if [[ "$gate" == "READY" ]]; then
             header="@${author} — automated review of \`${short_sha}\` confirms all definition-of-done items are complete and checks pass. This is ready to merge."
           else
             header="@${author} — automated review of \`${short_sha}\` found issues to address."
           fi
 
           {
-            printf '<!-- research-graph-pr-review hash=%s verdict=%s -->\n' "$new_hash" "$verdict"
+            printf '<!-- research-graph-pr-review hash=%s gate=%s -->\n' "$new_hash" "$gate"
             printf '%s\n\n' "$header"
-            if [[ "$verdict" == "FINDINGS" ]]; then
+            if [[ "$gate" == "FINDINGS" ]]; then
               printf '> This review is read-only: nothing was edited, committed, or pushed. Please address the findings below before merging, or reply if you disagree.\n\n'
             fi
             cat review-body.md
@@ -377,10 +478,10 @@ jobs:
           fi
 
           : > notify.md
-          if [[ "$verdict" == "READY" && -n "$prev_id" && ( "$prev_verdict" != "READY" || "$new_hash" != "$prev_hash" ) ]]; then
+          if [[ "$gate" == "READY" && -n "$prev_id" && ( "$prev_gate" != "READY" || "$new_hash" != "$prev_hash" ) ]]; then
             printf '@%s — re-reviewed `%s`: all definition-of-done items are complete and checks pass. Ready to merge: %s\n' "$author" "$short_sha" "$comment_url" > notify.md
-          elif [[ "$verdict" == "FINDINGS" && -n "$prev_id" && -n "$prev_hash" && "$new_hash" != "$prev_hash" ]]; then
-            if [[ "$prev_verdict" == "READY" ]]; then
+          elif [[ "$gate" == "FINDINGS" && -n "$prev_id" && -n "$prev_hash" && "$new_hash" != "$prev_hash" ]]; then
+            if [[ "$prev_gate" == "READY" ]]; then
               printf '@%s — re-reviewed `%s`: a regression was found; this is no longer ready to merge. See %s\n' "$author" "$short_sha" "$comment_url" > notify.md
             else
               printf '@%s — re-reviewed `%s`: findings changed. See %s\n' "$author" "$short_sha" "$comment_url" > notify.md
@@ -401,10 +502,6 @@ jobs:
             pr.diff
             linked-issues.md
             checks.md
-            check-install.log
-            check-typecheck.log
-            check-test.log
-            check-db-check.log
             opencode-events.ndjson
             review-raw.md
             review-comment.md

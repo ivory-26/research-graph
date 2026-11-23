@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
  * Pull the reviewer's final answer out of an `opencode run --format json`
  * stream. Text events carry the text at `part.text`; the outer event type is
  * `text`. Narration before the final answer is dropped by starting at the last
- * text part that contains a VERDICT line.
+ * text part that contains a `GATE:` line.
  */
 export function extractReview(raw) {
   const texts = []
@@ -27,8 +27,8 @@ export function extractReview(raw) {
     }
   }
 
-  const verdictIndex = texts.findLastIndex((text) => /^VERDICT:/m.test(text))
-  return (verdictIndex >= 0 ? texts.slice(verdictIndex) : texts).join("\n").trim()
+  const gateIndex = texts.findLastIndex((text) => /^GATE:/m.test(text))
+  return (gateIndex >= 0 ? texts.slice(gateIndex) : texts).join("\n").trim()
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

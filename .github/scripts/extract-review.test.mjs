@@ -10,12 +10,12 @@ test("uses the final text part and ignores narration", () => {
     JSON.stringify({ type: "tool_use", part: { type: "tool", tool: "read" } }),
     JSON.stringify({
       type: "text",
-      part: { type: "text", text: "VERDICT: FINDINGS\n## Definition of done\n- [ ] x" },
+      part: { type: "text", text: "GATE: FINDINGS\n## Definition of done\n- [ ] x" },
     }),
     JSON.stringify({ type: "step_finish", part: { type: "step-finish" } }),
   ].join("\n")
 
-  assert.equal(extractReview(raw), "VERDICT: FINDINGS\n## Definition of done\n- [ ] x")
+  assert.equal(extractReview(raw), "GATE: FINDINGS\n## Definition of done\n- [ ] x")
 })
 
 test("ignores malformed lines and reports error events without failing", () => {
@@ -24,9 +24,9 @@ test("ignores malformed lines and reports error events without failing", () => {
     JSON.stringify({ type: "error", error: { message: "boom" } }),
     JSON.stringify({
       type: "text",
-      part: { type: "text", text: "VERDICT: READY\n## Definition of done\n- [x] done" },
+      part: { type: "text", text: "GATE: READY\n## Definition of done\n- [x] done" },
     }),
   ].join("\n")
 
-  assert.equal(extractReview(raw), "VERDICT: READY\n## Definition of done\n- [x] done")
+  assert.equal(extractReview(raw), "GATE: READY\n## Definition of done\n- [x] done")
 })
