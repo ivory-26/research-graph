@@ -30,7 +30,7 @@ These are not style preferences. Breaking one of them breaks the product's only 
 
 | Thing | Version / note |
 |---|---|
-| Node | 22+ (AI SDK 7 is ESM-only) |
+| Node | 26.x LTS (AI SDK 7 is ESM-only); `.nvmrc` pins 26.13.1 |
 | `@tanstack/react-start` | ≥ 1.168.60 — earlier versions carry CVE-2026-102989 |
 | `ai` | 7.x — `ToolLoopAgent`, `tool({ inputSchema })`, `generateText({ output: Output.object() })`. `generateObject` is deprecated |
 | `@ai-sdk/react` | 4.x — `useChat({ transport })`, `message.parts`. `handleSubmit` and `api` props no longer exist |

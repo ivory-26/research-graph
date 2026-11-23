@@ -44,6 +44,7 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 | 23 Nov | Neon Auth session verification, workspace membership guard and same-origin `/api/auth/$` proxy, with auth docs and a live-branch harness | [#36](https://github.com/ivory-26/research-graph/pull/36) |
 | 23 Nov | Pipeline runtime persistence: ordered event log and replay, one execution claim per experiment, and compare-and-set approval gates | [#37](https://github.com/ivory-26/research-graph/pull/37) |
 | 23 Nov | Dependency refresh: pnpm 12.23.0, `@xyflow/react` 13.0.3, `unpdf` 2.2.2; declared Node floor raised to 22.22.0 | [#38](https://github.com/ivory-26/research-graph/pull/38) |
+| 23 Nov | Runtime moved to Node 26 LTS (`26.x`); `.nvmrc` and `.node-version` pin 26.13.1, satisfying `unpdf`'s Node >= 24 requirement | [#41](https://github.com/ivory-26/research-graph/pull/41) |
 
 #33 is transport only and #37 is the persistence layer. Neither is the pipeline endpoint: `GET /api/pipeline/:experimentId`, the route mounts, #4 authorization at the route boundary, the approval write path wired to the verified actor, and the database-backed `ReadApproval` remain in #6's delivery. Approval state is read through an injected reader for exactly that reason.
 
