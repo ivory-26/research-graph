@@ -1,0 +1,31 @@
+# Ownership. Two people never edit the same file.
+# See docs/07-workstreams.md.
+
+# Contracts, database, integration seam
+/src/shared/            @ivory-26
+/src/db/                @ivory-26
+/src/server/pipeline.ts @ivory-26
+/src/server/model.ts    @ivory-26
+/src/server/admin.ts    @ivory-26
+/scripts/               @ivory-26
+/.github/               @ivory-26
+/docs/                  @ivory-26
+/CLAUDE.md              @ivory-26
+
+# Ingestion and extraction
+/src/server/ingest/     @CyberCodezilla
+/src/server/extract/    @CyberCodezilla
+/src/server/retrieval.ts @CyberCodezilla
+/src/server/firecrawl.ts @CyberCodezilla
+
+# Runtime and evaluation
+/src/server/planner.ts  @yashhh-23
+/src/server/runner.ts   @yashhh-23
+/src/server/evaluate.ts @yashhh-23
+/src/server/branch.ts   @yashhh-23
+/src/server/notebook.ts @yashhh-23
+
+# Canvas and UI
+/src/routes/            @frag2win
+/src/components/        @frag2win
+/fixtures/              @frag2win
