@@ -163,7 +163,8 @@ export async function retrieveCrossSourcePassages(
   }
 
   const limit = Math.max(1, Math.min(topK, 25))
-  const candidateLimit = Math.max(limit, Math.min(limit * 2, 50))
+  // Wide candidate window so distinct workspace sources can compete for inclusion
+  const candidateLimit = Math.max(limit * 4, 100)
 
   const rows = await db
     .select({
@@ -191,7 +192,9 @@ export async function retrieveCrossSourcePassages(
     }
   }
 
-  if (selectedRows.length < limit) {
+  // Backfill past maxPerSource ONLY when fewer than two sources have any candidate across the candidate window
+  const distinctSourcesInCandidates = new Set(rows.map((r) => r.source.id))
+  if (selectedRows.length < limit && distinctSourcesInCandidates.size < 2) {
     for (const r of rows) {
       if (!selectedRows.includes(r)) {
         selectedRows.push(r)

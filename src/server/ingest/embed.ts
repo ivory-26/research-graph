@@ -144,7 +144,7 @@ export async function embedChunks(
             await taskStore.insert({
               workspaceId: options.workspaceId,
               strategyId: options.strategyId ?? null,
-              taskKind: 'ingest',
+              taskKind,
               model: DEFAULT_EMBEDDING_MODEL_ID,
               status: 'retried',
               inputRef: { batchIndex: i / batchSize, itemCount: batch.length },
@@ -166,7 +166,7 @@ export async function embedChunks(
           await taskStore.insert({
             workspaceId: options.workspaceId,
             strategyId: options.strategyId ?? null,
-            taskKind: 'ingest',
+            taskKind,
             model: DEFAULT_EMBEDDING_MODEL_ID,
             status: 'failed',
             inputRef: { batchIndex: i / batchSize, itemCount: batch.length },
@@ -220,7 +220,7 @@ export async function embedChunks(
           await taskStore.insert({
             workspaceId: options.workspaceId,
             strategyId: options.strategyId ?? null,
-            taskKind: 'ingest',
+            taskKind,
             model: DEFAULT_EMBEDDING_MODEL_ID,
             status: 'failed',
             inputRef: { batchIndex: i / batchSize, itemCount: batch.length },
@@ -244,7 +244,7 @@ export async function embedChunks(
       await taskStore.insert({
         workspaceId: options.workspaceId,
         strategyId: options.strategyId ?? null,
-        taskKind: 'ingest',
+        taskKind,
         model: DEFAULT_EMBEDDING_MODEL_ID,
         status: 'succeeded',
         inputRef: { batchIndex: i / batchSize, itemCount: batch.length },

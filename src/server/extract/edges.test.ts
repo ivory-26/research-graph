@@ -69,6 +69,24 @@ describe('Edge Validation Invariants (Issue #13)', () => {
     expect(rejected[0].reason).toBe('INVALID_NODE')
   })
 
+  it('rejects edge when rationale is empty or blank', () => {
+    const proposed: ProposedEdge[] = [
+      {
+        fromNodeId: 'node-claim-1',
+        toNodeId: 'node-method-1',
+        relation: 'supports',
+        confidence: 0.9,
+        evidenceChunkId: CHUNK_UUID_1,
+        quote: 'Random forests are an ensemble learning method',
+        rationale: '   ',
+      },
+    ]
+
+    const { accepted, rejected } = validateProposedEdges(proposed, nodes, chunks)
+    expect(accepted.length).toBe(0)
+    expect(rejected[0].reason).toBe('RATIONALE_EMPTY')
+  })
+
   it('rejects edges with mangled quotes matching edges_have_evidence constraint', () => {
     const proposed: ProposedEdge[] = [
       {
@@ -492,7 +510,7 @@ describe('proposeEdges runner and prompt builder', () => {
   })
 })
 
-describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)', () => {
+describe('Integration test across 3 demo papers (verbatim quote verification and edge extraction)', () => {
   const strobl2007Path = path.resolve(process.cwd(), 'fixtures/papers/strobl-2007.pdf')
   const strobl2008Path = path.resolve(process.cwd(), 'fixtures/papers/strobl-2008.pdf')
   const kursa2010Path = path.resolve(process.cwd(), 'fixtures/papers/kursa-2010.pdf')
@@ -553,7 +571,7 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
       // 6 real quotes verified distinctly inside their respective papers:
       // Paper 1 (Strobl 2007)
       const q1 = 'random forest variable importance measures are a sensible means for variable selection in many applications, but are not reliable in situations where potential predictor variables vary in their scale of measurement or their number of categories.'
-      const q2 = 'The random forest approach was shown to outperform'
+      const q2 = 'The random forest approach was shown to outperform six other methods in the prediction of protein interactions based on various biological features such as gene expression, gene ontology (GO) features and sequence data [12].'
 
       // Paper 2 (Strobl 2008)
       const q3 = 'Based on these considerations we develop a new, conditional permutation scheme for the computation of the variable importance measure.'
