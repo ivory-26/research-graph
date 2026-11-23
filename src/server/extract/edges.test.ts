@@ -527,7 +527,7 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
       const outcome = await proposeEdges({
         workspaceId: 'ws-three-papers',
         nodes: workspaceNodes,
-        chunks: allChunks,
+        chunks: [c1, c2, c3, c4, c5, c6],
         db: fakeDb,
         callModelFn: mockCallModel as any,
       })
@@ -537,6 +537,12 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
       expect(outcome.acceptedEdges.length).toBeGreaterThanOrEqual(6)
       expect(outcome.rejectedEdges).toHaveLength(0)
       expect(outcome.storedRows?.length).toBeGreaterThanOrEqual(6)
+      expect(insertedDbRows.length).toBeGreaterThanOrEqual(6)
+      for (const row of insertedDbRows) {
+        expect(row.workspaceId).toBe('ws-three-papers')
+        expect(row.status).toBe('accepted')
+        expect(row.evidenceChunkId).toBeDefined()
+      }
 
       // Every accepted edge has status 'accepted', confidence >= 0.65, and a resolvable quote verified against its cited chunk from that paper
       for (const edge of outcome.acceptedEdges) {
