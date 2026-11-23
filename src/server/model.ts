@@ -15,10 +15,9 @@
  *    behind our back, one wrapper call would produce several physical requests
  *    and one task row — the accounting would be a lie. See ADR 0009.
  *
- * Persistence is an injected port. `agent_tasks` is defined by the schema
- * workstream (issue #3); this file neither imports nor duplicates it. The
- * production adapter is a thin Drizzle-backed `AgentTaskStore` that inserts
- * into `agent_tasks` and returns the new row id.
+ * Persistence is an injected port. `agent_tasks` is owned by the schema
+ * workstream (issue #3); this file imports the published table only for the
+ * thin Drizzle-backed adapter below and never duplicates the schema.
  *
  * Structured output stays inside Gemini's documented subset: the caller passes
  * a flat, non-recursive Zod schema. The wrapper parses the result with that
@@ -30,6 +29,8 @@ import type { LanguageModel } from 'ai'
 import { google } from '@ai-sdk/google'
 import type { z } from 'zod'
 import type { AgentTaskStatus, TaskKind } from '../shared/types'
+import { agentTasks, type NewAgentTask } from '../db/schema'
+import type { Database } from '../db/client'
 
 /** The pinned text model (CLAUDE.md). */
 export const DEFAULT_MODEL_ID = 'gemini-3.8-flash'
@@ -98,6 +99,49 @@ export type PersistedAgentTask = AgentTaskInsert & { id: string }
 export interface AgentTaskStore {
   /** Insert exactly one row and return its generated id. */
   insert(task: AgentTaskInsert): Promise<{ id: string }>
+}
+
+/**
+ * The production store, over the real `agent_tasks` table from #3.
+ *
+ * `db` is injected rather than imported so this file does not need a database
+ * connection to be unit tested. Downstream code builds one store per process:
+ *
+ *   import { getDb } from '../db/client'
+ *   const store = createDrizzleAgentTaskStore(getDb())
+ *
+ * The `NewAgentTask` annotation is deliberate: it fails the build if the
+ * wrapper's row ever stops matching the schema's insert type.
+ */
+export function createDrizzleAgentTaskStore(
+  db: Pick<Database, 'insert'>,
+): AgentTaskStore {
+  return {
+    async insert(task: AgentTaskInsert): Promise<{ id: string }> {
+      const values: NewAgentTask = task
+      const [row] = await db
+        .insert(agentTasks)
+        .values(values)
+        .returning({ id: agentTasks.id })
+
+      if (!row) {
+        throw new Error('agent_tasks insert returned no row')
+      }
+      return { id: row.id }
+    },
+  }
+}
+
+/**
+ * The ready-made production store for call sites that should not care where
+ * the connection comes from. The client is imported lazily so tests that
+ * inject a memory store never load Neon or TanStack Start.
+ */
+export const agentTaskStore: AgentTaskStore = {
+  async insert(task: AgentTaskInsert): Promise<{ id: string }> {
+    const { getDb } = await import('../db/client')
+    return createDrizzleAgentTaskStore(getDb()).insert(task)
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -357,6 +401,63 @@ async function recordTask(
   return { ...row, id }
 }
 
+type AttemptOutcome<T> =
+  | {
+      ok: true
+      output: T
+      generated: StructuredGenerationResult
+      latencyMs: number
+    }
+  | {
+      ok: false
+      error: unknown
+      generated: StructuredGenerationResult | null
+      latencyMs: number
+    }
+
+/**
+ * One physical request. Latency is measured once, immediately after the
+ * request returns, so Zod parsing never inflates it.
+ */
+async function runAttempt<T>(
+  schema: z.ZodType<T>,
+  prompt: string,
+  ctx: CallModelContext,
+  modelId: string,
+  runtime: CallModelRuntime,
+): Promise<AttemptOutcome<T>> {
+  const startedAt = runtime.now()
+  let generated: StructuredGenerationResult
+
+  try {
+    generated = await runtime.generate({
+      modelId,
+      prompt,
+      schema,
+      signal: ctx.signal,
+    })
+  } catch (error) {
+    return {
+      ok: false,
+      error,
+      generated: null,
+      latencyMs: elapsedMs(startedAt, runtime.now()),
+    }
+  }
+
+  const latencyMs = elapsedMs(startedAt, runtime.now())
+  try {
+    return {
+      ok: true,
+      output: schema.parse(generated.output) as T,
+      generated,
+      latencyMs,
+    }
+  } catch (error) {
+    return { ok: false, error, generated, latencyMs }
+  }
+}
+
 async function executeCall<T>(
   schema: z.ZodType<T>,
   prompt: string,
@@ -371,67 +472,55 @@ async function executeCall<T>(
   const attempts: PersistedAgentTask[] = []
 
   for (let attempt = 1; attempt <= runtime.maxAttempts; attempt += 1) {
-    const startedAt = runtime.now()
-    let generated: StructuredGenerationResult | null = null
-    // Measured once, immediately after the physical request, so a Zod failure
-    // does not inflate the latency with parsing time or a second clock read.
-    let latencyMs: number | null = null
+    const outcome = await runAttempt(schema, prompt, ctx, modelId, runtime)
 
-    try {
-      generated = await runtime.generate({
-        modelId,
-        prompt,
-        schema,
-        signal: ctx.signal,
-      })
-      latencyMs = elapsedMs(startedAt, runtime.now())
-      const output = schema.parse(generated.output) as T
-
+    if (outcome.ok) {
       const task = await recordTask(
         ctx.store,
         buildTaskRow(
           ctx,
           modelId,
           'succeeded',
-          output,
+          outcome.output,
           null,
           {
-            inputTokens: generated.inputTokens,
-            outputTokens: generated.outputTokens,
+            inputTokens: outcome.generated.inputTokens,
+            outputTokens: outcome.generated.outputTokens,
           },
-          latencyMs,
+          outcome.latencyMs,
           pricing,
         ),
       )
       attempts.push(task)
-      return { output, task, attempts }
-    } catch (error) {
-      const attemptLatencyMs =
-        latencyMs ?? elapsedMs(startedAt, runtime.now())
-      const retry = isRateLimitError(error) && attempt < runtime.maxAttempts
-
-      const task = await recordTask(
-        ctx.store,
-        buildTaskRow(
-          ctx,
-          modelId,
-          retry ? 'retried' : 'failed',
-          generated?.output ?? null,
-          describeError(error),
-          {
-            inputTokens: generated?.inputTokens ?? null,
-            outputTokens: generated?.outputTokens ?? null,
-          },
-          attemptLatencyMs,
-          pricing,
-        ),
-      )
-      attempts.push(task)
-
-      if (!retry) throw error
-
-      await runtime.sleep(backoffDelayMs(attempt, runtime))
+      return { output: outcome.output, task, attempts }
     }
+
+    const retry = isRateLimitError(outcome.error) && attempt < runtime.maxAttempts
+
+    // Persistence is deliberately outside the request handling above: if the
+    // insert fails, it must surface as a database error, not trigger a second
+    // insert for the same physical attempt.
+    const task = await recordTask(
+      ctx.store,
+      buildTaskRow(
+        ctx,
+        modelId,
+        retry ? 'retried' : 'failed',
+        outcome.generated?.output ?? null,
+        describeError(outcome.error),
+        {
+          inputTokens: outcome.generated?.inputTokens ?? null,
+          outputTokens: outcome.generated?.outputTokens ?? null,
+        },
+        outcome.latencyMs,
+        pricing,
+      ),
+    )
+    attempts.push(task)
+
+    if (!retry) throw outcome.error
+
+    await runtime.sleep(backoffDelayMs(attempt, runtime))
   }
 
   // The loop either returns or throws on the last attempt.

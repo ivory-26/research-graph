@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { APICallError } from 'ai'
 import { MockLanguageModelV4 } from 'ai/test'
 import { z } from 'zod'
+import { agentTasks } from '../db/schema'
+import type { Database } from '../db/client'
 import {
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_MODEL_ID,
   createCallModel,
+  createDrizzleAgentTaskStore,
   createGeminiGenerator,
   isRateLimitError,
   type AgentTaskInsert,
@@ -29,6 +32,31 @@ class MemoryTaskStore implements AgentTaskStore {
     this.rows.push({ ...task, id })
     return { id }
   }
+}
+
+/**
+ * A stand-in for the Drizzle client that captures what the real adapter would
+ * send to the `agent_tasks` table. It proves the adapter uses #3's table object
+ * and the `.values(...).returning({ id })` path without a database connection.
+ */
+function agentTaskDb(rows: AgentTaskInsert[]): Pick<Database, 'insert'> {
+  const fake = {
+    insert(table: typeof agentTasks) {
+      expect(table).toBe(agentTasks)
+      return {
+        values(values: AgentTaskInsert) {
+          rows.push(values)
+          return {
+            returning(fields: Record<string, unknown>) {
+              expect(fields).toEqual({ id: agentTasks.id })
+              return Promise.resolve([{ id: `agent-task-${rows.length}` }])
+            },
+          }
+        },
+      }
+    },
+  }
+  return fake as unknown as Pick<Database, 'insert'>
 }
 
 function rateLimitError(): APICallError {
@@ -71,8 +99,9 @@ function context(store: AgentTaskStore): CallModelContext {
 // ---------------------------------------------------------------------------
 
 describe('callModel task accounting', () => {
-  it('retries a 429 and records one row for each physical attempt', async () => {
-    const store = new MemoryTaskStore()
+  it('retries a 429 and records one real agent_tasks row per attempt', async () => {
+    const inserted: AgentTaskInsert[] = []
+    const store = createDrizzleAgentTaskStore(agentTaskDb(inserted))
     const sleeps: number[] = []
     let requests = 0
 
@@ -102,10 +131,10 @@ describe('callModel task accounting', () => {
     })
 
     expect(requests).toBe(2)
-    expect(store.rows).toHaveLength(2)
+    expect(inserted).toHaveLength(2)
 
     // The 429 attempt: its own row, its own latency, no invented token counts.
-    expect(store.rows[0]).toMatchObject({
+    expect(inserted[0]).toMatchObject({
       workspaceId: 'workspace-1',
       strategyId: 'strategy-1',
       taskKind: 'extract_claims',
@@ -118,10 +147,10 @@ describe('callModel task accounting', () => {
       costUsd: null,
       latencyMs: 25,
     })
-    expect(store.rows[0]!.error).toContain('429')
+    expect(inserted[0]!.error).toContain('429')
 
     // The successful attempt: tokens, cost and latency on the same row.
-    expect(store.rows[1]).toMatchObject({
+    expect(inserted[1]).toMatchObject({
       status: 'succeeded',
       promptTokens: 120,
       completionTokens: 30,
@@ -129,7 +158,7 @@ describe('callModel task accounting', () => {
       latencyMs: 25,
       error: null,
     })
-    expect(store.rows[1]!.output).toEqual({
+    expect(inserted[1]!.output).toEqual({
       claims: ['noise can outrank informative features'],
     })
 
@@ -139,10 +168,10 @@ describe('callModel task accounting', () => {
     expect(result.output).toEqual({
       claims: ['noise can outrank informative features'],
     })
-    expect(result.task.id).toBe(store.rows[1]!.id)
+    expect(result.task.id).toBe('agent-task-2')
     expect(result.attempts.map((task) => task.id)).toEqual([
-      store.rows[0]!.id,
-      store.rows[1]!.id,
+      'agent-task-1',
+      'agent-task-2',
     ])
   })
 
@@ -216,6 +245,35 @@ describe('callModel task accounting', () => {
       completionTokens: null,
     })
     expect(sleeps).toEqual([])
+  })
+
+  it('surfaces a store failure without a second insert for the same attempt', async () => {
+    let inserts = 0
+    const store: AgentTaskStore = {
+      async insert() {
+        inserts += 1
+        throw new Error('database is down')
+      },
+    }
+
+    const generate: StructuredGenerator = async () => ({
+      output: { claims: ['claim'] },
+      inputTokens: 1,
+      outputTokens: 1,
+    })
+
+    const call = createCallModel({
+      generate,
+      sleep: async () => undefined,
+      random: () => 0,
+      now: steppingClock(),
+    })
+
+    await expect(
+      call(ClaimSchema, 'extract the claims', context(store)),
+    ).rejects.toThrow('database is down')
+
+    expect(inserts).toBe(1)
   })
 
   it('records a failed row when the output violates the Zod schema', async () => {
