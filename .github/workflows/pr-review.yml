@@ -1,0 +1,207 @@
+name: PR review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to review
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Review PR
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.user.type != 'Bot')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check out the dispatched PR
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          cross=$(gh pr view "$PR_NUMBER" --json isCrossRepository --jq .isCrossRepository)
+          if [[ "$cross" == "true" ]]; then
+            echo "::error::Fork pull requests are not reviewed by this workflow."
+            exit 1
+          fi
+          gh pr checkout "$PR_NUMBER"
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Use review rules and scripts from the base branch
+        run: |
+          set -euo pipefail
+          if [[ -z "${BASE_REF:-}" ]]; then
+            BASE_REF=$(gh pr view "$PR_NUMBER" --json baseRefName --jq .baseRefName)
+          fi
+          echo "BASE_REF=${BASE_REF}" >> "$GITHUB_ENV"
+
+          # Standards are read from the base branch, never from the PR under review.
+          git checkout "origin/${BASE_REF}" -- CLAUDE.md GLOSSARY.md docs
+          for f in AGENTS.md opencode.jsonc opencode.json; do
+            if git cat-file -e "origin/${BASE_REF}:${f}" 2>/dev/null; then
+              git checkout "origin/${BASE_REF}" -- "$f"
+            else
+              rm -f "$f"
+            fi
+          done
+          if git cat-file -e "origin/${BASE_REF}:.opencode" 2>/dev/null; then
+            rm -rf .opencode
+            git checkout "origin/${BASE_REF}" -- .opencode
+          fi
+
+          # The workflow must not run review tooling supplied by the PR.
+          for f in .github/scripts/pr-context.mjs .github/scripts/extract-review.mjs; do
+            if git cat-file -e "origin/${BASE_REF}:${f}" 2>/dev/null; then
+              git checkout "origin/${BASE_REF}" -- "$f"
+            fi
+          done
+
+      - name: Build PR context
+        run: node .github/scripts/pr-context.mjs "$PR_NUMBER"
+
+      - name: Install OpenCode
+        run: |
+          set -euo pipefail
+          version=2.4.1
+          base="https://github.com/anomalyco/opencode/releases/download/v${version}"
+
+          curl -fsSL -o "$RUNNER_TEMP/opencode-linux-x64.tar.gz" "$base/opencode-linux-x64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/SHA256SUMS" "$base/SHA256SUMS"
+          (cd "$RUNNER_TEMP" && grep ' opencode-linux-x64.tar.gz$' SHA256SUMS | sha256sum --check --status)
+          tar -xzf "$RUNNER_TEMP/opencode-linux-x64.tar.gz" -C "$RUNNER_TEMP"
+
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$RUNNER_TEMP/opencode" "$HOME/.local/bin/opencode"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/opencode" --version
+
+      - name: Ask OpenCode for a review
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+          OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+          XDG_CONFIG_HOME: ${{ runner.temp }}/opencode-config
+          XDG_DATA_HOME: ${{ runner.temp }}/opencode-data
+        run: |
+          set -euo pipefail
+          mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
+          opencode run \
+            --standalone \
+            --archived \
+            --agent pr-review \
+            --model opencode-go/deepseek-v4.1-flash \
+            --format json \
+            "Review the pull request described in pr-context.json. Read pr.diff, linked-issues.md, CLAUDE.md, GLOSSARY.md, and the docs they reference. Judge the change against the project rules and the linked issue's acceptance criteria. Follow your output contract exactly. Do not modify files, run commands, or post anything; the workflow handles the comment." \
+            > opencode-events.ndjson
+
+      - name: Post the review
+        run: |
+          set -euo pipefail
+          node .github/scripts/extract-review.mjs opencode-events.ndjson > review-raw.md
+
+          # Keep everything from the first VERDICT line onward; drop any preamble.
+          awk 'BEGIN{found=0} /^VERDICT: /{found=1} found' review-raw.md > review-verdict.md
+          if [[ ! -s review-verdict.md ]]; then
+            echo "::error::OpenCode did not return a VERDICT line."
+            cat review-raw.md
+            exit 1
+          fi
+
+          verdict=$(head -n 1 review-verdict.md | sed -E 's/^VERDICT:[[:space:]]*//' | awk '{print $1}')
+          head_sha=$(node -p "require('./pr-context.json').headRefOid")
+          author=$(node -p "require('./pr-context.json').author.login")
+          short_sha=${head_sha:0:7}
+
+          {
+            echo "## Automated PR review"
+            echo
+            echo "- PR: #${PR_NUMBER}"
+            echo "- Commit: \`${head_sha}\`"
+            echo "- Verdict: **${verdict}**"
+            echo
+            cat review-verdict.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$verdict" == "CLEAN" ]]; then
+            echo "No actionable findings; no comment posted."
+            exit 0
+          fi
+          if [[ "$verdict" != "FINDINGS" ]]; then
+            echo "::error::Unknown verdict: ${verdict}"
+            exit 1
+          fi
+
+          tail -n +2 review-verdict.md > review-body.md
+          if [[ ! -s review-body.md ]]; then
+            echo "::error::FINDINGS verdict with an empty review body."
+            exit 1
+          fi
+
+          mention=""
+          if [[ "$author" != *"[bot]" ]]; then
+            mention="@${author}"
+          fi
+
+          {
+            if [[ -n "$mention" ]]; then
+              printf '%s — automated review of `%s` found issues to address.\n\n' "$mention" "$short_sha"
+            else
+              printf 'Automated review of `%s` found issues to address.\n\n' "$short_sha"
+            fi
+            printf '> This review is read-only: nothing was edited, committed, or pushed. Please address the findings below before merging, or reply if you disagree.\n\n'
+            cat review-body.md
+          } > review-comment.md
+
+          node -e '
+            const fs = require("node:fs")
+            const file = "review-comment.md"
+            const text = fs.readFileSync(file, "utf8")
+            if (text.length > 65000) {
+              const cut = Array.from(text).slice(0, 60000).join("")
+              fs.writeFileSync(file, cut + "\n\n_Review truncated at 60,000 characters. See the Actions run for the full text._\n")
+            }
+          '
+
+          gh pr comment "$PR_NUMBER" --body-file review-comment.md
+
+      - name: Keep the review output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-review-${{ github.event.pull_request.number || inputs.pr }}
+          path: |
+            pr-context.json
+            pr.diff
+            linked-issues.md
+            opencode-events.ndjson
+            review-raw.md
+          if-no-files-found: ignore
+          retention-days: 7
