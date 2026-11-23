@@ -13,6 +13,7 @@
     "start": "node .output/server/index.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/server/pipeline-transport/*.test.ts\" && vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "node src/db/bootstrap.mjs && drizzle-kit push",
