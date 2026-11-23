@@ -56,7 +56,7 @@ export const ProposedEdgeSchema = z.object({
   confidence: z.number().min(0).max(1),
   evidenceChunkId: z.string(),
   quote: z.string().max(400),
-  rationale: z.string().max(240),
+  rationale: z.string().min(1).max(240),
 })
 
 export const ProposeEdgesResultSchema = z.object({
@@ -124,6 +124,7 @@ export interface RejectedEdge {
     | 'VERBATIM_QUOTE_NOT_FOUND'
     | 'CHUNK_NOT_FOUND'
     | 'QUOTE_EMPTY'
+    | 'RATIONALE_EMPTY'
     | 'INVALID_NODE'
 }
 
