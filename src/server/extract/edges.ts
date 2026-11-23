@@ -129,7 +129,7 @@ export function buildProposeEdgesPrompt(
   chunks: ChunkRef[],
   options?: { topKChunks?: number },
 ): string {
-  const topK = options?.topKChunks ?? 8
+  const topK = options?.topKChunks ?? chunks.length
   const selectedChunks = chunks.slice(0, topK)
 
   const nodeList = nodes
@@ -198,7 +198,7 @@ export async function proposeEdges(
   }
 
   const prompt = buildProposeEdgesPrompt(nodes, chunks, { topKChunks })
-  const topK = options.topKChunks ?? 8
+  const topK = options.topKChunks ?? chunks.length
   const selectedChunks = chunks.slice(0, topK)
 
   const result = await callModelFn<ProposeEdgesResult>(

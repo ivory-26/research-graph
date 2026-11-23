@@ -531,7 +531,8 @@ describe('Issue #11 Acceptance Test: Real Embedding & Stored Vector Search', () 
         expect(searchResults.length).toBeGreaterThan(0)
         expect(searchResults[0].similarity).toBeGreaterThan(0.5)
         expect(searchResults[0].chunk.sourceId).toBe(testSourceId)
-        expect(searchResults[0].chunk.page).toBeGreaterThanOrEqual(1)
+        expect(searchResults[0].chunk.page).toBe(1)
+        expect(searchResults[0].chunk.text).toContain('variable selection in individual classification trees is biased')
 
         // Content relevance assertion: top returned passage must discuss variable importance in random forests
         const topChunkText = searchResults[0].chunk.text.toLowerCase()

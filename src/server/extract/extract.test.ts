@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ingestPdf } from '../ingest'
 import { buildExtractionPrompt, extractClaims } from './claims'
 import { normalizeQuote, validateClaimQuotes, verifyVerbatimQuote } from './quote'
-import type { ChunkRef, ExtractedClaim, ExtractionResult } from './types'
+import { ExtractionResultSchema, type ChunkRef, type ExtractedClaim, type ExtractionResult } from './types'
 
 describe('Quote Normalization and Verbatim Verification (Issue #12)', () => {
   it('normalises whitespace and folds unicode quotation marks without altering dashes', () => {
@@ -400,7 +400,8 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
 
       // Load checked-in fixture of real model output captured from Gemini on Strobl 2007
       const fixturePath = path.resolve(process.cwd(), 'fixtures/extract/strobl-2007-claims.json')
-      const capturedModelOutput: ExtractionResult = JSON.parse(fs.readFileSync(fixturePath, 'utf8'))
+      const rawFixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'))
+      const capturedModelOutput: ExtractionResult = ExtractionResultSchema.parse(rawFixture)
 
       const mockCallModel = vi.fn().mockResolvedValue({
         output: capturedModelOutput,
@@ -434,34 +435,63 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
   )
 
   const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY)
-  const canRunLive = hasKey && fs.existsSync(stroblPdfPath)
+  const hasDb = Boolean(process.env.DATABASE_URL)
+  const canRunLive = hasKey && hasDb && fs.existsSync(stroblPdfPath)
   it.skipIf(!canRunLive)(
     'LIVE: executes extractClaims with real Gemini model on Strobl 2007 and extracts hero claim',
     async () => {
-      const buffer = fs.readFileSync(stroblPdfPath)
-      const { chunks } = await ingestPdf(buffer)
-      const chunkRefs: ChunkRef[] = chunks.map((c) => ({
-        id: `chunk-${c.ordinal}`,
-        ordinal: c.ordinal,
-        text: c.text,
-        page: c.page,
-      }))
+      const { getDb } = await import('../../db/client')
+      const { workspaces, sources } = await import('../../db/schema')
+      const { eq } = await import('drizzle-orm')
 
-      const outcome = await extractClaims({
-        workspaceId: 'ws-extract-live',
-        sourceId: 'strobl-2007-live',
-        chunks: chunkRefs,
-        strategy: 'single_pass',
-      })
+      const db = getDb()
+      const testWsId = crypto.randomUUID()
+      const testSourceId = crypto.randomUUID()
 
-      expect(outcome.acceptedClaims.length).toBeGreaterThanOrEqual(1)
-      const hero = outcome.acceptedClaims.find((c) =>
-        c.text.toLowerCase().includes('importance') || c.quote.toLowerCase().includes('importance'),
-      )
-      expect(hero).toBeDefined()
-      const cited = chunkRefs.find((c) => c.ordinal === hero!.chunkOrdinal)
-      expect(cited).toBeDefined()
-      expect(verifyVerbatimQuote(hero!.quote, cited!.text)).toBe(true)
+      try {
+        await db.insert(workspaces).values({
+          id: testWsId,
+          name: 'Extract Live Test Workspace',
+          slug: `test-ws-extract-${Date.now()}`,
+        })
+
+        await db.insert(sources).values({
+          id: testSourceId,
+          workspaceId: testWsId,
+          kind: 'paper',
+          title: 'Strobl 2007 Paper',
+          sha256: 'test-extract-sha',
+          bytes: 1024,
+        })
+
+        const buffer = fs.readFileSync(stroblPdfPath)
+        const { chunks } = await ingestPdf(buffer)
+        const chunkRefs: ChunkRef[] = chunks.map((c) => ({
+          id: `chunk-${c.ordinal}`,
+          ordinal: c.ordinal,
+          text: c.text,
+          page: c.page,
+        }))
+
+        const outcome = await extractClaims({
+          workspaceId: testWsId,
+          sourceId: testSourceId,
+          chunks: chunkRefs,
+          strategy: 'single_pass',
+        })
+
+        expect(outcome.acceptedClaims.length).toBeGreaterThanOrEqual(1)
+        const hero = outcome.acceptedClaims.find((c) =>
+          c.text.toLowerCase().includes('importance') || c.quote.toLowerCase().includes('importance'),
+        )
+        expect(hero).toBeDefined()
+        const cited = chunkRefs.find((c) => c.ordinal === hero!.chunkOrdinal)
+        expect(cited).toBeDefined()
+        expect(verifyVerbatimQuote(hero!.quote, cited!.text)).toBe(true)
+      } finally {
+        await db.delete(sources).where(eq(sources.id, testSourceId)).catch(() => {})
+        await db.delete(workspaces).where(eq(workspaces.id, testWsId)).catch(() => {})
+      }
     },
     60000,
   )
