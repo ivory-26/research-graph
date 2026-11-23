@@ -7,10 +7,20 @@ import { normalizeQuote, validateClaimQuotes, verifyVerbatimQuote } from './quot
 import type { ChunkRef, ExtractedClaim, ExtractionResult } from './types'
 
 describe('Quote Normalization and Verbatim Verification (Issue #12)', () => {
-  it('normalises whitespace and folds unicode quotation marks and dashes', () => {
+  it('normalises whitespace and folds unicode quotation marks without altering dashes', () => {
     const raw = `  “Random   forests” are ‘effective’ — in \n\n many  scenarios.  `
     const normalized = normalizeQuote(raw)
-    expect(normalized).toBe('"Random forests" are \'effective\' - in many scenarios.')
+    expect(normalized).toBe('"Random forests" are \'effective\' — in many scenarios.')
+  })
+
+  it('strictly rejects hyphen/em-dash substitutions (no dash folding per docs/03)', () => {
+    const chunkText = 'Random forests — an ensemble method — are robust.'
+    const quoteWithHyphens = 'Random forests - an ensemble method - are robust.'
+    expect(verifyVerbatimQuote(quoteWithHyphens, chunkText)).toBe(false)
+
+    // With identical em-dash, it matches verbatim
+    const quoteWithEmDash = 'Random forests — an ensemble method — are robust.'
+    expect(verifyVerbatimQuote(quoteWithEmDash, chunkText)).toBe(true)
   })
 
   it('matches verbatim quotes despite line breaks and irregular spacing', () => {
@@ -169,6 +179,47 @@ describe('extractClaims with model wrapper', () => {
     expect(outcome.methods.length).toBe(1)
     expect(outcome.codeUrls.length).toBe(1)
     expect(outcome.taskId).toBe('task-123')
+  })
+
+  it('updates task row to rejected when all proposed claims have unverifiable quotes (docs/03)', async () => {
+    const chunks: ChunkRef[] = [
+      { id: 'c1', ordinal: 0, text: 'Real chunk text without the fabricated quote.' },
+    ]
+    let updatedStatus = ''
+    let updatedTaskId = ''
+    const mockUpdateStatus = vi.fn(async (taskId: string, status: any) => {
+      updatedTaskId = taskId
+      updatedStatus = status
+    })
+
+    const mockCallModel = vi.fn(async () => ({
+      output: {
+        claims: [
+          {
+            text: 'Fabricated claim',
+            quote: 'This text does not exist in any chunk',
+            chunkId: 'c1',
+          },
+        ],
+      },
+      task: { id: 'task-fabricated-1', status: 'succeeded' as const },
+      attempts: [],
+    }))
+
+    const outcome = await extractClaims({
+      workspaceId: 'ws-test',
+      sourceId: 'src-1',
+      chunks,
+      // @ts-expect-error test mock injection
+      callModelFn: mockCallModel,
+      updateTaskStatusFn: mockUpdateStatus,
+    })
+
+    expect(outcome.acceptedClaims.length).toBe(0)
+    expect(outcome.rejectedClaims.length).toBe(1)
+    expect(mockUpdateStatus).toHaveBeenCalledTimes(1)
+    expect(updatedStatus).toBe('rejected')
+    expect(updatedTaskId).toBe('task-fabricated-1')
   })
 
   it('buildExtractionPrompt formats chunks cleanly', () => {
