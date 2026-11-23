@@ -190,7 +190,29 @@ export async function embedChunks(
         ? ((promptTokens * DEFAULT_EMBEDDING_PRICE_PER_MILLION) / 1_000_000).toFixed(6)
         : null
 
-    // Validate dimensions BEFORE inserting success row
+    // Validate embeddings count and dimensions BEFORE inserting success row
+    if (result.embeddings.length !== batch.length) {
+      if (options.workspaceId) {
+        await taskStore.insert({
+          workspaceId: options.workspaceId,
+          strategyId: options.strategyId ?? null,
+          taskKind: 'ingest',
+          model: DEFAULT_EMBEDDING_MODEL_ID,
+          status: 'failed',
+          inputRef: { batchIndex: i / batchSize, itemCount: batch.length },
+          output: null,
+          error: `Embedding batch returned ${result.embeddings.length} vectors, expected ${batch.length}.`,
+          promptTokens,
+          completionTokens: 0,
+          costUsd,
+          latencyMs,
+        })
+      }
+      throw new Error(
+        `Embedding batch returned ${result.embeddings.length} vectors, expected ${batch.length}.`,
+      )
+    }
+
     for (const vec of result.embeddings) {
       if (vec.length !== dimensions) {
         if (options.workspaceId) {

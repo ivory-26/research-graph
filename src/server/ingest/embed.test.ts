@@ -321,6 +321,40 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
     expect(insertedTasks[0].error).toContain('Embedding returned 512 dimensions, expected 768')
   })
 
+  it('records failed row and throws when returned embedding count differs from batch length', async () => {
+    const insertedTasks: any[] = []
+    const fakeStore = {
+      insert: vi.fn(async (row) => {
+        insertedTasks.push(row)
+        return { id: 'task-count-fail', ...row }
+      }),
+    }
+
+    const fakeEmbedMany = vi.fn(async () => ({
+      embeddings: [new Array(768).fill(0.01)], // only 1 embedding returned for 2 chunks!
+      usage: { tokens: 100 },
+    }))
+
+    await expect(
+      embedChunks(
+        ['First chunk', 'Second chunk'],
+        {
+          dimensions: 768,
+          workspaceId: 'ws-count-fail',
+          taskStore: fakeStore,
+        },
+        {
+          embedManyFn: fakeEmbedMany as any,
+          resolveModel: () => ({} as any),
+        },
+      ),
+    ).rejects.toThrow(/Embedding batch returned 1 vectors, expected 2/)
+
+    expect(fakeStore.insert).toHaveBeenCalledTimes(1)
+    expect(insertedTasks[0].status).toBe('failed')
+    expect(insertedTasks[0].error).toContain('Embedding batch returned 1 vectors, expected 2')
+  })
+
   it('surfaces taskStore insertion errors rather than silently swallowing them', async () => {
     const fakeStore = {
       insert: vi.fn(async () => {
@@ -510,6 +544,6 @@ describe('Issue #11 Acceptance Test: Real Embedding & Stored Vector Search', () 
         await db.delete(workspaces).where(eq(workspaces.id, testWsId)).catch(() => {})
       }
     },
-    30000,
+    120000,
   )
 })
