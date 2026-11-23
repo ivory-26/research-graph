@@ -1,5 +1,6 @@
 import type { EmbeddingModel } from 'ai'
 import type { SourceChunkRow } from '../../db/schema'
+import type { TaskKind } from '../../shared/types'
 import type { AgentTaskStore } from '../model'
 
 /**
@@ -63,6 +64,8 @@ export interface EmbedOptions {
   taskStore?: AgentTaskStore
   /** Strategy ID for task attribution */
   strategyId?: string | null
+  /** Task kind for agent_tasks accounting (default: 'ingest') */
+  taskKind?: TaskKind
 }
 
 export interface ScoredChunk {
