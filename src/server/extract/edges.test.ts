@@ -2,9 +2,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { ingestPdf } from '../ingest'
-import { buildProposeEdgesPrompt, proposeEdges, validateProposedEdges } from './edges'
+import { buildProposeEdgesPrompt, proposeEdges, storeEdges, validateProposedEdges } from './edges'
 import { verifyVerbatimQuote } from './quote'
-import type { ChunkRef, NodeSummary, ProposedEdge } from './types'
+import type { ChunkRef, NodeSummary, ProposedEdge, ValidatedEdge } from './types'
 
 describe('Edge Validation Invariants (Issue #13)', () => {
   const nodes: NodeSummary[] = [
@@ -83,6 +83,44 @@ describe('Edge Validation Invariants (Issue #13)', () => {
     expect(rejected[0].reason).toBe('VERBATIM_QUOTE_NOT_FOUND')
   })
 
+  it('rejects edge when quote exists in chunk-2 but edge cites chunk-1 without silent fallback', () => {
+    const proposed: ProposedEdge[] = [
+      {
+        fromNodeId: 'node-claim-1',
+        toNodeId: 'node-method-1',
+        relation: 'supports',
+        confidence: 0.9,
+        evidenceChunkId: 'chunk-1', // Citing chunk-1
+        quote: 'Permutation importance measures variable importance by permuting out-of-bag samples.', // Exists only in chunk-2!
+        rationale: 'Wrong chunk cited',
+      },
+    ]
+
+    const { accepted, rejected } = validateProposedEdges(proposed, nodes, chunks)
+    expect(accepted.length).toBe(0)
+    expect(rejected.length).toBe(1)
+    expect(rejected[0].reason).toBe('VERBATIM_QUOTE_NOT_FOUND')
+  })
+
+  it('rejects edge citing non-existent chunk ID', () => {
+    const proposed: ProposedEdge[] = [
+      {
+        fromNodeId: 'node-claim-1',
+        toNodeId: 'node-method-1',
+        relation: 'supports',
+        confidence: 0.9,
+        evidenceChunkId: 'chunk-999', // Does not exist
+        quote: 'Random forests are an ensemble learning method',
+        rationale: 'Missing chunk',
+      },
+    ]
+
+    const { accepted, rejected } = validateProposedEdges(proposed, nodes, chunks)
+    expect(accepted.length).toBe(0)
+    expect(rejected.length).toBe(1)
+    expect(rejected[0].reason).toBe('CHUNK_NOT_FOUND')
+  })
+
   it('assigns status=suggested when confidence < 0.65', () => {
     const proposed: ProposedEdge[] = [
       {
@@ -153,6 +191,24 @@ describe('proposeEdges runner and prompt builder', () => {
     expect(prompt).toContain('--- CHUNK ID: c1 (Page 3) ---')
     expect(prompt).toContain('Chunk body text')
     expect(prompt).toContain('No self-loops')
+  })
+
+  it('caps evidence chunks in prompt to topKChunks', () => {
+    const manyChunks: ChunkRef[] = Array.from({ length: 15 }, (_, i) => ({
+      id: `chunk-${i}`,
+      ordinal: i,
+      text: `Evidence text for chunk ${i}`,
+      page: i + 1,
+    }))
+
+    const prompt = buildProposeEdgesPrompt(
+      [{ id: 'n1', type: 'claim', title: 'Claim Title' }],
+      manyChunks,
+      { topKChunks: 5 },
+    )
+    expect(prompt).toContain('CHUNK ID: chunk-0')
+    expect(prompt).toContain('CHUNK ID: chunk-4')
+    expect(prompt).not.toContain('CHUNK ID: chunk-5')
   })
 
   it('proposeEdges calls model and partitions accepted and rejected edges', async () => {
@@ -360,5 +416,109 @@ describe('Integration test across 3 demo papers (Issue #13 acceptance criteria)'
       }
     },
     25000,
+  )
+})
+
+describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () => {
+  const hasDb = Boolean(process.env.DATABASE_URL)
+
+  it.skipIf(!hasDb)(
+    'persists accepted edges into Neon satisfying edges_have_evidence check constraint',
+    async () => {
+      const { getDb } = await import('../../db/client')
+      const { workspaces, sources, sourceChunks, nodes, edges } = await import('../../db/schema')
+      const { eq } = await import('drizzle-orm')
+      const crypto = await import('node:crypto')
+
+      const db = getDb()
+      const testWsId = crypto.randomUUID()
+      const testSourceId = crypto.randomUUID()
+      const testChunkId = crypto.randomUUID()
+      const testNode1Id = crypto.randomUUID()
+      const testNode2Id = crypto.randomUUID()
+
+      try {
+        // Setup workspace
+        await db.insert(workspaces).values({
+          id: testWsId,
+          name: 'Issue 13 Test Workspace',
+          slug: `test-ws-edges-${Date.now()}`,
+        })
+
+        // Setup source & chunk
+        await db.insert(sources).values({
+          id: testSourceId,
+          workspaceId: testWsId,
+          kind: 'paper',
+          title: 'Edges Evidence Paper',
+          sha256: crypto.createHash('sha256').update('edges-test').digest('hex'),
+          bytes: 1024,
+        })
+
+        await db.insert(sourceChunks).values({
+          id: testChunkId,
+          sourceId: testSourceId,
+          ordinal: 0,
+          text: 'Verified evidence chunk text.',
+          page: 1,
+          charStart: 0,
+          charEnd: 30,
+        })
+
+        // Setup 2 nodes
+        await db.insert(nodes).values([
+          {
+            id: testNode1Id,
+            workspaceId: testWsId,
+            type: 'claim',
+            title: 'Node 1',
+            data: {
+              type: 'claim',
+              text: 'Node 1 text',
+              reported: null,
+              datasetName: null,
+              methodName: null,
+              locator: { page: 1, quote: 'Verified evidence chunk text.' },
+            },
+          },
+          {
+            id: testNode2Id,
+            workspaceId: testWsId,
+            type: 'method',
+            title: 'Node 2',
+            data: {
+              type: 'method',
+              summary: 'Node 2 method summary',
+              library: null,
+            },
+          },
+        ])
+
+        const edgeToStore: ValidatedEdge = {
+          fromNodeId: testNode1Id,
+          toNodeId: testNode2Id,
+          relation: 'supports',
+          confidence: 0.9,
+          status: 'accepted',
+          evidenceChunkId: testChunkId,
+          matchedQuote: 'Verified evidence chunk text.',
+          rationale: 'Direct support',
+        }
+
+        const inserted = await storeEdges(db, testWsId, [edgeToStore])
+        expect(inserted.length).toBe(1)
+        expect(inserted[0].evidenceChunkId).toBe(testChunkId)
+        expect(inserted[0].sourceNodeId).toBe(testNode1Id)
+        expect(inserted[0].targetNodeId).toBe(testNode2Id)
+        expect(inserted[0].status).toBe('accepted')
+      } finally {
+        await db.delete(edges).where(eq(edges.workspaceId, testWsId))
+        await db.delete(nodes).where(eq(nodes.workspaceId, testWsId))
+        await db.delete(sourceChunks).where(eq(sourceChunks.sourceId, testSourceId))
+        await db.delete(sources).where(eq(sources.workspaceId, testWsId))
+        await db.delete(workspaces).where(eq(workspaces.id, testWsId))
+      }
+    },
+    20000,
   )
 })

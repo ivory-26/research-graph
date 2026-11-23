@@ -1,5 +1,6 @@
 import type { EmbeddingModel } from 'ai'
 import type { SourceChunkRow } from '../../db/schema'
+import type { AgentTaskStore } from '../model'
 
 /**
  * Contract types for PDF ingestion, layout reading order, chunking, and vector storage (Issues #10 & #11).
@@ -26,6 +27,7 @@ export interface PdfExtractResult {
   pages: ExtractedPage[]
   fullText: string
   totalPages: number
+  needsOcr?: boolean
 }
 
 export interface Chunk {
@@ -55,6 +57,12 @@ export interface EmbedOptions {
   dimensions?: number
   /** Optional cancellation signal */
   abortSignal?: AbortSignal
+  /** Workspace ID for agent_tasks accounting */
+  workspaceId?: string
+  /** Injected agentTaskStore for recording embedding calls */
+  taskStore?: AgentTaskStore
+  /** Strategy ID for task attribution */
+  strategyId?: string | null
 }
 
 export interface ScoredChunk {

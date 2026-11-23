@@ -98,6 +98,22 @@ describe('validateClaimQuotes', () => {
     expect(rejected[1].reason).toBe('QUOTE_EMPTY')
     expect(rejected[2].reason).toBe('CHUNK_NOT_FOUND')
   })
+
+  it('strictly rejects when quote exists in chunk-2 but claim cites chunk-1 (no silent rebinding)', () => {
+    const claims: ExtractedClaim[] = [
+      {
+        text: 'Permutation importance claim',
+        // Quote exists in chunk-2, but claim cites chunk-1!
+        quote: 'Permutation importance does not exhibit this bias and correctly identifies uninformative predictors.',
+        chunkId: 'chunk-1',
+      },
+    ]
+
+    const result = validateClaimQuotes(claims, chunks)
+    expect(result.accepted).toHaveLength(0)
+    expect(result.rejected).toHaveLength(1)
+    expect(result.rejected[0].reason).toBe('VERBATIM_QUOTE_NOT_FOUND')
+  })
 })
 
 describe('extractClaims with model wrapper', () => {
@@ -228,4 +244,102 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
     },
     15000,
   )
+
+  it.skipIf(!fs.existsSync(stroblPdfPath))(
+    'executes extractClaims on real Strobl 2007 chunks and extracts hero claim with verbatim quote',
+    async () => {
+      const buffer = fs.readFileSync(stroblPdfPath)
+      const { chunks } = await ingestPdf(buffer)
+
+      const realHeroQuote =
+        'random forest variable importance measures are a sensible means for variable selection in many applications, but are not reliable in situations where potential predictor variables vary in their scale of measurement or their number of categories.'
+
+      const chunkRefs: ChunkRef[] = chunks.map((c) => ({
+        id: `chunk-${c.ordinal}`,
+        ordinal: c.ordinal,
+        text: c.text,
+        page: c.page,
+      }))
+
+      const targetChunk = chunkRefs.find((c) => c.text.includes(realHeroQuote))
+      expect(targetChunk).toBeDefined()
+
+      const mockModelOutput: ExtractionResult = {
+        claims: [
+          {
+            text: 'Gini importance is unreliable when predictors vary in category count',
+            metric: 'variable importance',
+            reportedValue: null,
+            comparator: null,
+            againstValue: null,
+            datasetName: null,
+            methodName: 'Random Forest',
+            quote: realHeroQuote,
+            chunkId: targetChunk!.id!,
+          },
+        ],
+        datasets: [],
+        methods: [{ name: 'RandomForest', summary: 'Tree ensemble' }],
+        codeUrls: [],
+      }
+
+      const mockCallModel = vi.fn().mockResolvedValue({
+        output: mockModelOutput,
+        task: { id: 'task-hero-extract', latencyMs: 250 },
+        attempts: [],
+      })
+
+      const outcome = await extractClaims({
+        workspaceId: 'ws-extract-test',
+        sourceId: 'strobl-2007',
+        chunks: chunkRefs,
+        strategy: 'single_pass',
+        callModelFn: mockCallModel as any,
+      })
+
+      expect(mockCallModel).toHaveBeenCalledTimes(1)
+      expect(outcome.acceptedClaims).toHaveLength(1)
+      expect(outcome.rejectedClaims).toHaveLength(0)
+      expect(outcome.acceptedClaims[0].quote).toBe(realHeroQuote)
+      expect(outcome.acceptedClaims[0].page).toBe(1)
+    },
+    15000,
+  )
+
+  it('truncates input chunks to 30,000 characters under single_pass strategy', async () => {
+    // Generate chunks totalling 50,000 characters
+    const chunks: ChunkRef[] = []
+    for (let i = 0; i < 50; i++) {
+      chunks.push({
+        id: `c-${i}`,
+        ordinal: i,
+        text: `Chunk ${i} `.padEnd(1000, 'x'),
+        page: i + 1,
+      })
+    }
+
+    let capturedPrompt = ''
+    const mockCallModel = vi.fn().mockImplementation((_schema, prompt) => {
+      capturedPrompt = prompt
+      return Promise.resolve({
+        output: { claims: [], datasets: [], methods: [], codeUrls: [] },
+        task: { id: 'task-strat' },
+        attempts: [],
+      })
+    })
+
+    await extractClaims({
+      workspaceId: 'ws-strat',
+      sourceId: 'src-strat',
+      chunks,
+      strategy: 'single_pass',
+      maxChars: 30000,
+      callModelFn: mockCallModel as any,
+    })
+
+    // The prompt should include at most ~30 chunks (~30k characters), not all 50
+    expect(capturedPrompt).toContain('CHUNK ID: c-0')
+    expect(capturedPrompt).toContain('CHUNK ID: c-29')
+    expect(capturedPrompt).not.toContain('CHUNK ID: c-45')
+  })
 })
