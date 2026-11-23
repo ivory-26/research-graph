@@ -1,6 +1,6 @@
 import type { Database } from '../../db/client'
 import { edges, type EdgeRow } from '../../db/schema'
-import { callModel as defaultCallModel, type CallModel } from '../model'
+import { callModel as defaultCallModel, type CallModel, agentTaskStore } from '../model'
 import { normalizeQuote, verifyVerbatimQuote } from './quote'
 import {
   ProposeEdgesResultSchema,
@@ -207,7 +207,7 @@ export async function proposeEdges(
     {
       workspaceId,
       taskKind: 'propose_edges',
-      store: (await import('../model')).agentTaskStore,
+      store: agentTaskStore,
       inputRef: { nodeCount: nodes.length, chunkCount: selectedChunks.length },
     },
   )
