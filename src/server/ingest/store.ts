@@ -1,4 +1,4 @@
-import { and, cosineDistance, desc, eq, sql } from 'drizzle-orm'
+import { and, cosineDistance, desc, eq, isNotNull, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import {
   sourceChunks,
@@ -79,7 +79,8 @@ export async function searchSimilarChunks(
   // Cosine similarity: 1 - cosineDistance
   const similarityExpr = sql<number>`1 - (${cosineDistance(sourceChunks.embedding, queryEmbedding)})`
 
-  const conditions = []
+  // Exclude chunks with null embeddings so nullable column doesn't sort first as NULLS FIRST
+  const conditions = [isNotNull(sourceChunks.embedding)]
 
   if (sourceId) {
     conditions.push(eq(sourceChunks.sourceId, sourceId))
@@ -123,4 +124,15 @@ export async function searchSimilarChunks(
     chunk: r.chunk,
     similarity: Number(r.similarity),
   }))
+}
+
+/**
+ * Production wrapper enforcing mandatory workspace tenant isolation for vector similarity search.
+ */
+export async function searchSimilarChunksForWorkspace(
+  db: Database,
+  workspaceId: string,
+  options: Omit<SearchChunksOptions, 'workspaceId'>,
+): Promise<ScoredChunk[]> {
+  return searchSimilarChunks(db, { ...options, workspaceId })
 }
