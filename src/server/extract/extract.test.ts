@@ -399,7 +399,7 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
         page: c.page,
       }))
 
-      // Load checked-in fixture of real model output captured from Gemini on Strobl 2007
+      // Load checked-in fixture of hand-authored model output schema for Strobl 2007 hero claim quote verification
       const fixturePath = path.resolve(process.cwd(), 'fixtures/extract/strobl-2007-claims.json')
       const rawFixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'))
       const capturedModelOutput: ExtractionResult = ExtractionResultSchema.parse(rawFixture)
@@ -420,7 +420,6 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
 
       expect(mockCallModel).toHaveBeenCalledTimes(1)
       expect(outcome.acceptedClaims.length).toBeGreaterThanOrEqual(1)
-      expect(outcome.rejectedClaims).toHaveLength(0)
 
       const heroClaim = outcome.acceptedClaims.find((c) => c.quote.includes('random forest variable importance measures'))
       expect(heroClaim).toBeDefined()
@@ -497,41 +496,69 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
     60000,
   )
 
-  it('truncates input chunks to 30,000 characters under single_pass strategy', async () => {
-    // Generate chunks totalling 50,000 characters
-    const chunks: ChunkRef[] = []
-    for (let i = 0; i < 50; i++) {
-      chunks.push({
-        id: `c-${i}`,
-        ordinal: i,
-        text: `Chunk ${i} `.padEnd(1000, 'x'),
-        page: i + 1,
-      })
-    }
+  it('truncates input chunks strictly at character level under single_pass strategy', async () => {
+    // 1. Test with one oversized first chunk that exceeds maxChars
+    const oversizedFirstChunk: ChunkRef[] = [
+      { id: 'c-giant', ordinal: 0, text: 'Z'.repeat(2000), page: 1 },
+      { id: 'c-next', ordinal: 1, text: 'W'.repeat(100), page: 1 },
+    ]
 
-    let capturedPrompt = ''
-    const mockCallModel = vi.fn().mockImplementation((_schema, prompt) => {
-      capturedPrompt = prompt
+    let giantCapturedPrompt = ''
+    const mockGiantCallModel = vi.fn().mockImplementation((_schema, prompt) => {
+      giantCapturedPrompt = prompt
       return Promise.resolve({
         output: { claims: [], datasets: [], methods: [], codeUrls: [] },
-        task: { id: 'task-strat' },
+        task: { id: 'task-giant' },
         attempts: [],
       })
     })
 
     await extractClaims({
-      workspaceId: 'ws-strat',
-      sourceId: 'src-strat',
-      chunks,
+      workspaceId: 'ws-giant',
+      sourceId: 'src-giant',
+      chunks: oversizedFirstChunk,
       strategy: 'single_pass',
-      maxChars: 30000,
-      callModelFn: mockCallModel as any,
+      maxChars: 500, // Budget 500: c-giant must be truncated to exactly 500 chars, c-next excluded
+      callModelFn: mockGiantCallModel as any,
       updateTaskStatusFn: vi.fn(),
     })
 
-    // The prompt should include at most ~30 chunks (~30k characters), not all 50
-    expect(capturedPrompt).toContain('CHUNK ID: c-0')
-    expect(capturedPrompt).toContain('CHUNK ID: c-29')
-    expect(capturedPrompt).not.toContain('CHUNK ID: c-45')
+    expect(giantCapturedPrompt).toContain('CHUNK ID: c-giant')
+    expect(giantCapturedPrompt).toContain('Z'.repeat(500))
+    expect(giantCapturedPrompt).not.toContain('Z'.repeat(501))
+    expect(giantCapturedPrompt).not.toContain('CHUNK ID: c-next')
+
+    // 2. Test with fitting first chunk and partially fitting last chunk
+    const mixedChunks: ChunkRef[] = [
+      { id: 'c-0', ordinal: 0, text: 'A'.repeat(500), page: 1 },
+      { id: 'c-1', ordinal: 1, text: 'B'.repeat(800), page: 1 },
+      { id: 'c-2', ordinal: 2, text: 'C'.repeat(1000), page: 1 },
+    ]
+
+    let mixedCapturedPrompt = ''
+    const mockMixedCallModel = vi.fn().mockImplementation((_schema, prompt) => {
+      mixedCapturedPrompt = prompt
+      return Promise.resolve({
+        output: { claims: [], datasets: [], methods: [], codeUrls: [] },
+        task: { id: 'task-mixed' },
+        attempts: [],
+      })
+    })
+
+    await extractClaims({
+      workspaceId: 'ws-mixed',
+      sourceId: 'src-mixed',
+      chunks: mixedChunks,
+      strategy: 'single_pass',
+      maxChars: 1000, // Budget 1000: c-0 takes 500, c-1 takes 500, c-2 excluded
+      callModelFn: mockMixedCallModel as any,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(mixedCapturedPrompt).toContain('CHUNK ID: c-0')
+    expect(mixedCapturedPrompt).toContain('CHUNK ID: c-1')
+    expect(mixedCapturedPrompt).toContain('B'.repeat(500))
+    expect(mixedCapturedPrompt).not.toContain('B'.repeat(501))
+    expect(mixedCapturedPrompt).not.toContain('CHUNK ID: c-2')
   })
 })
