@@ -5,16 +5,28 @@ import { Check, X as XIcon } from 'lucide-react';
 interface EvidencePanelProps {
   edge: WorkspaceEdge | null;
   onUpdateStatus?: (edgeId: string, newStatus: 'accepted' | 'rejected') => void;
+  onClose?: () => void;
 }
 
 export const EvidencePanel: React.FC<EvidencePanelProps> = ({
   edge,
   onUpdateStatus,
+  onClose,
 }) => {
   if (!edge) {
     return (
       <aside className="w-[350px] border-l border-[var(--border-primary)] bg-[var(--bg-primary)] p-5 flex flex-col gap-4 text-[var(--text-secondary)]">
-        <div className="l">CITATION EVIDENCE</div>
+        <div className="flex items-center justify-between">
+          <div className="l">CONTEXT INSPECTOR</div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="text-xs text-[var(--text-dim)] hover:text-[var(--text-primary)] transition"
+            >
+              ×
+            </button>
+          )}
+        </div>
         <div className="text-xs text-[var(--text-dim)] italic font-mono">
           Select any edge or relation pill on the canvas to inspect its auditable citation evidence.
         </div>
@@ -38,11 +50,22 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
   const isRejected = status === 'rejected';
 
   return (
-    <aside className="w-[350px] flex-shrink-0 border-l border-[var(--border-primary)] bg-[var(--bg-primary)] p-5 flex flex-col gap-4 text-[var(--text-secondary)] overflow-y-auto">
+    <aside className="w-[350px] flex-shrink-0 border-l border-[var(--border-primary)] bg-[var(--bg-primary)] p-5 flex flex-col gap-4 text-[var(--text-secondary)] overflow-y-auto animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="l">CITATION EVIDENCE</div>
-        <span className="badge-solid-white rounded-none">AUDITED</span>
+      <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
+        <div className="l font-mono text-xs">CONTEXT INSPECTOR</div>
+        <div className="flex items-center gap-2">
+          <span className="badge-solid-white rounded-none">AUDITED</span>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="text-sm font-bold text-[var(--text-dim)] hover:text-[var(--text-primary)] transition px-1"
+              title="Close inspector"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Badges with Sharp Corners */}
