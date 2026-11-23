@@ -22,10 +22,25 @@ interface Line {
  */
 export function extractPageReadingOrder(items: TextItem[]): string {
   // 1. Filter out empty whitespace items and page-edge running header/footer artifacts
-  // PDF coordinate origin is bottom-left (y=0 at bottom, y=792+ at top of standard letter/A4)
-  const valid = items.filter(
-    (i) => i.str && i.str.trim().length > 0 && i.y > 32 && i.y < 735,
-  )
+  // PDF coordinate origin is bottom-left (y=0 at bottom).
+  // Dynamic geometry: derive margins adaptively from item coordinates rather than hardcoding 792pt Letter.
+  const nonEmpty = items.filter((i) => i.str && i.str.trim().length > 0)
+  if (nonEmpty.length === 0) {
+    return ''
+  }
+
+  const minY = Math.min(...nonEmpty.map((i) => i.y))
+  const maxY = Math.max(...nonEmpty.map((i) => i.y))
+
+  // Footers sit in the lower 30pt; running headers sit in the topmost band above 735pt
+  const footerThreshold = Math.max(30, minY < 45 ? minY + 10 : 30)
+
+  const valid = nonEmpty.filter((i) => {
+    if (i.y < footerThreshold && i.y < 45) return false
+    // Filter extreme running headers (above 735pt and near maxY) while preserving body text on taller A4 pages
+    if (i.y > 735 && i.y >= maxY - 15) return false
+    return true
+  })
 
   if (valid.length === 0) {
     return ''

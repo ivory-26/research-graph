@@ -1,3 +1,6 @@
+import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { embedChunks, embedQuery, DEFAULT_EMBEDDING_DIMENSIONS } from './embed'
 import { searchSimilarChunks, storeChunks } from './store'
@@ -102,6 +105,7 @@ describe('storeChunks (Database persistence validation)', () => {
     const insertedRows: any[] = []
 
     const fakeDb = {
+      transaction: vi.fn(async (cb) => cb(fakeDb)),
       insert: vi.fn(() => ({
         values: vi.fn((batch: any[]) => ({
           returning: vi.fn(async () => {
@@ -177,4 +181,146 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
     expect(results[0].similarity).toBe(0.92)
     expect(results[1].similarity).toBe(0.81)
   })
+
+  it('joins sources table when workspaceId is supplied for isolation', async () => {
+    const mockInnerJoin = vi.fn(() => ({
+      where: vi.fn(() => ({
+        orderBy: vi.fn(() => ({
+          limit: vi.fn(async () => []),
+        })),
+      })),
+    }))
+
+    const fakeDb = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          innerJoin: mockInnerJoin,
+        })),
+      })),
+    } as unknown as Database
+
+    const queryVec = new Array(768).fill(0.01)
+    await searchSimilarChunks(fakeDb, {
+      queryEmbedding: queryVec,
+      workspaceId: 'ws-tenant-1',
+      topK: 3,
+    })
+
+    expect(mockInnerJoin).toHaveBeenCalled()
+  })
+
+  it('records agent_tasks rows when workspaceId is provided', async () => {
+    const insertedTasks: any[] = []
+    const fakeStore = {
+      insert: vi.fn(async (task) => {
+        insertedTasks.push(task)
+        return { id: 'task-1' }
+      }),
+    }
+
+    const fakeEmbedMany = vi.fn(async () => ({
+      embeddings: [new Array(768).fill(0.1)],
+      usage: { inputTokens: 45 },
+    }))
+
+    const fakeResolveModel = vi.fn((): any => ({ modelId: 'gemini-embedding-2' }))
+
+    await embedChunks(
+      ['Text to embed'],
+      {
+        workspaceId: 'ws-record-1',
+        taskStore: fakeStore,
+      },
+      {
+        embedManyFn: fakeEmbedMany as any,
+        resolveModel: fakeResolveModel,
+      },
+    )
+
+    expect(fakeStore.insert).toHaveBeenCalledTimes(1)
+    expect(insertedTasks[0].taskKind).toBe('ingest')
+    expect(insertedTasks[0].status).toBe('succeeded')
+    expect(insertedTasks[0].model).toBe('gemini-embedding-2')
+    expect(insertedTasks[0].promptTokens).toBe(45)
+  })
+})
+
+describe('Issue #11 Acceptance Test: Real Embedding & Stored Vector Search', () => {
+  const hasDb = Boolean(process.env.DATABASE_URL)
+  const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY)
+  const stroblPdf = path.resolve(process.cwd(), 'fixtures/papers/strobl-2007.pdf')
+  const canRun = hasDb && hasKey && fs.existsSync(stroblPdf)
+
+  it.skipIf(!canRun)(
+    'embeds real chunks from Strobl 2007, stores in Neon, and searches for permutation vs impurity importance',
+    async () => {
+      const { getDb } = await import('../../db/client')
+      const { sources, sourceChunks, workspaces } = await import('../../db/schema')
+      const { eq } = await import('drizzle-orm')
+      const { ingestPdf } = await import('./pdf')
+
+      const db = getDb()
+      const testWsId = crypto.randomUUID()
+      const testSourceId = crypto.randomUUID()
+
+      try {
+        // 1. Ingest real Strobl 2007 chunks
+        const buf = fs.readFileSync(stroblPdf)
+        const { chunks } = await ingestPdf(buf)
+        expect(chunks.length).toBeGreaterThan(0)
+
+        // Take first 5 chunks to keep test fast and conservative on credits
+        const testChunks = chunks.slice(0, 5)
+
+        // 2. Insert test workspace and source
+        await db.insert(workspaces).values({
+          id: testWsId,
+          name: 'Issue 11 Test Workspace',
+          slug: `test-ws-${Date.now()}`,
+        })
+
+        await db.insert(sources).values({
+          id: testSourceId,
+          workspaceId: testWsId,
+          kind: 'paper',
+          title: 'Strobl 2007 Bias in Random Forest Importance',
+          url: 'https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-8-25',
+          sha256: 'test-sha256',
+          bytes: buf.length,
+          meta: {},
+        })
+
+        // 3. Embed real chunks with gemini-embedding-2 (768d)
+        const embeddings = await embedChunks(testChunks, { workspaceId: testWsId })
+        expect(embeddings.length).toBe(testChunks.length)
+        expect(embeddings[0].length).toBe(768)
+
+        // 4. Store chunks in database
+        const stored = await storeChunks(db, testSourceId, testChunks, embeddings)
+        expect(stored.length).toBe(testChunks.length)
+
+        // 5. Embed query and search similar chunks
+        const query = 'permutation versus impurity importance'
+        const queryEmbedding = await embedQuery(query, { workspaceId: testWsId })
+        expect(queryEmbedding.length).toBe(768)
+
+        const searchResults = await searchSimilarChunks(db, {
+          queryEmbedding,
+          workspaceId: testWsId,
+          topK: 3,
+        })
+
+        expect(searchResults.length).toBeGreaterThan(0)
+        expect(searchResults[0].similarity).toBeGreaterThan(0.5)
+        expect(searchResults[0].chunk.sourceId).toBe(testSourceId)
+        expect(searchResults[0].chunk.page).toBeGreaterThanOrEqual(1)
+      } finally {
+        // Cleanup test data
+        await db.delete(sourceChunks).where(eq(sourceChunks.sourceId, testSourceId)).catch(() => {})
+        await db.delete(sources).where(eq(sources.id, testSourceId)).catch(() => {})
+        await db.delete(workspaces).where(eq(workspaces.id, testWsId)).catch(() => {})
+      }
+    },
+    30000,
+  )
 })
