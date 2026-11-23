@@ -70,31 +70,15 @@ export function validateClaimQuotes(
       continue
     }
 
-    // Locate the referenced chunk
-    let targetChunk = chunkMap.get(claim.chunkId)
-
-    // Fallback: if not found by exact key, search by ordinal match or scan chunks
-    if (!targetChunk) {
-      const parsedOrdinal = parseInt(claim.chunkId, 10)
-      if (!Number.isNaN(parsedOrdinal)) {
-        targetChunk = chunks.find((c) => c.ordinal === parsedOrdinal)
-      }
-    }
-
-    // If still not matched to a chunk, search if the quote uniquely exists in any chunk
-    if (!targetChunk) {
-      const matchingChunk = chunks.find((c) => verifyVerbatimQuote(claim.quote, c.text))
-      if (matchingChunk) {
-        targetChunk = matchingChunk
-      }
-    }
+    // Locate the referenced chunk strictly (never scan or rebind to other chunks per docs/03)
+    const targetChunk = chunkMap.get(claim.chunkId)
 
     if (!targetChunk) {
       rejected.push({ claim, reason: 'CHUNK_NOT_FOUND' })
       continue
     }
 
-    // Strict verbatim validation in the target chunk
+    // Strict verbatim validation in the target chunk ONLY
     const isVerbatim = verifyVerbatimQuote(claim.quote, targetChunk.text)
 
     if (isVerbatim) {
