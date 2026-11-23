@@ -16,7 +16,7 @@ Allow the application's deployed origin in Neon Auth before using it there. The 
 
 ## Sign-in and session
 
-The TanStack route at `src/routes/api/auth/$.ts` forwards same-origin auth requests through the official `@neon/auth/server` proxy. The route mount and generated route entry are the only changes under the routing boundary. The mount needs frag2win's review before merge.
+The TanStack route at `src/routes/api/auth/$.ts` forwards same-origin auth requests through the official `@neon/auth/server` proxy. The route mount and generated route entry are the only changes under the routing boundary; later changes there stay with the route owner.
 
 In the #16 sign-in screens, use the Neon React adapter against the same-origin route.
 
