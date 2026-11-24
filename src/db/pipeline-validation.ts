@@ -175,6 +175,7 @@ const TASK_KINDS = [
   'plan_experiment',
   'repair_script',
   'explain_gap',
+  'ask_across_sources',
 ] as const satisfies readonly TaskKind[]
 const AGENT_TASK_STATUSES = [
   'succeeded',

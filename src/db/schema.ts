@@ -535,7 +535,7 @@ export const agentStrategies = pgTable(
     workspaceId: uuid('workspace_id')
       .references(() => workspaces.id, { onDelete: 'cascade' })
       .notNull(),
-    /** ingest | extract_claims | propose_edges | plan_experiment | repair_script | explain_gap */
+    /** ingest | extract_claims | propose_edges | plan_experiment | repair_script | explain_gap | ask_across_sources */
     taskKind: text('task_kind').$type<TaskKind>().notNull(),
     /** single_pass | sectioned | table_first ... */
     name: text('name').notNull(),
