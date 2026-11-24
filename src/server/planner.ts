@@ -216,7 +216,7 @@ export function hasProhibitedPipInstall(source: string): boolean {
   // 2. Prohibited pip invocation passed to os.system or subprocess
   const codeWithoutComments = stripPythonComments(source)
   const systemSubprocessPipPattern =
-    /(?:os\.system|subprocess\.(?:run|call|Popen|check_call|check_output))\s*\(\s*(?:\[\s*)?['"][^'"]*\b(pip|pip3)\s+install\b/i
+    /(?:os\.system|subprocess\.(?:run|call|Popen|check_call|check_output))\s*\(\s*(?:\[\s*)?[frb]?['"][^'"]*\b(pip|pip3)\s+install\b/i
   const listArgSubprocessPipPattern =
     /subprocess\.(?:run|call|Popen|check_call|check_output)\s*\(\s*\[[^\]]*['"](?:pip|pip3)['"]\s*,\s*['"]install['"]/i
 
@@ -225,6 +225,19 @@ export function hasProhibitedPipInstall(source: string): boolean {
     listArgSubprocessPipPattern.test(codeWithoutComments)
   ) {
     return true
+  }
+
+  // 3. Prohibited pip invocation via variable indirection: cmd = 'pip3 install torch'; os.system(cmd)
+  const varAssignRegex = /\b([a-zA-Z_]\w*)\s*=\s*f?['"][^'"]*\b(pip|pip3)\s+install\b/gi
+  let varMatch: RegExpExecArray | null
+  while ((varMatch = varAssignRegex.exec(codeWithoutComments)) !== null) {
+    const varName = varMatch[1]!
+    const varUsedInExecRegex = new RegExp(
+      `(?:os\\.system|subprocess\\.(?:run|call|Popen|check_call|check_output))\\s*\\(\\s*(?:\\[\\s*)?${varName}\\b`,
+    )
+    if (varUsedInExecRegex.test(codeWithoutComments)) {
+      return true
+    }
   }
 
   return false
@@ -373,6 +386,95 @@ function getEnclosingFunctionName(codeWithoutComments: string, charIndex: number
   }
 
   return scopeStack.length > 0 ? scopeStack[scopeStack.length - 1]!.name : null
+}
+
+/**
+ * Creates a byte mask where 1 indicates the index falls inside a string literal.
+ */
+function getStringLiteralMask(code: string): Uint8Array {
+  const n = code.length
+  const mask = new Uint8Array(n)
+  let i = 0
+  let inSingle = false
+  let inDouble = false
+  let inTripleSingle = false
+  let inTripleDouble = false
+
+  while (i < n) {
+    if (inTripleDouble) {
+      mask[i] = 1
+      if (code.slice(i, i + 3) === '"""' && code[i - 1] !== '\\') {
+        if (i + 1 < n) mask[i + 1] = 1
+        if (i + 2 < n) mask[i + 2] = 1
+        inTripleDouble = false
+        i += 3
+        continue
+      }
+      i++
+      continue
+    }
+    if (inTripleSingle) {
+      mask[i] = 1
+      if (code.slice(i, i + 3) === "'''" && code[i - 1] !== '\\') {
+        if (i + 1 < n) mask[i + 1] = 1
+        if (i + 2 < n) mask[i + 2] = 1
+        inTripleSingle = false
+        i += 3
+        continue
+      }
+      i++
+      continue
+    }
+    if (inDouble) {
+      mask[i] = 1
+      if (code[i] === '"' && code[i - 1] !== '\\') {
+        inDouble = false
+      }
+      i++
+      continue
+    }
+    if (inSingle) {
+      mask[i] = 1
+      if (code[i] === "'" && code[i - 1] !== '\\') {
+        inSingle = false
+      }
+      i++
+      continue
+    }
+
+    if (code.slice(i, i + 3) === '"""' && (i === 0 || code[i - 1] !== '\\')) {
+      inTripleDouble = true
+      mask[i] = 1
+      if (i + 1 < n) mask[i + 1] = 1
+      if (i + 2 < n) mask[i + 2] = 1
+      i += 3
+      continue
+    }
+    if (code.slice(i, i + 3) === "'''" && (i === 0 || code[i - 1] !== '\\')) {
+      inTripleSingle = true
+      mask[i] = 1
+      if (i + 1 < n) mask[i + 1] = 1
+      if (i + 2 < n) mask[i + 2] = 1
+      i += 3
+      continue
+    }
+    if (code[i] === '"' && (i === 0 || code[i - 1] !== '\\')) {
+      inDouble = true
+      mask[i] = 1
+      i++
+      continue
+    }
+    if (code[i] === "'" && (i === 0 || code[i - 1] !== '\\')) {
+      inSingle = true
+      mask[i] = 1
+      i++
+      continue
+    }
+
+    i++
+  }
+
+  return mask
 }
 
 /**
@@ -531,6 +633,7 @@ export function validateScriptMetricsOutput(source: string): boolean {
   }
 
   // 5. Inspect all json.dump calls in executable code and check reachability
+  const literalMask = getStringLiteralMask(codeWithoutComments)
   const reachableFunctions = getReachablePythonFunctions(codeWithoutComments)
   const dumpCallRegex = /\bjson\.dump\s*\(/g
   let reachableValidMetricsDumps = 0
@@ -538,6 +641,10 @@ export function validateScriptMetricsOutput(source: string): boolean {
 
   while ((match = dumpCallRegex.exec(codeWithoutComments)) !== null) {
     const dumpIndex = match.index
+    // Skip occurrences that fall inside string literals (e.g. print("json.dump(...)"))
+    if (literalMask[dumpIndex]) {
+      continue
+    }
     const enclosingFunc = getEnclosingFunctionName(codeWithoutComments, dumpIndex)
     const isReachable = enclosingFunc === null || reachableFunctions.has(enclosingFunc)
 
@@ -716,8 +823,6 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
         `Entrypoint file '${entryFile}' must write metrics as json.dump to /output/metrics.json in executable code`,
       )
     }
-  } else if (!entryFile) {
-    errors.push('Script must write metrics as json.dump to /output/metrics.json')
   }
 
   // 8. datasets

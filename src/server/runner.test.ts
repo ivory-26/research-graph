@@ -73,6 +73,7 @@ describe('runnerErrorToFailedResult mapping', () => {
     expect(failedResult.stderr).toContain('metrics.json was missing')
     expect(failedResult.durationMs).toBe(1200)
     expect(failedResult.metrics).toEqual({})
+    expect(failedResult.environment?.imageDigest).toBe('unknown')
 
     // Persisted evaluation must return verdict 'failed'
     const evalOutcome = evaluateExperiment(HERO_EXPERIMENT_SPEC_RUN_A, failedResult)

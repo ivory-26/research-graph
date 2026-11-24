@@ -119,7 +119,7 @@ export function runnerErrorToFailedResult(
       durationMs: err.durationMs,
       environment:
         err.environment ?? {
-          imageDigest: fallbackSpec.image,
+          imageDigest: 'unknown',
           python: 'unknown',
           packages: {},
           datasets: [],
@@ -139,7 +139,7 @@ export function runnerErrorToFailedResult(
       durationMs: err.durationMs,
       environment:
         err.environment ?? {
-          imageDigest: fallbackSpec.image,
+          imageDigest: 'unknown',
           python: 'unknown',
           packages: {},
           datasets: [],
@@ -159,7 +159,7 @@ export function runnerErrorToFailedResult(
       durationMs: err.durationMs,
       environment:
         err.environment ?? {
-          imageDigest: fallbackSpec.image,
+          imageDigest: 'unknown',
           python: 'unknown',
           packages: {},
           datasets: [],
@@ -178,7 +178,7 @@ export function runnerErrorToFailedResult(
     artifacts: [],
     durationMs: 0,
     environment: {
-      imageDigest: fallbackSpec.image,
+      imageDigest: 'unknown',
       python: 'unknown',
       packages: {},
       datasets: [],

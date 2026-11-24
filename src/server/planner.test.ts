@@ -134,6 +134,31 @@ json.dump({"predictions": [0, 1]}, open("predictions.json", "w"))
     expect(validateScriptMetricsOutput(multiDump)).toBe(true)
   })
 
+  it('rejects in-string dump decoy where print contains target path but actual dump goes elsewhere (Blocker 2)', () => {
+    const stringDecoy = `
+import json
+print("json.dump(metrics, open('/output/metrics.json', 'w'))")
+json.dump({}, open("metrics.json", "w"))
+`
+    expect(validateScriptMetricsOutput(stringDecoy)).toBe(false)
+  })
+
+  it('flags pip install via variable indirection or f-strings', () => {
+    const varIndirection = `
+cmd = 'pip3 install torch'
+import os
+os.system(cmd)
+`
+    expect(hasProhibitedPipInstall(varIndirection)).toBe(true)
+
+    const fStringIndirection = `
+import os
+pkg = 'torch'
+os.system(f"pip3 install {pkg}")
+`
+    expect(hasProhibitedPipInstall(fStringIndirection)).toBe(true)
+  })
+
   it('does not flag pip install in print statements or docstrings', () => {
     const printCode = 'print("Running pip install is forbidden")'
     expect(hasProhibitedPipInstall(printCode)).toBe(false)
@@ -271,6 +296,17 @@ describe('validateExperimentSpec', () => {
     const result = validateExperimentSpec(spec)
     expect(result.valid).toBe(false)
     expect(result.errors.some((e) => e.includes('operators, and additional arguments are prohibited'))).toBe(true)
+  })
+
+  it('does not emit redundant metrics error when entrypoint is unparseable (Nit 1)', () => {
+    const invalidEntrySpec: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      entrypoint: 'sh run.sh',
+    }
+    const result = validateExperimentSpec(invalidEntrySpec)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.includes('must invoke python with a .py script'))).toBe(true)
+    expect(result.errors.some((e) => e.includes('must write metrics as json.dump'))).toBe(false)
   })
 
   it('rejects specs that omit estimatedRuntimeSeconds', () => {
