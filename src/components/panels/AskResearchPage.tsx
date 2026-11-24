@@ -156,10 +156,10 @@ export const AskResearchPage: React.FC = () => {
         <div>
           <div className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-[#f97316]" />
-            <span>Ask Ingested Sources (RAG Assistant)</span>
+            <span>Ask Ingested Sources (Inquiry Preview)</span>
           </div>
           <div className="text-[11px] text-[var(--text-dim)] font-sans mt-0.5">
-            Evidence-grounded assistant · citations matched to indexed workspace literature
+            Literature inquiry preview · sample queries over indexed workspace papers
           </div>
         </div>
         <span className="badge-solid-white !text-[9px] rounded-none">
@@ -197,9 +197,9 @@ export const AskResearchPage: React.FC = () => {
             <div className="font-bold text-[10px] uppercase text-[var(--text-dim)] mb-1 flex items-center justify-between">
               <span>{m.sender === 'user' ? 'Researcher' : 'ResearchGraph Assistant'}</span>
               {m.sender === 'ai' && (
-                <span className="text-[9px] text-emerald-400 flex items-center gap-1 font-mono">
+                <span className="text-[9px] text-[var(--text-dim)] flex items-center gap-1 font-mono">
                   <CheckCircle className="h-2.5 w-2.5" />
-                  INDEXED CITATIONS
+                  CITATION PREVIEW
                 </span>
               )}
             </div>

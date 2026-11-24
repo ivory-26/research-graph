@@ -173,7 +173,7 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
                         </div>
                       </div>
                       <span className="badge-solid-white rounded-none">
-                        VERIFIED
+                        INDEXED
                       </span>
                     </div>
                   ))}

@@ -103,7 +103,7 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
                 <span className="badge-solid-white rounded-none">COLAB READY</span>
               </div>
               <p className="text-xs text-[var(--text-dim)] mt-0.5 font-mono">
-                One-click executable reproduction notebook with verified packages and pinned SHA-256 data.
+                Export reproduction script with deterministic environment and experiment specifications.
               </p>
             </div>
           </div>

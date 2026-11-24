@@ -78,7 +78,7 @@ export const NODE_CATEGORY_THEMES: Record<
     hoverBorder: '#f59e0b',
   },
   result: {
-    name: 'Verified Result',
+    name: 'Result',
     color: '#059669', // Emerald
     glow: 'rgba(16, 185, 129, 0.45)',
     ring: 'rgba(16, 185, 129, 0.2)',

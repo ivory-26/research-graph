@@ -64,14 +64,14 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 mt-1 shadow-[0_0_8px_#34d399]" />
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-[var(--text-primary)] font-semibold">
-                  Evidence edge audited
+                  Evidence edge linked
                 </div>
                 <div className="text-[11px] text-[var(--text-dim)]">
                   Strobl et al. 2007 supports Gini bias claim
                 </div>
               </div>
-              <span className="text-[10px] text-[var(--text-dim)] whitespace-nowrap">
-                10m ago
+              <span className="badge-solid-white !text-[8px] rounded-none">
+                INDEXED
               </span>
             </div>
 
@@ -79,14 +79,14 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 mt-1" />
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-[var(--text-primary)] font-semibold">
-                  Run B completed
+                  Experiment plan configured
                 </div>
                 <div className="text-[11px] text-[var(--text-dim)]">
-                  Permutation importance · adapted
+                  Permutation importance · adapted specification
                 </div>
               </div>
-              <span className="text-[10px] text-[var(--text-dim)] whitespace-nowrap">
-                22m ago
+              <span className="badge-solid-white !text-[8px] rounded-none">
+                SPEC
               </span>
             </div>
 
@@ -100,8 +100,8 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
                   PDF extraction and chunking completed
                 </div>
               </div>
-              <span className="text-[10px] text-[var(--text-dim)] whitespace-nowrap">
-                1h ago
+              <span className="badge-solid-white !text-[8px] rounded-none">
+                READY
               </span>
             </div>
           </div>
@@ -180,11 +180,11 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
                 </td>
                 <td className="py-3 text-[var(--text-muted)]">Experiment Run</td>
                 <td className="py-3">
-                  <span className="border border-emerald-500/50 bg-emerald-950/20 text-emerald-400 text-[8px] px-1.5 py-0.5">
-                    PASSED
+                  <span className="border border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-dim)] text-[8px] px-1.5 py-0.5">
+                    SPEC
                   </span>
                 </td>
-                <td className="py-3 text-right text-[var(--text-dim)]">Today</td>
+                <td className="py-3 text-right text-[var(--text-dim)]">Template</td>
               </tr>
             </tbody>
           </table>

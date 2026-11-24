@@ -86,8 +86,8 @@ export const ExperimentsPage: React.FC<ExperimentsPageProps> = ({
               <strong className="text-[var(--text-primary)]">300 seconds</strong>
             </div>
             <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-2">
-              <span className="text-[var(--text-dim)]">Dataset hash:</span>
-              <strong className="text-emerald-400">SHA-256 PINNED</strong>
+              <span className="text-[var(--text-dim)]">Dataset:</span>
+              <strong className="text-[var(--text-primary)] font-mono">OpenML 52350 (adapted)</strong>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-[var(--text-dim)]">Human approval:</span>
@@ -96,15 +96,18 @@ export const ExperimentsPage: React.FC<ExperimentsPageProps> = ({
           </div>
 
           <p className="text-[11px] text-[var(--text-dim)] pt-2 border-t border-[var(--border-primary)] font-sans leading-relaxed">
-            Every experiment is executed in an isolated ephemeral microVM with no outbound networking. Datasets are validated against cryptographic checksums before running.
+            Every experiment is configured for an isolated ephemeral microVM. Datasets and dependencies are specified deterministically before execution.
           </p>
         </div>
       </div>
 
       {/* Recent Experiment Runs Table */}
       <div className="space-y-3">
-        <div className="text-[11px] uppercase tracking-wider text-[var(--text-dim)]">
-          RECENT EXPERIMENT RUNS
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] uppercase tracking-wider text-[var(--text-dim)]">
+            EXPERIMENT SPECIFICATIONS &amp; RUN TEMPLATES (PREVIEW)
+          </div>
+          <span className="badge-orange-outline !text-[8px] rounded-none">PREVIEW</span>
         </div>
         <div className="border border-[var(--border-primary)] bg-[var(--card-bg)] overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -113,8 +116,8 @@ export const ExperimentsPage: React.FC<ExperimentsPageProps> = ({
                 <th className="p-3">RUN</th>
                 <th className="p-3">METHOD</th>
                 <th className="p-3">MODE</th>
-                <th className="p-3">DURATION</th>
-                <th className="p-3">VERDICT</th>
+                <th className="p-3">CRITERIA</th>
+                <th className="p-3">STATUS</th>
                 <th className="p-3 text-right">ACTION</th>
               </tr>
             </thead>
@@ -125,9 +128,9 @@ export const ExperimentsPage: React.FC<ExperimentsPageProps> = ({
                 <td className="p-3">
                   <span className="badge-orange-outline !text-[8px] rounded-none">ADAPTED</span>
                 </td>
-                <td className="p-3 text-[var(--text-dim)]">3.4s</td>
+                <td className="p-3 font-mono text-[11px] text-[var(--text-dim)]">rank_impurity(noise_20) &le; 5</td>
                 <td className="p-3">
-                  <span className="badge-solid-white !text-[8px] rounded-none">PASS</span>
+                  <span className="badge-solid-white !text-[8px] rounded-none">SPECIFICATION</span>
                 </td>
                 <td className="p-3 text-right">
                   <button
@@ -144,9 +147,9 @@ export const ExperimentsPage: React.FC<ExperimentsPageProps> = ({
                 <td className="p-3">
                   <span className="badge-orange-outline !text-[8px] rounded-none">ADAPTED</span>
                 </td>
-                <td className="p-3 text-[var(--text-dim)]">3.4s</td>
+                <td className="p-3 font-mono text-[11px] text-[var(--text-dim)]">rank_permutation(noise_20) &gt; 15</td>
                 <td className="p-3">
-                  <span className="badge-solid-white !text-[8px] rounded-none">PASS</span>
+                  <span className="badge-solid-white !text-[8px] rounded-none">SPECIFICATION</span>
                 </td>
                 <td className="p-3 text-right">
                   <button

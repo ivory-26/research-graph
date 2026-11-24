@@ -361,7 +361,9 @@ export const DatasetNode: React.FC<NodeProps> = ({ data, selected }) => {
           className="flex items-center gap-1 border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
         >
           <ShieldCheck className="h-3 w-3 text-[#f97316]" />
-          <span className="font-mono text-[9px] text-[var(--text-primary)]">SHA-256 Pinned</span>
+          <span className="font-mono text-[9px] text-[var(--text-primary)]">
+            {data.sha256 ? 'SHA-256 Pinned' : 'OpenML Benchmark'}
+          </span>
         </NodeToolbar>
 
         <Handle
@@ -392,7 +394,7 @@ export const DatasetNode: React.FC<NodeProps> = ({ data, selected }) => {
             {data.title as string}
           </div>
           <div className="text-[9px] font-mono text-[var(--text-dim)]">
-            569 rows · SHA Pinned
+            {(data.rows as number) ? `${data.rows} rows` : ''}{data.sha256 ? ' · SHA Pinned' : ' · adapted'}
           </div>
         </div>
       </div>
@@ -416,7 +418,9 @@ export const DatasetNode: React.FC<NodeProps> = ({ data, selected }) => {
         className="flex items-center gap-1.5 rounded-none border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
       >
         <ShieldCheck className="h-3.5 w-3.5 text-[#f97316]" />
-        <span className="font-mono text-[9px] text-[var(--text-primary)]">SHA-256 Pinned</span>
+        <span className="font-mono text-[9px] text-[var(--text-primary)]">
+          {data.sha256 ? 'SHA-256 Pinned' : 'OpenML Benchmark'}
+        </span>
       </NodeToolbar>
 
       <Handle
@@ -433,7 +437,7 @@ export const DatasetNode: React.FC<NodeProps> = ({ data, selected }) => {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-[var(--text-dim)]">
           <span className="h-1.5 w-1.5 rounded-none bg-[#f97316]" />
-          <span>DATASET · PINNED</span>
+          <span>{data.sublabel ? String(data.sublabel) : 'DATASET · ADAPTED'}</span>
         </div>
         <Database className="h-3 w-3 text-[var(--text-muted)]" />
       </div>
@@ -443,7 +447,7 @@ export const DatasetNode: React.FC<NodeProps> = ({ data, selected }) => {
       </div>
 
       <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--text-dim)] font-mono">
-        <span>569 rows</span>
+        <span>{(data.rows as number) ? `${data.rows} rows` : '569 rows'}</span>
         <span className="text-[var(--text-muted)]">+3 noise cols</span>
       </div>
     </div>
@@ -498,12 +502,12 @@ export const RunNode: React.FC<NodeProps> = ({ data, selected }) => {
             <span className="text-[11px] font-mono font-bold text-[var(--text-primary)]">
               {data.title as string}
             </span>
-            <span className="badge-orange-outline !text-[7px] !px-1 rounded-none">
-              MATCH
+            <span className="badge-orange-outline !text-[7px] !px-1 rounded-none uppercase">
+              {data.verdict ? String(data.verdict) : 'spec'}
             </span>
           </div>
           <div className="text-[9px] font-mono text-[var(--text-dim)]">
-            {isWhatIf ? 'RUN B · WHAT-IF' : 'RUN A · ROOT'} · 3.4s
+            {isWhatIf ? 'RUN B · WHAT-IF' : 'RUN A · ROOT'}{data.durationMs ? ` · ${data.durationMs}ms` : ''}
           </div>
         </div>
       </div>

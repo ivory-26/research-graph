@@ -759,7 +759,7 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       expect(res.citations[0]?.verified).toBe(true)
       expect(res.citations[1]?.verified).toBe(true)
       expect(res.citations[2]?.verified).toBe(true)
-    })
+    }, 30000)
 
     const hasDb = Boolean(process.env.DATABASE_URL)
     const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY)

@@ -20,11 +20,15 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
 
   const rankA = resA?.data?.metrics?.rank_impurity_noise_20 ?? '—';
   const rankB = resB?.data?.metrics?.rank_permutation_noise_20 ?? '—';
-  const criteriaA = resA?.data?.criteria ?? 'rank_impurity(noise_20) <= 5';
-  const criteriaB = resB?.data?.criteria ?? 'rank_permutation(noise_20) > 15';
-  const verdictA = resA?.data?.verdict ?? 'preview';
-  const verdictB = resB?.data?.verdict ?? 'preview';
+  const criteriaA = resA?.data?.criteria ?? '';
+  const criteriaB = resB?.data?.criteria ?? '';
+  const verdictA = 'preview';
+  const verdictB = 'preview';
   const delta = typeof rankA === 'number' && typeof rankB === 'number' ? rankB - rankA : null;
+
+  const maxRank = 33;
+  const barWidthA = typeof rankA === 'number' ? `${Math.max(5, Math.min(100, Math.round((1 - (rankA - 1) / maxRank) * 100)))}%` : '50%';
+  const barWidthB = typeof rankB === 'number' ? `${Math.max(5, Math.min(100, Math.round((1 - (rankB - 1) / maxRank) * 100)))}%` : '50%';
 
   const content = (
     <div className="w-full max-w-[1200px] mx-auto p-6 flex flex-col gap-5 text-[var(--text-secondary)]">
@@ -86,7 +90,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
             <div className="flex items-center gap-3">
               <span className="m text-[12px] text-[#f97316] w-20 font-semibold">noise_20</span>
               <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
-                <div className="h-full bg-[#f97316] rounded-none" style={{ width: '97%' }} />
+                <div className="h-full bg-[#f97316] rounded-none" style={{ width: barWidthA }} />
               </div>
               <span className="m text-[12px] text-[#f97316] w-9 text-right font-bold">#{rankA}</span>
             </div>
@@ -125,7 +129,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
             <div className="flex items-center gap-3">
               <span className="m text-[12px] text-[var(--text-primary)] w-20 font-semibold">noise_20</span>
               <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
-                <div className="h-full bg-[var(--text-primary)] rounded-none" style={{ width: '15%' }} />
+                <div className="h-full bg-[var(--text-primary)] rounded-none" style={{ width: barWidthB }} />
               </div>
               <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-bold">#{rankB}</span>
             </div>
