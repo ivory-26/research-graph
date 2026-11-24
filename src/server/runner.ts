@@ -248,11 +248,18 @@ export class E2BRunner implements ExperimentRunner {
       // 4. Read metrics file from configured / normalized metricsPath
       const metricsRaw = await sandbox.files.read(metricsPath).catch(() => null)
       let metrics: Record<string, number> = {}
-      if (metricsRaw) {
+      let exitCode = proc.exitCode
+      let stderr = proc.stderr
+      if (metricsRaw === null) {
+        if (exitCode === 0) exitCode = 1
+        stderr = (stderr ? stderr + '\n' : '') + `Metrics file missing: ${metricsPath}`
+      } else {
         try {
           metrics = JSON.parse(metricsRaw)
         } catch {
           metrics = {}
+          if (exitCode === 0) exitCode = 1
+          stderr = (stderr ? stderr + '\n' : '') + `Metrics file unparseable: ${metricsPath}`
         }
       }
 
@@ -260,9 +267,9 @@ export class E2BRunner implements ExperimentRunner {
       const environment = await envReader(sandbox, updatedSpec)
 
       return {
-        exitCode: proc.exitCode,
+        exitCode,
         stdout: proc.stdout,
-        stderr: proc.stderr,
+        stderr,
         metrics,
         artifacts,
         durationMs: Date.now() - started,

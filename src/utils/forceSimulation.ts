@@ -34,7 +34,7 @@ export interface ForceSimulationOptions {
   linkDistance?: number;     // Ideal spring rest length (default: 190)
   linkStiffness?: number;    // Spring tension (default: 0.035)
   gravity?: number;          // Gentle centering force (default: 0.015)
-  collisionPadding?: number; // Visual buffer between nodes including labels (default: 68)
+  collisionPadding?: number; // Visual buffer between nodes including labels (default: 86)
   iterations?: number;       // Relaxation steps (default: 280)
   damping?: number;          // Velocity friction (default: 0.86)
 }
@@ -59,27 +59,38 @@ const CLUSTER_REGION_ANCHORS: Record<string, { x: number; y: number }> = {
 // Deterministic individual offsets for the initial fixture nodes to prevent initial collapse
 const SPECIFIC_NODE_INITIAL_OFFSETS: Record<string, { x: number; y: number }> = {
   // 3 distinct source papers spread along an arc
-  'src-1': { x: -360, y: -140 }, // Strobl et al. 2007 (Upper-left inner)
-  'src-2': { x: -520, y: -80 },  // Strobl et al. 2008 (Far upper-left)
-  'src-3': { x: -380, y: -320 }, // Kursa & Rudnicki 2010 (Upper-left top)
+  'source-strobl-2007': { x: -360, y: -140 }, // Strobl et al. 2007 (Upper-left inner)
+  'source-strobl-2008': { x: -520, y: -80 },  // Strobl et al. 2008 (Far upper-left)
+  'source-kursa-2010': { x: -380, y: -320 },  // Kursa & Rudnicki 2010 (Upper-left top)
+  'src-1': { x: -360, y: -140 },
+  'src-2': { x: -520, y: -80 },
+  'src-3': { x: -380, y: -320 },
 
   // Central claim
-  'claim-1': { x: 0, y: 0 },     // Core claim at center
+  'claim-gini-bias': { x: 0, y: 0 },          // Core claim at center
+  'claim-1': { x: 0, y: 0 },
 
   // Methods
-  'mth-1': { x: -280, y: 220 },  // Impurity importance
-  'mth-2': { x: -140, y: 360 },  // Permutation importance
+  'method-impurity': { x: -280, y: 220 },     // Impurity importance
+  'method-permutation': { x: -140, y: 360 },  // Permutation importance
+  'mth-1': { x: -280, y: 220 },
+  'mth-2': { x: -140, y: 360 },
 
   // Dataset
-  'ds-1': { x: 280, y: -240 },   // breast-w + 3 noise cols
+  'dataset-breast-w': { x: 280, y: -240 },    // breast-w + 3 noise cols
+  'ds-1': { x: 280, y: -240 },
 
   // Runs
-  'run-1': { x: 160, y: 160 },   // Impurity run
-  'run-2': { x: 300, y: 110 },   // Permutation run
+  'run-a': { x: 160, y: 160 },                // Impurity run
+  'run-b': { x: 300, y: 110 },                // Permutation run
+  'run-1': { x: 160, y: 160 },
+  'run-2': { x: 300, y: 110 },
 
   // Results
-  'res1': { x: 460, y: 130 },    // Impurity verdict
-  'res2': { x: 600, y: 200 },    // Permutation verdict
+  'result-a': { x: 460, y: 130 },             // Impurity verdict
+  'result-b': { x: 600, y: 200 },             // Permutation verdict
+  'res1': { x: 460, y: 130 },
+  'res2': { x: 600, y: 200 },
 };
 
 export function computeForceLayout(
@@ -92,7 +103,7 @@ export function computeForceLayout(
     linkDistance = 195,
     linkStiffness = 0.032,
     gravity = 0.012,
-    collisionPadding = 72, // Generous spacing accounting for 120px node labels
+    collisionPadding = 86, // Generous spacing accounting for 120px node labels
     iterations = 280,
     damping = 0.86,
   } = options;
@@ -190,10 +201,11 @@ export function computeForceLayout(
         let dy = b.y - a.y;
         let dist = Math.sqrt(dx * dx + dy * dy);
 
-        // Guard against identical coordinates
+        // Guard against identical coordinates with deterministic angle dispersion
         if (dist < 0.01) {
-          dx = (Math.random() - 0.5) * 4;
-          dy = (Math.random() - 0.5) * 4;
+          const pseudoAngle = ((i * 37 + j * 73) % 360) * (Math.PI / 180);
+          dx = Math.cos(pseudoAngle) * 4;
+          dy = Math.sin(pseudoAngle) * 4;
           dist = Math.sqrt(dx * dx + dy * dy) || 1;
         }
 
@@ -249,8 +261,9 @@ export function computeForceLayout(
         let dist = Math.sqrt(dx * dx + dy * dy);
 
         if (dist < 0.01) {
-          dx = (Math.random() - 0.5) * 6;
-          dy = (Math.random() - 0.5) * 6;
+          const pseudoAngle = ((i * 47 + j * 89) % 360) * (Math.PI / 180);
+          dx = Math.cos(pseudoAngle) * 6;
+          dy = Math.sin(pseudoAngle) * 6;
           dist = Math.sqrt(dx * dx + dy * dy) || 1;
         }
 

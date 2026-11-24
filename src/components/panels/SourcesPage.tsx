@@ -84,7 +84,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
         venue: kind === 'repo' ? 'GitHub Open Source' : 'Web Page',
         pages: 6,
         size: '142 KB',
-        status: 'VERIFIED',
+        status: 'INDEXED',
         doi: webUrl,
       };
 
@@ -93,7 +93,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
         onIngestSource(cleanTitle, kind, webUrl);
       }
       setIsIngestingWeb(false);
-      onShowToast(`Source ingested with Firecrawl: +1 Source Node, +1 Claim Node on Graph!`);
+      onShowToast(`Source added to indexing queue.`);
     }, 1200);
   };
 

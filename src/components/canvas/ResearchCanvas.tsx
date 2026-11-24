@@ -143,6 +143,7 @@ function CanvasInner({
       {
         repulsion: settings.repulsion,
         linkDistance: settings.linkDistance,
+        collisionPadding: 86,
       }
     );
   }, [initialNodes, initialEdges, settings.repulsion, settings.linkDistance, simulationSeed]);

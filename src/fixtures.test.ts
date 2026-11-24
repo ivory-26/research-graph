@@ -2,6 +2,14 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { NodeType, EdgeRelation, EdgeStatus } from './shared/types';
+import {
+  DEMO_WORKSPACE,
+  DEMO_SOURCES,
+  DEMO_CHUNKS,
+  DEMO_NODES,
+  DEMO_EDGES,
+  DEMO_STRATEGIES,
+} from './data/demoWorkspace';
 
 describe('Workspace Fixture (Issue #17 Acceptance Criteria)', () => {
   const fixturePath = path.resolve(process.cwd(), 'fixtures/workspace.json');
@@ -95,6 +103,14 @@ describe('Workspace Fixture (Issue #17 Acceptance Criteria)', () => {
         expect(edge.quote).toBeDefined();
         expect(edge.quote.length).toBeGreaterThan(10);
         expect(edge.page).toBeGreaterThan(0);
+        // Quotes must not end with truncation ellipsis
+        expect(edge.quote.endsWith('...')).toBe(false);
+
+        // Verbatim verification against chunk text
+        if (edge.evidenceChunkId && data.chunks[edge.evidenceChunkId]) {
+          const chunk = data.chunks[edge.evidenceChunkId];
+          expect(chunk.text).toContain(edge.quote);
+        }
       }
     }
   });
@@ -115,9 +131,24 @@ describe('Workspace Fixture (Issue #17 Acceptance Criteria)', () => {
     expect(derivedEdge.source).toBe('run-a');
     expect(derivedEdge.target).toBe('run-b');
 
-    // Verified results
+    // Verified results with consistent rank metrics
     const results = data.nodes.filter((n: any) => n.type === 'result');
     expect(results.length).toBeGreaterThanOrEqual(2);
     expect(results.every((r: any) => r.data.verdict === 'match')).toBe(true);
+    for (const res of results) {
+      expect(res.data.metrics.rank_impurity_noise_20).toBe(2);
+      expect(res.data.metrics.rank_permutation_noise_20).toBe(29);
+    }
+  });
+
+  it('verifies that demoWorkspace.ts perfectly re-exports workspace.json without drift', () => {
+    const data = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+
+    expect(DEMO_WORKSPACE).toEqual(data.workspace);
+    expect(DEMO_SOURCES).toEqual(data.sources);
+    expect(DEMO_CHUNKS).toEqual(data.chunks);
+    expect(DEMO_NODES).toEqual(data.nodes);
+    expect(DEMO_EDGES).toEqual(data.edges);
+    expect(DEMO_STRATEGIES).toEqual(data.strategies);
   });
 });

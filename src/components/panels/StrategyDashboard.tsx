@@ -15,6 +15,12 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  const totalAttempts = DEMO_STRATEGIES.reduce((sum, s) => sum + s.attempts, 0);
+  const totalCost = DEMO_STRATEGIES.reduce((sum, s) => sum + s.totalCostUsd, 0);
+  const avgLatency = DEMO_STRATEGIES.length > 0
+    ? (DEMO_STRATEGIES.reduce((sum, s) => sum + s.avgLatencyMs, 0) / DEMO_STRATEGIES.length / 1000).toFixed(1)
+    : '0.0';
+
   const content = (
     <div className="w-full max-w-[1200px] mx-auto p-6 flex flex-col gap-5 text-[var(--text-secondary)]">
       {/* Title Header */}
@@ -39,19 +45,19 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
       <div className="flex gap-4 flex-wrap">
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Tasks Recorded</div>
-          <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">29</div>
+          <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">{totalAttempts}</div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">100% verified E2B runs</div>
         </div>
 
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Total Cost</div>
-          <div className="text-[32px] font-bold mt-2 text-[#f97316] font-mono">$0.04</div>
+          <div className="text-[32px] font-bold mt-2 text-[#f97316] font-mono">${totalCost.toFixed(3)}</div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">Gemini 2.0 Flash + Embeddings</div>
         </div>
 
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Median Latency</div>
-          <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">2.1 s</div>
+          <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">{avgLatency} s</div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">Isolated compute execution</div>
         </div>
       </div>

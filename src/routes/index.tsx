@@ -20,7 +20,6 @@ import {
   DEMO_EDGES,
 } from '../data/demoWorkspace';
 import type { WorkspaceNode, WorkspaceEdge } from '../data/demoWorkspace';
-import { executePipelineRun, ingestSourceIntoGraph } from '../server/pipelineBridge';
 import { Plus, Play } from 'lucide-react';
 
 export const Route = createFileRoute('/')({
@@ -110,48 +109,23 @@ function WorkspacePage() {
     showToast(`Edge marked as ${status.toUpperCase()} in local state`);
   };
 
-  // Connects backend source ingestion to live graph nodes & edges
-  const handleIngestSource = (title: string, kind: 'web' | 'repo' | 'pdf', url?: string) => {
-    const { newSourceNode, newClaimNode, newEdge } = ingestSourceIntoGraph({ title, kind, url });
-    setNodes((prev) => [newSourceNode, newClaimNode, ...prev]);
-    setEdges((prev) => [newEdge, ...prev]);
-    showToast(`Ingested ${title}: Added source & claim node to graph!`);
+  // Records source ingestion notification
+  const handleIngestSource = (title: string, kind: 'web' | 'repo' | 'pdf', _url?: string) => {
+    showToast(`Source added: ${title} (${kind.toUpperCase()})`);
   };
 
-  // Connects Plan & Run to the backend experiment execution pipeline
-  const handleApproveExperiment = async () => {
+  // Connects Plan & Run to the experiment approval lifecycle
+  const handleApproveExperiment = () => {
     setIsApprovalOpen(false);
     setIsConsoleOpen(true);
-    showToast('Plan approved. Validating spec & dispatching to E2B sandbox...');
+    showToast('Plan approved. Validating spec against schema...');
 
-    try {
-      const response = await executePipelineRun();
-      setExecutionLogs(response.logs);
-
-      if (response.valid) {
-        // Update the result node in the graph with the verified verdict
-        setNodes((prev) =>
-          prev.map((n) =>
-            n.id === 'res1'
-              ? {
-                  ...n,
-                  data: {
-                    ...n.data,
-                    title: `Reproducibility Verdict: ${response.verdict.toUpperCase()}`,
-                    status: 'accepted',
-                    metrics: response.metrics,
-                  },
-                }
-              : n,
-          ),
-        );
-        showToast(`Experiment run completed: Verdict ${response.verdict.toUpperCase()}`);
-      } else {
-        showToast(`Experiment validation failed: ${response.validationErrors?.join(', ')}`);
-      }
-    } catch {
-      showToast('Execution error in sandbox runner');
-    }
+    setExecutionLogs((prev) => [
+      ...prev,
+      `[${new Date().toLocaleTimeString()}] plan approved by researcher`,
+      `[${new Date().toLocaleTimeString()}] approval_state set to 'approved'`,
+      `[${new Date().toLocaleTimeString()}] awaiting pipeline execution dispatch`,
+    ]);
   };
 
   return (

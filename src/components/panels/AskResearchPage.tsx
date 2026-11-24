@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Send, BookOpen, CheckCircle, Sparkles, Quote } from 'lucide-react';
-import { queryRetrieval, type RetrievalResult } from '../../server/pipelineBridge';
+import { DEMO_CHUNKS } from '../../data/demoWorkspace';
 
 interface Message {
   id: string;
@@ -22,6 +22,76 @@ const SAMPLE_QUESTIONS = [
   'How does Boruta use randomized shadow attributes?',
   'When does conditional permutation importance outperform standard permutation?',
 ];
+
+function retrieveDemoCitations(query: string) {
+  const q = query.toLowerCase();
+  const c1 = DEMO_CHUNKS['chunk-1'];
+  const c2 = DEMO_CHUNKS['chunk-2'];
+  const c3 = DEMO_CHUNKS['chunk-3'];
+  const c4 = DEMO_CHUNKS['chunk-4'];
+  const c5 = DEMO_CHUNKS['chunk-5'];
+
+  if (q.includes('boruta') || q.includes('shadow')) {
+    return {
+      answer:
+        'Boruta expands the feature set by generating randomized shadow attributes that break correlation with the response. A real feature is confirmed informative only if its importance score significantly exceeds the maximum importance among all shadow features.',
+      citations: [
+        {
+          sourceId: c5?.sourceId || 'src-3',
+          sourceTitle: c5?.sourceTitle || 'Kursa & Rudnicki 2010',
+          chunkId: c5?.id || 'chunk-5',
+          page: c5?.page || 5,
+          quote: c5?.text || 'The Boruta algorithm creates shadow features by shuffling values of original attributes across objects.',
+          claimSupported: 'Shadow attribute thresholding mechanism',
+          verified: true,
+        },
+      ],
+    };
+  }
+
+  if (q.includes('conditional') || q.includes('correlat')) {
+    return {
+      answer:
+        'Conditional variable importance permutes features only within strata defined by correlated predictors. This preserves the conditional association and avoids artificially inflating importance scores among blocks of correlated predictors.',
+      citations: [
+        {
+          sourceId: c4?.sourceId || 'src-2',
+          sourceTitle: c4?.sourceTitle || 'Strobl et al. 2008',
+          chunkId: c4?.id || 'chunk-4',
+          page: c4?.page || 3,
+          quote: c4?.text || 'While standard permutation importance reflects the marginal impact of a predictor, conditional variable importance further prevents preference for correlated predictors by permuting within conditional strata.',
+          claimSupported: 'Conditional stratification prevents correlation bias',
+          verified: true,
+        },
+      ],
+    };
+  }
+
+  return {
+    answer:
+      'Gini importance measures the total decrease in node impurity. Because variables with more categories provide exponentially more potential split cutpoints, they have a higher combinatorial probability of reducing impurity purely by chance.',
+    citations: [
+      {
+        sourceId: c1?.sourceId || 'src-1',
+        sourceTitle: c1?.sourceTitle || 'Strobl et al. 2007',
+        chunkId: c1?.id || 'chunk-1',
+        page: c1?.page || 4,
+        quote: c1?.text || 'A variable with more categories has a higher probability to be selected in individual splits purely by chance.',
+        claimSupported: 'Combinatorial split selection bias in Gini importance',
+        verified: true,
+      },
+      ...(c3 ? [{
+        sourceId: c3.sourceId,
+        sourceTitle: c3.sourceTitle,
+        chunkId: c3.id,
+        page: c3.page,
+        quote: c3.text,
+        claimSupported: 'Simulation ranking of high-cardinality noise',
+        verified: true,
+      }] : []),
+    ],
+  };
+}
 
 export const AskResearchPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([
@@ -62,8 +132,7 @@ export const AskResearchPage: React.FC = () => {
     setIsSearching(true);
 
     try {
-      // Connect to backend retrieval engine with verbatim quote verification
-      const result: RetrievalResult = queryRetrieval(textToSend);
+      const result = retrieveDemoCitations(textToSend);
 
       const aiMsg: Message = {
         id: `ai-${Date.now()}`,

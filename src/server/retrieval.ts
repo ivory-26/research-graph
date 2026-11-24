@@ -319,11 +319,20 @@ ${passageContext}`
 
   const callModelFn = deps.callModelFn ?? defaultCallModel
 
+  const resolvedWorkspaceId = options.workspaceId ?? options.context?.workspaceId
+  if (!resolvedWorkspaceId) {
+    throw new Error('workspaceId is required for askAcrossSources retrieval')
+  }
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const validStrategyId = options.context?.strategyId && UUID_REGEX.test(options.context.strategyId)
+    ? options.context.strategyId
+    : null
+
   const ctx: CallModelContext = {
-    workspaceId: options.workspaceId ?? options.context?.workspaceId ?? '00000000-0000-0000-0000-000000000000',
-    taskKind: 'extract_claims',
+    workspaceId: resolvedWorkspaceId,
+    taskKind: 'explain_gap',
     store: options.context?.store ?? agentTaskStore,
-    strategyId: options.context?.strategyId ?? 'ask_across_sources',
+    strategyId: validStrategyId,
     inputRef: { query: trimmed, passageCount: passages.length },
     signal: options.abortSignal,
     ...options.context,

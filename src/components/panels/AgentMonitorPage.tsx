@@ -1,6 +1,12 @@
 import React from 'react';
+import { DEMO_STRATEGIES } from '../../data/demoWorkspace';
 
 export const AgentMonitorPage: React.FC = () => {
+  const totalTasks = DEMO_STRATEGIES.reduce((sum, s) => sum + s.attempts, 0);
+  const medianLatency = DEMO_STRATEGIES.length > 0
+    ? (DEMO_STRATEGIES.reduce((sum, s) => sum + s.avgLatencyMs, 0) / DEMO_STRATEGIES.length / 1000).toFixed(1)
+    : '0.0';
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto animate-fade-in font-mono">
       {/* 3 KPI Cards */}
@@ -22,7 +28,7 @@ export const AgentMonitorPage: React.FC = () => {
             AGENT TASKS
           </div>
           <div className="text-2xl font-extrabold text-[var(--text-primary)] my-2">
-            29
+            {totalTasks}
           </div>
           <div className="text-[11px] text-[var(--text-dim)]">
             Recorded attempts in demo fixture
@@ -34,7 +40,7 @@ export const AgentMonitorPage: React.FC = () => {
             LAST RUN
           </div>
           <div className="text-2xl font-extrabold text-[#f97316] my-2">
-            2.1s
+            {medianLatency}s
           </div>
           <div className="text-[11px] text-[var(--text-dim)]">
             Median task latency

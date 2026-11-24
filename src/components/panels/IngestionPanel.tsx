@@ -43,7 +43,7 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
   const handleCrawl = () => {
     setCrawlStatus('Crawling paper project page via Firecrawl API...');
     setTimeout(() => {
-      setCrawlStatus('Success: Ingested 14 sections, extracted metadata, 23 chunks embedded.');
+      setCrawlStatus('Source URL queued for pipeline ingestion and chunk extraction.');
     }, 800);
   };
 
@@ -312,9 +312,8 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
                           <span className="text-[var(--text-dim)]">
                             Source: <strong className="text-[var(--text-primary)]">{chunk.sourceTitle}</strong>
                           </span>
-                          <span className="text-emerald-400 flex items-center gap-1 font-bold">
-                            <CheckCircle2 className="h-3 w-3" />
-                            VERIFIED ANCHOR
+                          <span className="text-[var(--text-dim)] font-mono text-[9px] uppercase tracking-wider">
+                            ANCHOR CHUNK
                           </span>
                         </div>
                       </div>

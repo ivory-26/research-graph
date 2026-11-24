@@ -11,80 +11,42 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
-import { Route as ApiIngestRouteImport } from './routes/api/ingest'
-import { Route as ApiRetrievalRouteImport } from './routes/api/retrieval'
-import { Route as ApiPipelineRunRouteImport } from './routes/api/pipeline/run'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 
-const ApiIngestRoute = ApiIngestRouteImport.update({
-  id: '/api/ingest',
-  path: '/api/ingest',
-  getParentRoute: () => rootRouteImport,
-} as any)
-
-const ApiRetrievalRoute = ApiRetrievalRouteImport.update({
-  id: '/api/retrieval',
-  path: '/api/retrieval',
-  getParentRoute: () => rootRouteImport,
-} as any)
-
-const ApiPipelineRunRoute = ApiPipelineRunRouteImport.update({
-  id: '/api/pipeline/run',
-  path: '/api/pipeline/run',
-  getParentRoute: () => rootRouteImport,
-} as any)
-
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/ingest': typeof ApiIngestRoute
-  '/api/retrieval': typeof ApiRetrievalRoute
-  '/api/pipeline/run': typeof ApiPipelineRunRoute
 }
-
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/ingest': typeof ApiIngestRoute
-  '/api/retrieval': typeof ApiRetrievalRoute
-  '/api/pipeline/run': typeof ApiPipelineRunRoute
 }
-
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/ingest': typeof ApiIngestRoute
-  '/api/retrieval': typeof ApiRetrievalRoute
-  '/api/pipeline/run': typeof ApiPipelineRunRoute
 }
-
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/auth/$' | '/api/ingest' | '/api/retrieval' | '/api/pipeline/run'
+  fullPaths: '/' | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/auth/$' | '/api/ingest' | '/api/retrieval' | '/api/pipeline/run'
-  id: '__root__' | '/' | '/api/auth/$' | '/api/ingest' | '/api/retrieval' | '/api/pipeline/run'
+  to: '/' | '/api/auth/$'
+  id: '__root__' | '/' | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
-
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  ApiIngestRoute: typeof ApiIngestRoute
-  ApiRetrievalRoute: typeof ApiRetrievalRoute
-  ApiPipelineRunRoute: typeof ApiPipelineRunRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -103,43 +65,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/ingest': {
-      id: '/api/ingest'
-      path: '/api/ingest'
-      fullPath: '/api/ingest'
-      preLoaderRoute: typeof ApiIngestRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/retrieval': {
-      id: '/api/retrieval'
-      path: '/api/retrieval'
-      fullPath: '/api/retrieval'
-      preLoaderRoute: typeof ApiRetrievalRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/pipeline/run': {
-      id: '/api/pipeline/run'
-      path: '/api/pipeline/run'
-      fullPath: '/api/pipeline/run'
-      preLoaderRoute: typeof ApiPipelineRunRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  ApiIngestRoute: ApiIngestRoute,
-  ApiRetrievalRoute: ApiRetrievalRoute,
-  ApiPipelineRunRoute: ApiPipelineRunRoute,
 }
-
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true

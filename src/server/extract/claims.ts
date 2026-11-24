@@ -111,13 +111,16 @@ export async function extractClaims(
 
   const prompt = buildExtractionPrompt(targetChunks, sourceTitle)
 
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const validStrategyId = strategyId && UUID_REGEX.test(strategyId) ? strategyId : null
+
   const result = await callModelFn<ExtractionResult>(
     ExtractionResultSchema,
     prompt,
     {
       workspaceId,
       taskKind: 'extract_claims',
-      strategyId,
+      strategyId: validStrategyId,
       // Lazily import the agentTaskStore to avoid DB imports in pure unit test runs
       store: (await import('../model')).agentTaskStore,
       inputRef: { sourceId, chunkCount: targetChunks.length, strategy },

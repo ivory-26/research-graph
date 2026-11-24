@@ -91,13 +91,18 @@ export function validateProposedEdges(
       status = 'suggested'
     }
 
+    if (!targetChunk.id) {
+      rejected.push({ edge, reason: 'CHUNK_NOT_FOUND' })
+      continue
+    }
+
     accepted.push({
       fromNodeId: edge.fromNodeId,
       toNodeId: edge.toNodeId,
       relation: edge.relation,
       confidence: edge.confidence,
       status,
-      evidenceChunkId: targetChunk.id || String(targetChunk.ordinal),
+      evidenceChunkId: targetChunk.id,
       matchedQuote: normalizeQuote(edge.quote),
       rationale: (edge.rationale || '').trim(),
     })

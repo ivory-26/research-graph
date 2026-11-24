@@ -7,9 +7,6 @@
   "engines": {
     "node": "26.x"
   },
-  "imports": {
-    "#/*": "./src/*"
-  },
   "scripts": {
     "dev": "vite dev --port 3000",
     "build": "vite build",
@@ -24,45 +21,36 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@ai-sdk/google": "^4.0.124",
-    "@ai-sdk/react": "^4.0.183",
-    "@neon/auth": "^0.8.2",
-    "@neondatabase/serverless": "^1.2.1",
-    "@tailwindcss/vite": "^4.1.18",
-    "@tanstack/react-devtools": "0.10.15",
+    "@ai-sdk/google": "4.0.124",
+    "@ai-sdk/react": "4.0.184",
+    "@neon/auth": "0.8.2",
+    "@neondatabase/serverless": "1.2.1",
+    "@tailwindcss/vite": "4.1.18",
     "@tanstack/react-router": "1.170.46",
-    "@tanstack/react-router-devtools": "1.167.4",
     "@tanstack/react-start": "1.169.7",
-    "@xyflow/react": "^12.4.4",
-    "ai": "^7.0.179",
-    "clsx": "^2.1.1",
-    "drizzle-orm": "^0.45.4",
-    "e2b": "^2.64.0",
-    "lucide-react": "^1.77.0",
-    "nitro": "3.0.260610-beta",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "tailwind-merge": "^3.0.2",
-    "tailwindcss": "^4.1.18",
-    "unpdf": "^2.2.1",
-    "zod": "^4.6.7"
+    "@xyflow/react": "13.0.3",
+    "ai": "7.0.179",
+    "clsx": "2.1.1",
+    "drizzle-orm": "0.45.4",
+    "e2b": "2.64.0",
+    "lucide-react": "1.77.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tailwind-merge": "3.0.2",
+    "tailwindcss": "4.1.18",
+    "unpdf": "2.2.2",
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "@tailwindcss/typography": "^0.5.16",
-    "@tanstack/devtools-vite": "0.8.7",
-    "@types/node": "^22.10.2",
-    "@types/react": "^19.2.0",
-    "@types/react-dom": "^19.2.0",
-    "@vitejs/plugin-react": "^6.0.1",
-    "drizzle-kit": "^0.31.11",
-    "typescript": "^5.7.2",
-    "vite": "^8.0.0",
-    "vitest": "^5.1.1"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "lightningcss"
-    ]
+    "@tailwindcss/typography": "0.5.16",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "drizzle-kit": "0.31.11",
+    "nitro": "3.0.261103-rc",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.1"
   }
 }
