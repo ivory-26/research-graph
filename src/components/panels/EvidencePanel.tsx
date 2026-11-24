@@ -450,18 +450,14 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
   const relation = edge?.relation || 'supports';
   const status = edge?.status || 'accepted';
   const confidence = edge?.confidence ? `conf ${edge.confidence.toFixed(2)}` : null;
-  const quote =
-    edge?.quote ||
-    'A variable with more categories has a higher probability to be selected in individual splits purely by chance. Consequently, impurity-based variable importance measures (Gini importance) are severely biased towards variables with many categories...';
-  const page = edge?.page || 4;
-  const chunkNumber = edge?.chunkNumber || 14;
-  const charStart = edge?.charStart || 3810;
-  const charEnd = edge?.charEnd || 4220;
-  const sourceName = edge?.sourceTitle || 'Strobl et al. 2007';
-  const targetName = edge?.targetTitle || 'Claim';
-  const rationale =
-    edge?.rationale ||
-    'Core theoretical finding documented in Section 2 with mathematical justification.';
+  const quote = edge?.quote;
+  const page = edge?.page;
+  const chunkNumber = edge?.chunkNumber;
+  const charStart = edge?.charStart;
+  const charEnd = edge?.charEnd;
+  const sourceName = edge?.sourceTitle || 'Source';
+  const targetName = edge?.targetTitle || 'Target';
+  const rationale = edge?.rationale || 'Graph edge relationship.';
 
   const isAccepted = status === 'accepted';
   const isRejected = status === 'rejected';
@@ -513,14 +509,22 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
       </div>
 
       {/* Verbatim Cited Quote Card with Sharp Corners */}
-      <div className="c p-4 border-l-[3px] !border-l-[#f97316] !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)]">
-        <div className="text-[13px] leading-relaxed text-[var(--text-primary)] font-serif italic">
-          &ldquo;{quote}&rdquo;
+      {quote ? (
+        <div className="c p-4 border-l-[3px] !border-l-[#f97316] !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)]">
+          <div className="text-[13px] leading-relaxed text-[var(--text-primary)] font-serif italic">
+            &ldquo;{quote}&rdquo;
+          </div>
+          {page !== undefined && (
+            <div className="m text-[10px] text-[var(--text-dim)] mt-3 border-t border-[var(--border-primary)] pt-2">
+              PAGE {page}{chunkNumber !== undefined ? ` · CHUNK #${chunkNumber}` : ''}{charStart !== undefined ? ` · CHARS ${charStart}–${charEnd}` : ''}
+            </div>
+          )}
         </div>
-        <div className="m text-[10px] text-[var(--text-dim)] mt-3 border-t border-[var(--border-primary)] pt-2">
-          PAGE {page} · CHUNK #{chunkNumber} · CHARS {charStart}–{charEnd}
+      ) : (
+        <div className="c p-4 !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)] text-xs text-[var(--text-dim)] font-mono">
+          Structural relation without direct text quotation.
         </div>
-      </div>
+      )}
 
       {/* Rationale */}
       <div className="l">AUDIT RATIONALE</div>

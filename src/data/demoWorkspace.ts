@@ -108,9 +108,7 @@ elif data_file.exists() and data_file.suffix == '.arff':
     X_real = df.iloc[:, :-1].select_dtypes(include=[np.number]).values
     y = df.iloc[:, -1].astype('category').cat.codes.values
 else:
-    # Verified OpenML 52350 tabular structure fallback (569 samples, 30 features)
-    X_real = np.random.randn(569, 30)
-    y = (X_real[:, 0] * 1.5 + X_real[:, 1] * 0.8 > 0).astype(int)
+    raise FileNotFoundError("Pinned breast-w dataset not found at data/breast-w.csv or ./data/breast-w.arff")
 
 n_samples = X_real.shape[0]
 

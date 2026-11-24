@@ -58,15 +58,15 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
         id: `uploaded-${Date.now()}-${i}`,
         title: cleanTitle,
         venue: 'Local Document',
-        pages: 10,
+        pages: Math.max(1, Math.round(f.size / (50 * 1024))),
         size: `${(f.size / 1024).toFixed(0)} KB`,
-        status: 'VERIFIED',
-        doi: 'SHA-256 match',
+        status: 'INDEXED',
+        doi: f.name,
       };
     });
 
     setSources((prev) => [...newItems, ...prev]);
-    onShowToast(`Ingested ${files.length} paper(s) and added new node to graph`);
+    onShowToast(`Uploaded ${files.length} paper(s) to workspace queue`);
   };
 
   const handleWebIngest = async () => {

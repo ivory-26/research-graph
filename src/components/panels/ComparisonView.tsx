@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { DEMO_NODES } from '../../data/demoWorkspace';
 
 interface ComparisonViewProps {
   isModal?: boolean;
@@ -13,6 +14,15 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
   onClose,
 }) => {
   if (isModal && !isOpen) return null;
+
+  const resA = DEMO_NODES.find((n) => n.id === 'result-a');
+  const resB = DEMO_NODES.find((n) => n.id === 'result-b');
+
+  const rankA = resA?.data?.metrics?.rank_impurity_noise_20 ?? 2;
+  const rankB = resB?.data?.metrics?.rank_permutation_noise_20 ?? 29;
+  const criteriaA = resA?.data?.criteria ?? 'rank_impurity(noise_20) <= 5';
+  const criteriaB = resB?.data?.criteria ?? 'rank_permutation(noise_20) > 15';
+  const delta = rankB - rankA;
 
   const content = (
     <div className="w-full max-w-[1200px] mx-auto p-6 flex flex-col gap-5 text-[var(--text-secondary)]">
@@ -73,7 +83,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
                 <div className="h-full bg-[#f97316] rounded-none" style={{ width: '97%' }} />
               </div>
-              <span className="m text-[12px] text-[#f97316] w-9 text-right font-bold">#2</span>
+              <span className="m text-[12px] text-[#f97316] w-9 text-right font-bold">#{rankA}</span>
             </div>
 
             <div className="flex items-center gap-3">
@@ -95,8 +105,8 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
 
           {/* Assertion Footer */}
           <div className="border-t border-[var(--border-primary)] pt-3.5 text-[12px] flex justify-between gap-2 flex-wrap items-center mt-2 font-mono">
-            <span className="text-[var(--text-dim)]">rank_impurity(noise_20) ≤ 5</span>
-            <span className="text-[#f97316] font-bold">2 · PASS</span>
+            <span className="text-[var(--text-dim)]">{criteriaA}</span>
+            <span className="text-[#f97316] font-bold">{rankA} · PASS</span>
           </div>
         </div>
 
@@ -128,7 +138,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
                 <div className="h-full bg-[var(--text-primary)] rounded-none" style={{ width: '15%' }} />
               </div>
-              <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-bold">#29</span>
+              <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-bold">#{rankB}</span>
             </div>
 
             <div className="flex items-center gap-3">
@@ -150,8 +160,8 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
 
           {/* Assertion Footer */}
           <div className="border-t border-[var(--border-primary)] pt-3.5 text-[12px] flex justify-between gap-2 flex-wrap items-center mt-2 font-mono">
-            <span className="text-[var(--text-dim)]">rank_permutation(noise_20) &gt; 15</span>
-            <span className="text-[var(--text-primary)] font-bold">29 · PASS</span>
+            <span className="text-[var(--text-dim)]">{criteriaB}</span>
+            <span className="text-[var(--text-primary)] font-bold">{rankB} · PASS</span>
           </div>
         </div>
       </div>
@@ -164,10 +174,10 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
           </div>
           <div>
             <div className="text-[14px] font-bold text-[var(--text-primary)] font-mono">
-              Hypothesis Deterministically Verified by E2B Runtime
+              Hypothesis Evaluated by Verified Result Nodes
             </div>
             <div className="text-xs text-[var(--text-dim)] mt-0.5 font-mono">
-              Replacing Gini impurity with permutation drops 20-category synthetic noise feature from Rank #2 to Rank #29 (Δ = +27 positions).
+              Replacing Gini impurity with permutation drops 20-category noise feature from Rank #{rankA} to Rank #{rankB} (Δ = +{delta} positions).
             </div>
           </div>
         </div>

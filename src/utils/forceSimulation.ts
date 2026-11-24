@@ -62,35 +62,24 @@ const SPECIFIC_NODE_INITIAL_OFFSETS: Record<string, { x: number; y: number }> = 
   'source-strobl-2007': { x: -360, y: -140 }, // Strobl et al. 2007 (Upper-left inner)
   'source-strobl-2008': { x: -520, y: -80 },  // Strobl et al. 2008 (Far upper-left)
   'source-kursa-2010': { x: -380, y: -320 },  // Kursa & Rudnicki 2010 (Upper-left top)
-  'src-1': { x: -360, y: -140 },
-  'src-2': { x: -520, y: -80 },
-  'src-3': { x: -380, y: -320 },
 
   // Central claim
   'claim-gini-bias': { x: 0, y: 0 },          // Core claim at center
-  'claim-1': { x: 0, y: 0 },
 
   // Methods
   'method-impurity': { x: -280, y: 220 },     // Impurity importance
   'method-permutation': { x: -140, y: 360 },  // Permutation importance
-  'mth-1': { x: -280, y: 220 },
-  'mth-2': { x: -140, y: 360 },
 
   // Dataset
   'dataset-breast-w': { x: 280, y: -240 },    // breast-w + 3 noise cols
-  'ds-1': { x: 280, y: -240 },
 
   // Runs
   'run-a': { x: 160, y: 160 },                // Impurity run
   'run-b': { x: 300, y: 110 },                // Permutation run
-  'run-1': { x: 160, y: 160 },
-  'run-2': { x: 300, y: 110 },
 
   // Results
   'result-a': { x: 460, y: 130 },             // Impurity verdict
   'result-b': { x: 600, y: 200 },             // Permutation verdict
-  'res1': { x: 460, y: 130 },
-  'res2': { x: 600, y: 200 },
 };
 
 export function computeForceLayout(

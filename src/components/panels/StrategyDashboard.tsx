@@ -56,7 +56,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
         </div>
 
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
-          <div className="l">Median Latency</div>
+          <div className="l">Average Latency</div>
           <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">{avgLatency} s</div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">Isolated compute execution</div>
         </div>

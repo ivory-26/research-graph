@@ -143,9 +143,10 @@ export async function retrieveCrossSourcePassages(
   const similarityExpr = sql<number>`1 - (${cosineDistance(sourceChunks.embedding, queryVec)})`
   const conditions = []
 
-  if (workspaceId) {
-    conditions.push(eq(sources.workspaceId, workspaceId))
+  if (!workspaceId) {
+    throw new Error('workspaceId is required for cross-source passage retrieval to enforce tenant isolation')
   }
+  conditions.push(eq(sources.workspaceId, workspaceId))
 
   if (sourceIds && sourceIds.length > 0) {
     conditions.push(inArray(sourceChunks.sourceId, sourceIds))

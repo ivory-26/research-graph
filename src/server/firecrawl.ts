@@ -262,7 +262,7 @@ export async function ingestWebSource(
 
   // 5. Embed chunks using gemini-embedding-2 (768d)
   const embedFn = deps.embedChunksFn ?? embedChunks
-  const embeddings = await embedFn(chunks, {}, deps.embedDeps ?? {})
+  const embeddings = await embedFn(chunks, { workspaceId: options.workspaceId }, deps.embedDeps ?? {})
 
   // 6. Persist source and chunks if db is supplied
   let db = deps.db

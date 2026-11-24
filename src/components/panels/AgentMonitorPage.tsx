@@ -37,13 +37,13 @@ export const AgentMonitorPage: React.FC = () => {
 
         <div className="border border-[var(--border-primary)] bg-[var(--card-bg)] p-5">
           <div className="text-[10px] uppercase tracking-wider text-[var(--text-dim)]">
-            LAST RUN
+            AVG LATENCY
           </div>
           <div className="text-2xl font-extrabold text-[#f97316] my-2">
             {medianLatency}s
           </div>
           <div className="text-[11px] text-[var(--text-dim)]">
-            Median task latency
+            Average task latency
           </div>
         </div>
       </div>

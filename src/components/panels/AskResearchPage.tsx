@@ -103,7 +103,7 @@ export const AskResearchPage: React.FC = () => {
         {
           sourceId: 'src-strobl-2007',
           sourceTitle: 'Strobl et al. 2007',
-          chunkId: 'chunk-14',
+          chunkId: 'chunk-1',
           page: 4,
           quote: 'A variable with more categories has a higher probability to be selected in individual splits purely by chance.',
           claimSupported: 'Gini split selection combinatorial bias',
@@ -164,7 +164,7 @@ export const AskResearchPage: React.FC = () => {
             <span>Ask Ingested Sources (RAG Assistant)</span>
           </div>
           <div className="text-[11px] text-[var(--text-dim)] font-sans mt-0.5">
-            Retrieval-grounded research assistant · strict verbatim citations verified with Neon pgvector
+            Evidence-grounded assistant · citations matched to indexed workspace literature
           </div>
         </div>
         <span className="badge-solid-white !text-[9px] rounded-none">
@@ -204,7 +204,7 @@ export const AskResearchPage: React.FC = () => {
               {m.sender === 'ai' && (
                 <span className="text-[9px] text-emerald-400 flex items-center gap-1 font-mono">
                   <CheckCircle className="h-2.5 w-2.5" />
-                  VERBATIM CITATIONS
+                  INDEXED CITATIONS
                 </span>
               )}
             </div>

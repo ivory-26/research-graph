@@ -145,4 +145,63 @@ describe('E2BRunner with mocked sandbox', () => {
     const result = await runner.run(HERO_EXPERIMENT_SPEC_RUN_A)
     expect(result.metrics).toEqual({ rank_impurity_noise_20: 2 })
   })
+
+  it('fails the run with exitCode 1 when metrics file is missing', async () => {
+    const fakeSandbox = {
+      sandboxId: 'test-sandbox',
+      files: {
+        write: vi.fn(async () => {}),
+        read: vi.fn(async () => {
+          throw new Error('File not found')
+        }),
+        list: vi.fn(async () => []),
+      },
+      commands: {
+        run: vi.fn(async (cmd: string) => {
+          if (cmd.includes('main.py')) return { exitCode: 0, stdout: 'Done', stderr: '' }
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }),
+      },
+      kill: vi.fn(async () => {}),
+    }
+
+    const runner = new E2BRunner({
+      sandboxFactory: vi.fn().mockResolvedValue(fakeSandbox as any),
+      datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from(''), sha256: 'x' }),
+    })
+
+    const result = await runner.run(HERO_EXPERIMENT_SPEC_RUN_A)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('Metrics file missing')
+  })
+
+  it('fails the run with exitCode 1 when metrics file is unparseable', async () => {
+    const fakeSandbox = {
+      sandboxId: 'test-sandbox',
+      files: {
+        write: vi.fn(async () => {}),
+        read: vi.fn(async (path: string) => {
+          if (path.includes('metrics.json')) return 'invalid-json{'
+          return ''
+        }),
+        list: vi.fn(async () => []),
+      },
+      commands: {
+        run: vi.fn(async (cmd: string) => {
+          if (cmd.includes('main.py')) return { exitCode: 0, stdout: 'Done', stderr: '' }
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }),
+      },
+      kill: vi.fn(async () => {}),
+    }
+
+    const runner = new E2BRunner({
+      sandboxFactory: vi.fn().mockResolvedValue(fakeSandbox as any),
+      datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from(''), sha256: 'x' }),
+    })
+
+    const result = await runner.run(HERO_EXPERIMENT_SPEC_RUN_A)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('Metrics file unparseable')
+  })
 })

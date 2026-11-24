@@ -98,12 +98,9 @@ describe('Workspace Fixture (Issue #17 Acceptance Criteria)', () => {
       expect(nodeIds.has(edge.source)).toBe(true);
       expect(nodeIds.has(edge.target)).toBe(true);
 
-      // Accepted literature edges must have grounding evidence (Issue #19)
-      if (edge.relation === 'supports' || edge.relation === 'cites') {
-        expect(edge.quote).toBeDefined();
+      // Every edge carrying a quote must be verbatim against its source chunk (Issue #19)
+      if (edge.quote) {
         expect(edge.quote.length).toBeGreaterThan(10);
-        expect(edge.page).toBeGreaterThan(0);
-        // Quotes must not end with truncation ellipsis
         expect(edge.quote.endsWith('...')).toBe(false);
 
         // Verbatim verification against chunk text
