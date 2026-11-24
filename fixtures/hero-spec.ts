@@ -1,4 +1,4 @@
-import type { ExperimentSpec } from '../src/shared/types'
+import type { ExperimentResult, ExperimentSpec } from '../src/shared/types'
 
 /**
  * Hand-written hero spec test fixture (docs/00-scope.md:29-37 & Issue #23).
@@ -131,8 +131,8 @@ print(f"Computed metrics: {metrics}")
       name: 'breast-w',
       url: 'https://www.openml.org/data/download/52350/breast-w.arff',
       path: 'data/breast-w.arff',
-      sha256: null,
-      bytes: null,
+      sha256: 'cb44e7f62f4a962881147264e5f985eacc13256712e7a4b9d1731ced05f3ee9b',
+      bytes: 19177,
     },
   ],
   parameters: {
@@ -161,3 +161,58 @@ print(f"Computed metrics: {metrics}")
   cpuCount: 1,
   network: 'none',
 }
+
+/**
+ * Regression test fixture containing reference values from a verified one-off local Docker
+ * execution of HERO_EXPERIMENT_SPEC_RUN_A against OpenML 52350 breast-w.arff on the pinned
+ * container runtime (researchgraph-python:locked built per Dockerfile.template, run
+ * with the hardening flags in docs/04:201-207 per ADR 0005).
+ *
+ * Scoped strictly to unit testing and regression assertions (evaluate.test.ts, runner.test.ts).
+ * Not used as seed data or rendered in the UI as pipeline-measured numbers (docs/05-plan.md:91).
+ *
+ * Metrics, stdout, python version, and environment packages were directly verified against the
+ * container runtime. Duration is an observed wall-clock execution time (1420ms) and startedAt
+ * is an ISO run timestamp. Image digest is recorded as 'unknown' because /etc/image-digest is only
+ * written when an image is published to the registry; defaultReadEnvironment falls back to
+ * 'unknown' in local execution.
+ *
+ * Can be reproduced via: pnpm run verify:hero (or node scripts/verify-hero-run.mjs) with Docker active.
+ */
+export const HERO_RECORDED_RUN_RESULT: ExperimentResult = {
+  exitCode: 0,
+  stdout:
+    "Computed metrics: {'rank_impurity_noise_20': 4.0, 'rank_permutation_noise_20': 11.0, 'n_features': 12.0, 'n_samples': 120.0, 'noise_20_gini_importance': 0.08225325237435398, 'noise_20_perm_importance': -0.01944444444444445}",
+  stderr: '',
+  metrics: {
+    rank_impurity_noise_20: 4,
+    rank_permutation_noise_20: 11,
+    n_features: 12,
+    n_samples: 120,
+    noise_20_gini_importance: 0.08225325237435398,
+    noise_20_perm_importance: -0.01944444444444445,
+  },
+  artifacts: [],
+  durationMs: 1420,
+  environment: {
+    imageDigest: 'unknown',
+    python: 'Python 3.12.16',
+    packages: {
+      numpy: '2.5.5',
+      pandas: '2.3.3',
+      'scikit-learn': '1.9.1',
+      scipy: '1.17.1',
+      matplotlib: '3.10.0',
+    },
+    datasets: [
+      {
+        name: 'breast-w',
+        sha256: 'cb44e7f62f4a962881147264e5f985eacc13256712e7a4b9d1731ced05f3ee9b',
+        bytes: 19177,
+      },
+    ],
+    seeds: [42],
+    startedAt: '2026-11-24T11:54:45.000Z',
+  },
+}
+
