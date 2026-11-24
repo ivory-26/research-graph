@@ -1,0 +1,70 @@
+import { z } from 'zod'
+
+/**
+ * Zod schemas and contract types for EXTRACT_CLAIMS (Issue #12 & docs/03-agent-pipeline.md).
+ *
+ * Designed within Gemini's structured output subset (flat or 1-level nesting).
+ */
+
+export const ExtractedClaimSchema = z.object({
+  text: z.string().max(600),
+  metric: z.string().max(80).nullable().optional(),
+  reportedValue: z.number().nullable().optional(),
+  comparator: z.enum(['gt', 'lt', 'eq']).nullable().optional(),
+  againstValue: z.number().nullable().optional(),
+  datasetName: z.string().max(120).nullable().optional(),
+  methodName: z.string().max(120).nullable().optional(),
+  /** Must appear verbatim in the referenced chunk after whitespace normalisation */
+  quote: z.string().max(400),
+  /** Chunk id or ordinal string */
+  chunkId: z.string(),
+})
+
+export const ExtractionDatasetSchema = z.object({
+  name: z.string().max(120),
+  url: z.string().nullable().optional(),
+})
+
+export const ExtractionMethodSchema = z.object({
+  name: z.string().max(120),
+  summary: z.string().max(300),
+})
+
+export const ExtractionResultSchema = z.object({
+  claims: z.array(ExtractedClaimSchema).max(12),
+  datasets: z.array(ExtractionDatasetSchema).max(8).optional().default([]),
+  methods: z.array(ExtractionMethodSchema).max(8).optional().default([]),
+  codeUrls: z.array(z.string().max(500)).max(8).optional().default([]),
+})
+
+export type ExtractedClaim = z.infer<typeof ExtractedClaimSchema>
+export type ExtractionDataset = z.infer<typeof ExtractionDatasetSchema>
+export type ExtractionMethod = z.infer<typeof ExtractionMethodSchema>
+export type ExtractionResult = z.infer<typeof ExtractionResultSchema>
+
+export interface ChunkRef {
+  id?: string
+  ordinal: number
+  text: string
+  page?: number | null
+}
+
+export interface ValidatedClaim extends ExtractedClaim {
+  chunkOrdinal: number
+  page: number | null
+  matchedQuote: string
+}
+
+export interface RejectedClaim {
+  claim: ExtractedClaim
+  reason: 'VERBATIM_QUOTE_NOT_FOUND' | 'CHUNK_NOT_FOUND' | 'QUOTE_EMPTY'
+}
+
+export interface ExtractionOutcome {
+  acceptedClaims: ValidatedClaim[]
+  rejectedClaims: RejectedClaim[]
+  datasets: ExtractionDataset[]
+  methods: ExtractionMethod[]
+  codeUrls: string[]
+  taskId?: string
+}
