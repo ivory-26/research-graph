@@ -13,7 +13,7 @@ interface Message {
     page: number;
     quote: string;
     claimSupported: string;
-    verified: boolean;
+    verified?: boolean;
   }>;
 }
 
@@ -43,7 +43,6 @@ function retrieveDemoCitations(query: string) {
           page: c5?.page || 5,
           quote: c5?.text || 'The Boruta algorithm creates shadow features by shuffling values of original attributes across objects.',
           claimSupported: 'Shadow attribute thresholding mechanism',
-          verified: true,
         },
       ],
     };
@@ -61,7 +60,6 @@ function retrieveDemoCitations(query: string) {
           page: c4?.page || 3,
           quote: c4?.text || 'While standard permutation importance reflects the marginal impact of a predictor, conditional variable importance further prevents preference for correlated predictors by permuting within conditional strata.',
           claimSupported: 'Conditional stratification prevents correlation bias',
-          verified: true,
         },
       ],
     };
@@ -78,7 +76,6 @@ function retrieveDemoCitations(query: string) {
         page: c1?.page || 4,
         quote: c1?.text || 'A variable with more categories has a higher probability to be selected in individual splits purely by chance.',
         claimSupported: 'Combinatorial split selection bias in Gini importance',
-        verified: true,
       },
       ...(c3 ? [{
         sourceId: c3.sourceId,
@@ -87,7 +84,6 @@ function retrieveDemoCitations(query: string) {
         page: c3.page,
         quote: c3.text,
         claimSupported: 'Simulation ranking of high-cardinality noise',
-        verified: true,
       }] : []),
     ],
   };
@@ -98,16 +94,15 @@ export const AskResearchPage: React.FC = () => {
     {
       id: 'm1',
       sender: 'ai',
-      text: 'Ask evidence-grounded questions across your indexed research papers (Strobl 2007, Strobl 2008, Kursa 2010). Every answer is backed by exact verbatim chunk citations verified against source text.',
+      text: 'Ask evidence-grounded questions across your indexed research papers (Strobl 2007, Strobl 2008, Kursa 2010). Citations link to verbatim passages in workspace chunks.',
       citations: [
         {
-          sourceId: 'src-strobl-2007',
+          sourceId: 'src-1',
           sourceTitle: 'Strobl et al. 2007',
           chunkId: 'chunk-1',
           page: 4,
           quote: 'A variable with more categories has a higher probability to be selected in individual splits purely by chance.',
           claimSupported: 'Gini split selection combinatorial bias',
-          verified: true,
         },
       ],
     },
@@ -214,7 +209,7 @@ export const AskResearchPage: React.FC = () => {
             {m.citations && m.citations.length > 0 && (
               <div className="mt-3 pt-2.5 border-t border-[var(--border-primary)] space-y-2">
                 <div className="text-[9px] text-[var(--text-dim)] uppercase tracking-wider font-bold">
-                  Verified Evidence Passages:
+                  Indexed Evidence Passages:
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   {m.citations.map((c, i) => {
@@ -229,9 +224,6 @@ export const AskResearchPage: React.FC = () => {
                           <BookOpen className="h-3 w-3 text-[#f97316] flex-shrink-0" />
                           <span className="font-bold">{c.sourceTitle}</span>
                           <span className="text-[var(--text-dim)]">· p.{c.page} · {c.chunkId}</span>
-                          {c.verified && (
-                            <span className="text-emerald-400 text-[8px] font-bold">✓ VERIFIED</span>
-                          )}
                         </button>
 
                         {/* Citation Quote Popover / Expand */}

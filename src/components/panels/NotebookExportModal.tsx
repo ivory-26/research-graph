@@ -32,8 +32,6 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
         paper: 'Strobl et al. 2007',
         doi: '10.1186/1471-2105-8-25',
         mode: 'adapted',
-        verdict: 'match',
-        dataHash: '7f83b1657ff185023908bf287cba6848419f44',
       },
     },
     cells: [
@@ -45,7 +43,7 @@ export const NotebookExportModal: React.FC<NotebookExportModalProps> = ({
           '**Paper**: Strobl et al., *Bias in random forest variable importance measures*, BMC Bioinformatics 8:25 (2007)\n',
           '**DOI**: [10.1186/1471-2105-8-25](https://doi.org/10.1186/1471-2105-8-25)\n',
           '**Reproduction Mode**: `adapted`\n',
-          '**Verdict**: `match` (Criteria: `rank_impurity(noise_20) <= 5` and `rank_permutation(noise_20) > 15`)\n',
+          '**Specification**: `rank_impurity(noise_20) <= 5` and `rank_permutation(noise_20) > 15`\n',
         ],
       },
       {

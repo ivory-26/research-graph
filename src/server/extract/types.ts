@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { EdgeRow } from '../../db/schema'
 
 /**
  * Zod schemas and contract types for EXTRACT_CLAIMS (Issue #12 & docs/03-agent-pipeline.md).
@@ -55,7 +56,7 @@ export const ProposedEdgeSchema = z.object({
   confidence: z.number().min(0).max(1),
   evidenceChunkId: z.string(),
   quote: z.string().max(400),
-  rationale: z.string().max(240).optional().default(''),
+  rationale: z.string().min(1).max(240),
 })
 
 export const ProposeEdgesResultSchema = z.object({
@@ -71,6 +72,7 @@ export type ProposeEdgesResult = z.infer<typeof ProposeEdgesResultSchema>
 
 export interface ChunkRef {
   id?: string
+  sourceId?: string
   ordinal: number
   text: string
   page?: number | null
@@ -122,11 +124,13 @@ export interface RejectedEdge {
     | 'VERBATIM_QUOTE_NOT_FOUND'
     | 'CHUNK_NOT_FOUND'
     | 'QUOTE_EMPTY'
+    | 'RATIONALE_EMPTY'
     | 'INVALID_NODE'
 }
 
 export interface ProposeEdgesOutcome {
   acceptedEdges: ValidatedEdge[]
   rejectedEdges: RejectedEdge[]
+  storedRows?: EdgeRow[]
   taskId?: string
 }

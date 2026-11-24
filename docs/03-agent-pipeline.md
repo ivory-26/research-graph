@@ -155,6 +155,7 @@ Success is defined per task kind by verified outcomes only:
 | `propose_edges` | at least one edge was accepted by the user |
 | `plan_experiment` | spec passed validation on the first attempt |
 | `repair_script` | the repaired run exited 0 |
+| `ask_across_sources` | synthesis returned with at least one verified citation |
 
 A strategy that produces a claim with a fabricated quote is not a partial success. It is a failure with a longer explanation.
 

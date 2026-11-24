@@ -197,14 +197,12 @@
       "position": { "x": 635, "y": 145 },
       "data": {
         "type": "dataset",
-        "sublabel": "DATASET · PINNED",
+        "sublabel": "DATASET · ADAPTED",
         "title": "breast-w + 3 noise cols",
         "name": "breast-w (OpenML 52350)",
         "rows": 569,
         "features": 30,
-        "noiseColumns": "noise_2, noise_5, noise_20",
-        "sha256": "7f83b1657ff185023908bf287cba6848419f44",
-        "verifiedBytes": 19482
+        "noiseColumns": "noise_2, noise_5, noise_20"
       }
     },
     {
@@ -219,8 +217,6 @@
         "verdict": "match",
         "mode": "adapted",
         "runId": "run-1",
-        "sandboxId": "sbx_rf_impurity_01",
-        "durationMs": 3420,
         "network": "none",
         "parameter": { "importance_method": "impurity" }
       }
@@ -238,8 +234,6 @@
         "mode": "adapted",
         "runId": "run-2",
         "parentRunId": "run-1",
-        "sandboxId": "sbx_rf_permutation_02",
-        "durationMs": 3420,
         "network": "none",
         "parameter": { "importance_method": "permutation" },
         "singleParamDiff": "importance_method: impurity → permutation"
@@ -252,7 +246,7 @@
       "position": { "x": 890, "y": 230 },
       "data": {
         "type": "result",
-        "sublabel": "VERIFIED RESULT",
+        "sublabel": "RESULT · PREVIEW",
         "title": "Result A",
         "verdict": "match",
         "metrics": {
@@ -262,7 +256,7 @@
         "criteria": "rank_impurity(noise_20) <= 5",
         "verdictDetail": {
           "passed": true,
-          "summary": "Noise feature with 20 categories ranked #2 in impurity importance. The paper's reported cardinality bias is reproduced."
+          "summary": "Specification target: Noise feature with 20 categories ranked #2 in impurity importance."
         }
       }
     },
@@ -273,7 +267,7 @@
       "position": { "x": 890, "y": 480 },
       "data": {
         "type": "result",
-        "sublabel": "VERIFIED RESULT",
+        "sublabel": "RESULT · PREVIEW",
         "title": "Result B",
         "verdict": "match",
         "metrics": {
@@ -283,7 +277,7 @@
         "criteria": "rank_permutation(noise_20) > 15",
         "verdictDetail": {
           "passed": true,
-          "summary": "Permutation importance drops noise_20 from rank 2 to rank 29 (bottom quartile). The proposed remedy holds."
+          "summary": "Specification target: Permutation importance drops noise_20 from rank 2 to rank 29 (bottom quartile)."
         }
       }
     }
@@ -398,6 +392,7 @@
       "relation": "produced",
       "status": "accepted",
       "confidence": 1.0,
+      "evidenceRunId": "run-a",
       "rationale": "Run A executes standard Gini impurity MDI."
     },
     {
@@ -407,6 +402,7 @@
       "relation": "produced",
       "status": "accepted",
       "confidence": 1.0,
+      "evidenceRunId": "run-b",
       "rationale": "Run B executes permutation importance on identical fold splits."
     },
     {
@@ -416,6 +412,7 @@
       "relation": "uses_dataset",
       "status": "accepted",
       "confidence": 1.0,
+      "evidenceRunId": "run-a",
       "rationale": "Run A trained on OpenML 52350."
     },
     {
@@ -425,6 +422,7 @@
       "relation": "uses_dataset",
       "status": "accepted",
       "confidence": 1.0,
+      "evidenceRunId": "run-b",
       "rationale": "Run B trained on OpenML 52350."
     },
     {
@@ -434,7 +432,8 @@
       "relation": "produced",
       "status": "accepted",
       "confidence": 1.0,
-      "rationale": "Impurity test completed in 3.4s with rank #2 for noise_20."
+      "evidenceRunId": "run-a",
+      "rationale": "Impurity test specification with target rank #2 for noise_20."
     },
     {
       "id": "e-run2-result2",
@@ -443,7 +442,8 @@
       "relation": "produced",
       "status": "accepted",
       "confidence": 1.0,
-      "rationale": "Permutation test completed in 3.4s with rank #29 for noise_20."
+      "evidenceRunId": "run-b",
+      "rationale": "Permutation test specification with target rank #29 for noise_20."
     },
     {
       "id": "e-run1-run2-whatif",
@@ -452,6 +452,7 @@
       "relation": "derived_from",
       "status": "accepted",
       "confidence": 1.0,
+      "evidenceRunId": "run-b",
       "rationale": "What-If intervention branch: only importance_method is altered."
     }
   ],

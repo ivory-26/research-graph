@@ -26,9 +26,12 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
       {/* Title Header */}
       <div className="flex items-start justify-between">
         <div>
-          <div className="l">Adaptive Agent Strategies</div>
-          <div className="text-[22px] font-bold mt-1.5 text-[var(--text-primary)] font-mono tracking-tight">
-            Autonomous Strategy Selection · Empirical Verified Outcomes
+          <div className="flex items-center gap-2 mb-1">
+            <div className="l">Adaptive Agent Strategies</div>
+            <span className="badge-orange-outline !text-[8px] rounded-none">PREVIEW</span>
+          </div>
+          <div className="text-[22px] font-bold mt-1 text-[var(--text-primary)] font-mono tracking-tight">
+            Autonomous Strategy Selection · Evaluation Preview
           </div>
         </div>
         {isModal && onClose && (
@@ -46,7 +49,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Tasks Recorded</div>
           <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">{totalAttempts}</div>
-          <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">100% verified E2B runs</div>
+          <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">Strategy evaluation preview</div>
         </div>
 
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
@@ -58,7 +61,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Average Latency</div>
           <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">{avgLatency} s</div>
-          <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">Isolated compute execution</div>
+          <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">Telemetry baseline</div>
         </div>
       </div>
 
@@ -118,7 +121,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
 
       {/* Illustrative Footer Note */}
       <div className="text-[11px] text-[var(--text-dim)] font-mono">
-        Empirical evaluation record: Every strategy score is updated via Thompson Sampling posterior based purely on verified experiment assertion outputs.
+        Strategy Evaluation (Preview): Strategy selection uses Thompson Sampling over historical task outcomes.
       </div>
     </div>
   );

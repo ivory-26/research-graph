@@ -80,10 +80,10 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
               <HardDrive className="h-5 w-5 text-[var(--text-primary)]" />
               <div>
                 <div className="l text-[9px]">
-                  Storage Pinned
+                  Dataset Mode
                 </div>
                 <div className="m text-xs font-bold text-[var(--text-primary)]">
-                  SHA-256 match
+                  Adapted (OpenML)
                 </div>
               </div>
             </div>
@@ -96,8 +96,8 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
               <span className="m text-[var(--text-primary)] font-bold">openml:52350 (breast-w)</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="l">Dataset SHA-256:</span>
-              <span className="m text-[#f97316]">7f83b1657ff185023908bf287cba6848419f44...</span>
+              <span className="l">Dataset Mode:</span>
+              <span className="m text-[#f97316]">adapted (OpenML 52350)</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="l">Target Assertions:</span>

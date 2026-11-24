@@ -278,7 +278,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           )}
           {node.data?.verdict && (
             <div className="flex items-center justify-between text-[10px] font-mono border-t border-[var(--border-primary)] pt-2">
-              <span className="text-[var(--text-dim)]">Evaluation:</span>
+              <span className="text-[var(--text-dim)]">Status:</span>
               <span className="badge-solid-white rounded-none uppercase">{node.data.verdict}</span>
             </div>
           )}
@@ -315,7 +315,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
                   {node.data.singleParamDiff}
                 </div>
               )}
-              {node.data.durationMs && (
+              {node.data.durationMs && node.data.sandboxId && (
                 <div className="flex justify-between text-[10px]">
                   <span className="text-[var(--text-dim)]">Sandbox Execution:</span>
                   <span className="text-[var(--text-primary)] font-mono">{node.data.durationMs}ms ({node.data.sandboxId})</span>
@@ -327,7 +327,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           {/* Result Metrics Variables */}
           {node.data?.metrics && (
             <div className="border-t border-[var(--border-primary)] pt-2 space-y-1.5 font-mono text-[10px]">
-              <div className="text-[10px] text-emerald-400 uppercase font-bold">Evaluated Variables:</div>
+              <div className="text-[10px] text-[var(--text-primary)] uppercase font-bold">Target Variables (Spec):</div>
               {Object.entries(node.data.metrics).map(([k, v]) => (
                 <div key={k} className="flex justify-between bg-[var(--bg-surface-hover)] p-1 border border-[var(--border-primary)]">
                   <span className="text-[var(--text-dim)] font-mono">{k}:</span>
@@ -468,7 +468,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
       <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
         <div className="l font-mono text-xs">CITATION & EVIDENCE INSPECTOR</div>
         <div className="flex items-center gap-2">
-          <span className="badge-solid-white rounded-none">AUDITED</span>
+          <span className="badge-solid-white rounded-none uppercase">{status || 'STRUCTURAL'}</span>
           {onClose && (
             <button
               onClick={onClose}

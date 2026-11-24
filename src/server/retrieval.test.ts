@@ -11,6 +11,7 @@ import {
   type RetrievedPassage,
   type RetrievalAnswer,
   type RetrievalCitation,
+  type RetrievalDeps,
 } from './retrieval'
 
 describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
@@ -121,11 +122,38 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
   })
 
   describe('retrieveCrossSourcePassages', () => {
-    it('throws error when query is empty or whitespace', async () => {
+    it('throws error when workspaceId is missing for multi-tenant isolation', async () => {
       const mockDb = {} as unknown as Database
-      await expect(retrieveCrossSourcePassages(mockDb, '   ')).rejects.toThrow(
-        'Query string cannot be empty.',
+      await expect(retrieveCrossSourcePassages(mockDb, 'random forests bias', {} as any)).rejects.toThrow(
+        'workspaceId is required for cross-source retrieval multi-tenant isolation.',
       )
+    })
+
+    it('forwards workspaceId to embedQuery for agent_tasks model accounting', async () => {
+      const mockLimit = vi.fn().mockResolvedValue([])
+      const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit })
+      const mockWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy })
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin })
+      const mockSelect = vi.fn().mockReturnValue({ from: mockFrom })
+      const mockDb = { select: mockSelect } as unknown as Database
+
+      let capturedEmbedOptions: any = null
+      const fakeEmbedQuery = vi.fn(async (_query: string, opts: any) => {
+        capturedEmbedOptions = opts
+        return new Array(768).fill(0.01)
+      })
+
+      await retrieveCrossSourcePassages(
+        mockDb,
+        'what is permutation importance',
+        { workspaceId: 'ws-tenant-42' },
+        { embedQueryFn: fakeEmbedQuery as any },
+      )
+
+      expect(fakeEmbedQuery).toHaveBeenCalledTimes(1)
+      expect(capturedEmbedOptions.workspaceId).toBe('ws-tenant-42')
+      expect(capturedEmbedOptions.taskKind).toBe('ask_across_sources')
     })
 
     it('executes database query joining sources and sourceChunks with cosine similarity', async () => {
@@ -182,15 +210,144 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       expect(passages[0]?.sourceTitle).toBe('Strobl 2007')
       expect(passages[0]?.similarity).toBe(0.92)
     })
+
+    it('balances passages across multiple sources using maxPassagesPerSource', async () => {
+      const mockRows = [
+        {
+          chunk: { id: 'c-a1', page: 1, ordinal: 0, charStart: 0, charEnd: 10, text: 'A1' },
+          source: { id: 'src-a', title: 'Paper A', kind: 'paper' },
+          similarity: 0.95,
+        },
+        {
+          chunk: { id: 'c-a2', page: 2, ordinal: 1, charStart: 0, charEnd: 10, text: 'A2' },
+          source: { id: 'src-a', title: 'Paper A', kind: 'paper' },
+          similarity: 0.94,
+        },
+        {
+          chunk: { id: 'c-a3', page: 3, ordinal: 2, charStart: 0, charEnd: 10, text: 'A3' },
+          source: { id: 'src-a', title: 'Paper A', kind: 'paper' },
+          similarity: 0.93,
+        },
+        {
+          chunk: { id: 'c-a4', page: 4, ordinal: 3, charStart: 0, charEnd: 10, text: 'A4' },
+          source: { id: 'src-a', title: 'Paper A', kind: 'paper' },
+          similarity: 0.92,
+        },
+        {
+          chunk: { id: 'c-b1', page: 1, ordinal: 0, charStart: 0, charEnd: 10, text: 'B1' },
+          source: { id: 'src-b', title: 'Paper B', kind: 'paper' },
+          similarity: 0.91,
+        },
+        {
+          chunk: { id: 'c-b2', page: 2, ordinal: 1, charStart: 0, charEnd: 10, text: 'B2' },
+          source: { id: 'src-b', title: 'Paper B', kind: 'paper' },
+          similarity: 0.9,
+        },
+      ]
+      const mockLimit = vi.fn().mockResolvedValue(mockRows)
+      const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit })
+      const mockWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy })
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin })
+      const mockSelect = vi.fn().mockReturnValue({ from: mockFrom })
+      const mockDb = { select: mockSelect } as unknown as Database
+
+      const passages = await retrieveCrossSourcePassages(mockDb, 'random forest', {
+        workspaceId: 'ws-balance',
+        topK: 4,
+        maxPassagesPerSource: 2,
+        queryEmbedding: new Array(768).fill(0.1),
+      })
+
+      expect(passages).toHaveLength(4)
+      const distinctSources = new Set(passages.map((p) => p.sourceId))
+      expect(distinctSources.size).toBeGreaterThanOrEqual(2)
+      expect(passages.filter((p) => p.sourceId === 'src-a')).toHaveLength(2)
+      expect(passages.filter((p) => p.sourceId === 'src-b')).toHaveLength(2)
+    })
+
+    it('does not collapse cross-source diversity when candidates contain multiple sources, and only backfills when fewer than 2 sources exist', async () => {
+      // Scenario 1: Multiple sources present in candidates, top 3 are src-a, 4th is src-b.
+      // maxPassagesPerSource is 2, topK is 4.
+      // Should pick 2 from src-a and 1 from src-b (total 3, NOT backfilling past cap with src-a because multiple sources exist!)
+      const multiSourceRows = [
+        { chunk: { id: 'c-a1', page: 1, ordinal: 0, charStart: 0, charEnd: 10, text: 'A1' }, source: { id: 'src-a', title: 'Paper A', kind: 'paper' }, similarity: 0.95 },
+        { chunk: { id: 'c-a2', page: 2, ordinal: 1, charStart: 0, charEnd: 10, text: 'A2' }, source: { id: 'src-a', title: 'Paper A', kind: 'paper' }, similarity: 0.94 },
+        { chunk: { id: 'c-a3', page: 3, ordinal: 2, charStart: 0, charEnd: 10, text: 'A3' }, source: { id: 'src-a', title: 'Paper A', kind: 'paper' }, similarity: 0.93 },
+        { chunk: { id: 'c-b1', page: 1, ordinal: 0, charStart: 0, charEnd: 10, text: 'B1' }, source: { id: 'src-b', title: 'Paper B', kind: 'paper' }, similarity: 0.88 },
+      ]
+      const mockDb1 = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            innerJoin: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                orderBy: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue(multiSourceRows),
+                }),
+              }),
+            }),
+          }),
+        }),
+      } as unknown as Database
+
+      const passages1 = await retrieveCrossSourcePassages(mockDb1, 'diversity test', {
+        workspaceId: 'ws-div',
+        topK: 4,
+        maxPassagesPerSource: 2,
+        queryEmbedding: new Array(768).fill(0.1),
+      })
+      // Does not backfill past cap because candidates have >= 2 distinct sources
+      expect(passages1.filter((p) => p.sourceId === 'src-a')).toHaveLength(2)
+      expect(passages1.filter((p) => p.sourceId === 'src-b')).toHaveLength(1)
+      expect(passages1).toHaveLength(3)
+
+      // Scenario 2: Single source only exists in workspace/candidates.
+      // Should backfill past cap to satisfy topK.
+      const singleSourceRows = [
+        { chunk: { id: 'c-a1', page: 1, ordinal: 0, charStart: 0, charEnd: 10, text: 'A1' }, source: { id: 'src-a', title: 'Paper A', kind: 'paper' }, similarity: 0.95 },
+        { chunk: { id: 'c-a2', page: 2, ordinal: 1, charStart: 0, charEnd: 10, text: 'A2' }, source: { id: 'src-a', title: 'Paper A', kind: 'paper' }, similarity: 0.94 },
+        { chunk: { id: 'c-a3', page: 3, ordinal: 2, charStart: 0, charEnd: 10, text: 'A3' }, source: { id: 'src-a', title: 'Paper A', kind: 'paper' }, similarity: 0.93 },
+      ]
+      const mockDb2 = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            innerJoin: vi.fn().mockReturnValue({
+              where: vi.fn().mockReturnValue({
+                orderBy: vi.fn().mockReturnValue({
+                  limit: vi.fn().mockResolvedValue(singleSourceRows),
+                }),
+              }),
+            }),
+          }),
+        }),
+      } as unknown as Database
+
+      const passages2 = await retrieveCrossSourcePassages(mockDb2, 'single source test', {
+        workspaceId: 'ws-single',
+        topK: 3,
+        maxPassagesPerSource: 2,
+        queryEmbedding: new Array(768).fill(0.1),
+      })
+      // Backfills past cap because only 1 distinct source exists in candidates
+      expect(passages2).toHaveLength(3)
+      expect(passages2.filter((p) => p.sourceId === 'src-a')).toHaveLength(3)
+    })
   })
 
   describe('askAcrossSources', () => {
     it('throws error if query is empty', async () => {
-      await expect(askAcrossSources('  ')).rejects.toThrow('Query string cannot be empty.')
+      await expect(askAcrossSources('  ', { workspaceId: 'ws-1' })).rejects.toThrow('Query string cannot be empty.')
+    })
+
+    it('throws error if workspaceId is missing', async () => {
+      await expect(askAcrossSources('valid query', { passages: [] } as any)).rejects.toThrow(
+        'workspaceId is required for askAcrossSources.',
+      )
     })
 
     it('returns empty result when no passages are found', async () => {
       const result = await askAcrossSources('something irrelevant', {
+        workspaceId: 'ws-empty',
         passages: [],
       })
 
@@ -199,7 +356,7 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       expect(result.sourcesConsulted).toHaveLength(0)
     })
 
-    it('synthesizes answer across multiple sources and validates citations', async () => {
+    it('synthesizes answer across multiple sources and validates citations with honest taskKind and strategyId: null', async () => {
       const mockModelAnswer: RetrievalAnswer = {
         answer:
           'Strobl et al. (2007) demonstrate that Gini importance is biased towards features with many categories. In response, Strobl et al. (2008) developed conditional permutation importance to eliminate spurious correlations, while Kursa & Rudnicki (2010) proposed Boruta to detect all relevant attributes by comparing against shadow features.',
@@ -239,13 +396,15 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
         ],
       }
 
+      let capturedContext: any = null
       const mockCallModel: CallModel = vi.fn().mockImplementation(async (_schema, _prompt, ctx) => {
+        capturedContext = ctx
         return {
           output: mockModelAnswer,
           task: {
             id: 'task-ask-1',
             workspaceId: ctx.workspaceId,
-            strategyId: 'ask_across_sources',
+            strategyId: ctx.strategyId,
             taskKind: ctx.taskKind,
             model: 'gemini-3.8-flash',
             status: 'succeeded',
@@ -273,6 +432,9 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       )
 
       expect(mockCallModel).toHaveBeenCalledTimes(1)
+      expect(capturedContext.taskKind).toBe('ask_across_sources')
+      expect(capturedContext.strategyId).toBeNull() // Sanitized to null to avoid Postgres 22P02 FK error
+      expect(capturedContext.inputRef.strategy).toBe('ask_across_sources')
       expect(result.question).toBe(
         'How do random forest variable importance measures handle bias and correlation?',
       )
@@ -298,9 +460,160 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       expect(result.rejectedCitations).toHaveLength(1)
       expect(result.rejectedCitations[0]?.reason).toBe('quote_not_found_in_chunk')
     })
+
+    it('rejects citations where cit.sourceId does not match passage.sourceId with mismatched_source', async () => {
+      const mismatchedCitations: RetrievalCitation[] = [
+        {
+          sourceId: 'source-wrong-paper', // Mismatched!
+          sourceTitle: 'Wrong Paper Title',
+          chunkId: 'chunk-s07-1',
+          page: 99,
+          quote: 'the Gini importance measure is biased toward features with more categories',
+          claimSupported: 'Wrong source ID test',
+        },
+      ]
+
+      const { accepted, rejected } = verifyCitationQuotes(mismatchedCitations, samplePassages)
+      expect(accepted).toHaveLength(0)
+      expect(rejected).toHaveLength(1)
+      expect(rejected[0]?.reason).toBe('mismatched_source')
+    })
+
+    it('forwards resolved workspaceId when supplied only via context override', async () => {
+      let passedWorkspaceId: string | undefined
+      const fakeEmbedQuery = vi.fn().mockImplementation(async (_query, opts) => {
+        passedWorkspaceId = opts?.workspaceId
+        return new Array(768).fill(0.05)
+      })
+
+      const mockLimit = vi.fn().mockResolvedValue([])
+      const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit })
+      const mockWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy })
+      const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere })
+      const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin })
+      const mockSelect = vi.fn().mockReturnValue({ from: mockFrom })
+      const mockDb = { select: mockSelect } as unknown as Database
+
+      const fakeDeps: RetrievalDeps = {
+        db: mockDb,
+        embedQueryFn: fakeEmbedQuery,
+        callModelFn: vi.fn().mockResolvedValue({
+          output: { answer: 'Synthesized answer', citations: [] },
+          task: { id: 'task-c1' },
+          attempts: [],
+        }),
+      }
+
+      await askAcrossSources(
+        'What is the answer?',
+        {
+          workspaceId: 'ws-context-only',
+          context: { workspaceId: 'ws-context-only', strategyId: 'invalid-non-uuid-string' },
+        },
+        fakeDeps,
+      )
+
+      expect(passedWorkspaceId).toBe('ws-context-only')
+      expect(mockSelect).toHaveBeenCalled()
+    })
+
+    it('prevents caller context from overriding sanitized strategyId or taskKind', async () => {
+      let capturedCtx: any = null
+      const fakeDeps: RetrievalDeps = {
+        callModelFn: vi.fn().mockImplementation(async (_schema, _prompt, ctx) => {
+          capturedCtx = ctx
+          return {
+            output: { answer: 'Answer', citations: [] },
+            task: { id: 'task-override-check' },
+            attempts: [],
+          }
+        }),
+      }
+
+      await askAcrossSources(
+        'Check context override safety',
+        {
+          passages: samplePassages,
+          workspaceId: 'ws-safe-1',
+          context: {
+            strategyId: 'not-a-uuid-format',
+            taskKind: 'extract_claims' as any, // Attemped spoof!
+          },
+        },
+        fakeDeps,
+      )
+
+      expect(capturedCtx.strategyId).toBeNull()
+      expect(capturedCtx.taskKind).toBe('ask_across_sources')
+      expect(capturedCtx.workspaceId).toBe('ws-safe-1')
+    })
+
+    it('unconditionally sets sourceTitle and page from authentic passage data', async () => {
+      const citationsWithBadMetadata: RetrievalCitation[] = [
+        {
+          sourceId: 'source-strobl-2007',
+          sourceTitle: 'Hallucinated Title',
+          chunkId: 'chunk-s07-1',
+          page: 999, // Hallucinated page number
+          quote: 'the Gini importance measure is biased toward features with more categories',
+          claimSupported: 'Authentic metadata verification',
+        },
+      ]
+
+      const { accepted } = verifyCitationQuotes(citationsWithBadMetadata, samplePassages)
+      expect(accepted).toHaveLength(1)
+      // Must take sourceTitle and page from samplePassages, NOT the model citation
+      expect(accepted[0]?.sourceTitle).toBe(samplePassages[0]!.sourceTitle)
+      expect(accepted[0]?.page).toBe(1)
+    })
+
+    it('updates task to rejected and sets ungrounded=true when all citations are rejected', async () => {
+      let updatedStatus: string | undefined
+      let updatedError: string | null | undefined
+      const fakeUpdateStatus = vi.fn(async (_taskId, status, err) => {
+        updatedStatus = status
+        updatedError = err
+      })
+
+      const fakeDeps: RetrievalDeps = {
+        callModelFn: vi.fn().mockResolvedValue({
+          output: {
+            answer: 'Ungrounded answer without real evidence.',
+            citations: [
+              {
+                sourceId: 'src-unknown',
+                sourceTitle: 'Unknown',
+                chunkId: 'chunk-nonexistent',
+                page: 1,
+                quote: 'completely fabricated quote',
+                claimSupported: 'Nothing',
+              },
+            ],
+          },
+          task: { id: 'task-ungrounded-1', status: 'succeeded' },
+          attempts: [],
+        }),
+      }
+
+      const res = await askAcrossSources(
+        'Some question',
+        {
+          passages: samplePassages,
+          workspaceId: 'ws-ungrounded',
+          updateTaskStatusFn: fakeUpdateStatus as any,
+        },
+        fakeDeps,
+      )
+
+      expect(res.citations).toHaveLength(0)
+      expect(res.ungrounded).toBe(true)
+      expect(fakeUpdateStatus).toHaveBeenCalledTimes(1)
+      expect(updatedStatus).toBe('rejected')
+      expect(updatedError).toContain('All citation quotes were rejected')
+    })
   })
 
-  describe('Integration with real 3 demo papers (Issue #14 acceptance criteria)', () => {
+  describe('Integration with real 3 demo papers (synthesis and citation verification)', () => {
     it('answers cross-paper question and verifies verbatim citations across Strobl 2007, Strobl 2008, and Kursa 2010', async () => {
       const papersDir = path.resolve(process.cwd(), 'fixtures/papers')
       const strobl2007Pdf = path.join(papersDir, 'strobl-2007.pdf')
@@ -407,13 +720,15 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
         ],
       }
 
+      const realStrategyId = crypto.randomUUID()
+      const realTaskId = crypto.randomUUID()
       const mockCallModel: CallModel = vi.fn().mockResolvedValue({
         output: modelSynthesis,
         task: {
-          id: 'task-real-1',
+          id: realTaskId,
           workspaceId: 'ws-demo',
-          strategyId: 'ask_across_sources',
-          taskKind: 'extract_claims',
+          strategyId: realStrategyId,
+          taskKind: 'ask_across_sources',
           model: 'gemini-3.8-flash',
           status: 'succeeded',
           inputRef: {},
@@ -444,6 +759,75 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       expect(res.citations[0]?.verified).toBe(true)
       expect(res.citations[1]?.verified).toBe(true)
       expect(res.citations[2]?.verified).toBe(true)
-    }, 25000)
+    })
+
+    const hasDb = Boolean(process.env.DATABASE_URL)
+    const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY)
+    const canRunLiveDb = hasDb && hasKey
+    it.skipIf(!canRunLiveDb)(
+      'LIVE DB: ingests 3 papers, retrieves cross-source passages for permutation vs impurity importance, and asserts >= 2 distinct sources with non-null pages',
+      async () => {
+        const { getDb } = await import('../db/client')
+        const { workspaces, sources, sourceChunks } = await import('../db/schema')
+        const { storeChunks } = await import('./ingest/store')
+        const { embedChunks } = await import('./ingest/embed')
+        const { eq } = await import('drizzle-orm')
+
+        const papersDir = path.resolve(process.cwd(), 'fixtures/papers')
+        const strobl07 = await ingestPdf(new Uint8Array(fs.readFileSync(path.join(papersDir, 'strobl-2007.pdf'))).buffer)
+        const strobl08 = await ingestPdf(new Uint8Array(fs.readFileSync(path.join(papersDir, 'strobl-2008.pdf'))).buffer)
+        const kursa10 = await ingestPdf(new Uint8Array(fs.readFileSync(path.join(papersDir, 'kursa-2010.pdf'))).buffer)
+
+        const db = getDb()
+        const wsId = crypto.randomUUID()
+        const s07Id = crypto.randomUUID()
+        const s08Id = crypto.randomUUID()
+        const k10Id = crypto.randomUUID()
+
+        try {
+          await db.insert(workspaces).values({
+            id: wsId,
+            name: 'Cross-Source Live WS',
+            slug: `ws-cross-${Date.now()}`,
+          })
+          await db.insert(sources).values([
+            { id: s07Id, workspaceId: wsId, kind: 'paper', title: 'Strobl 2007', sha256: 's07-sha', bytes: 100 },
+            { id: s08Id, workspaceId: wsId, kind: 'paper', title: 'Strobl 2008', sha256: 's08-sha', bytes: 100 },
+            { id: k10Id, workspaceId: wsId, kind: 'paper', title: 'Kursa 2010', sha256: 'k10-sha', bytes: 100 },
+          ])
+
+          const e07 = await embedChunks(strobl07.chunks.slice(0, 5), { workspaceId: wsId })
+          await storeChunks(db, s07Id, strobl07.chunks.slice(0, 5), e07)
+
+          const e08 = await embedChunks(strobl08.chunks.slice(0, 5), { workspaceId: wsId })
+          await storeChunks(db, s08Id, strobl08.chunks.slice(0, 5), e08)
+
+          const e10 = await embedChunks(kursa10.chunks.slice(0, 5), { workspaceId: wsId })
+          await storeChunks(db, k10Id, kursa10.chunks.slice(0, 5), e10)
+
+          const passages = await retrieveCrossSourcePassages(
+            db,
+            'permutation importance versus Gini impurity importance in random forests',
+            {
+              workspaceId: wsId,
+              topK: 6,
+            },
+          )
+
+          const distinctSourceIds = new Set(passages.map((p) => p.sourceId))
+          expect(distinctSourceIds.size).toBeGreaterThanOrEqual(2)
+          for (const p of passages) {
+            expect(p.page).not.toBeNull()
+          }
+        } finally {
+          await db.delete(sourceChunks).where(eq(sourceChunks.sourceId, s07Id)).catch(() => {})
+          await db.delete(sourceChunks).where(eq(sourceChunks.sourceId, s08Id)).catch(() => {})
+          await db.delete(sourceChunks).where(eq(sourceChunks.sourceId, k10Id)).catch(() => {})
+          await db.delete(sources).where(eq(sources.workspaceId, wsId)).catch(() => {})
+          await db.delete(workspaces).where(eq(workspaces.id, wsId)).catch(() => {})
+        }
+      },
+      60000,
+    )
   })
 })

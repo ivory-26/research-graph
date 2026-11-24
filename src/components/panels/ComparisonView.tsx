@@ -18,19 +18,24 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
   const resA = DEMO_NODES.find((n) => n.id === 'result-a');
   const resB = DEMO_NODES.find((n) => n.id === 'result-b');
 
-  const rankA = resA?.data?.metrics?.rank_impurity_noise_20 ?? 2;
-  const rankB = resB?.data?.metrics?.rank_permutation_noise_20 ?? 29;
+  const rankA = resA?.data?.metrics?.rank_impurity_noise_20 ?? '—';
+  const rankB = resB?.data?.metrics?.rank_permutation_noise_20 ?? '—';
   const criteriaA = resA?.data?.criteria ?? 'rank_impurity(noise_20) <= 5';
   const criteriaB = resB?.data?.criteria ?? 'rank_permutation(noise_20) > 15';
-  const delta = rankB - rankA;
+  const verdictA = resA?.data?.verdict ?? 'preview';
+  const verdictB = resB?.data?.verdict ?? 'preview';
+  const delta = typeof rankA === 'number' && typeof rankB === 'number' ? rankB - rankA : null;
 
   const content = (
     <div className="w-full max-w-[1200px] mx-auto p-6 flex flex-col gap-5 text-[var(--text-secondary)]">
       {/* Title Header */}
       <div className="flex items-start justify-between">
         <div>
-          <div className="l">Run A vs Run B · Differential Analysis</div>
-          <div className="text-[22px] font-bold mt-1.5 leading-snug text-[var(--text-primary)] font-mono tracking-tight">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="l">Run A vs Run B · Differential Analysis</div>
+            <span className="badge-orange-outline !text-[8px] rounded-none">FIXTURE PREVIEW</span>
+          </div>
+          <div className="text-[22px] font-bold mt-1 leading-snug text-[var(--text-primary)] font-mono tracking-tight">
             Gini importance is biased toward high-cardinality features; permutation importance is not.
           </div>
         </div>
@@ -68,13 +73,13 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               <span className="badge-orange-outline rounded-none">
                 adapted
               </span>
-              <span className="badge-solid-white rounded-none">
-                match
+              <span className="badge-solid-white rounded-none uppercase">
+                {verdictA}
               </span>
             </div>
           </div>
 
-          <div className="l text-[9px]">Feature rank · lower # = more important</div>
+          <div className="l text-[9px]">Target feature rank specification</div>
 
           {/* Feature rank bars with Sharp 0px Corners */}
           <div className="space-y-3">
@@ -85,28 +90,12 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               </div>
               <span className="m text-[12px] text-[#f97316] w-9 text-right font-bold">#{rankA}</span>
             </div>
-
-            <div className="flex items-center gap-3">
-              <span className="m text-[12px] text-[var(--text-muted)] w-20">noise_5</span>
-              <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
-                <div className="h-full bg-[var(--text-dim)] rounded-none" style={{ width: '70%' }} />
-              </div>
-              <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-medium">#11</span>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <span className="m text-[12px] text-[var(--text-muted)] w-20">noise_2</span>
-              <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
-                <div className="h-full bg-[var(--text-dim)] rounded-none" style={{ width: '30%' }} />
-              </div>
-              <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-medium">#24</span>
-            </div>
           </div>
 
           {/* Assertion Footer */}
           <div className="border-t border-[var(--border-primary)] pt-3.5 text-[12px] flex justify-between gap-2 flex-wrap items-center mt-2 font-mono">
             <span className="text-[var(--text-dim)]">{criteriaA}</span>
-            <span className="text-[#f97316] font-bold">{rankA} · PASS</span>
+            <span className="text-[#f97316] font-bold">Rank #{rankA} · {verdictA.toUpperCase()}</span>
           </div>
         </div>
 
@@ -123,13 +112,13 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               <span className="badge-orange-outline rounded-none">
                 adapted
               </span>
-              <span className="badge-solid-white rounded-none">
-                match
+              <span className="badge-solid-white rounded-none uppercase">
+                {verdictB}
               </span>
             </div>
           </div>
 
-          <div className="l text-[9px]">Feature rank · lower # = more important</div>
+          <div className="l text-[9px]">Target feature rank specification</div>
 
           {/* Feature rank bars with Sharp 0px Corners */}
           <div className="space-y-3">
@@ -140,28 +129,12 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               </div>
               <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-bold">#{rankB}</span>
             </div>
-
-            <div className="flex items-center gap-3">
-              <span className="m text-[12px] text-[var(--text-muted)] w-20">noise_5</span>
-              <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
-                <div className="h-full bg-[var(--text-dim)] rounded-none" style={{ width: '9%' }} />
-              </div>
-              <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-medium">#31</span>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <span className="m text-[12px] text-[var(--text-muted)] w-20">noise_2</span>
-              <div className="flex-1 h-2 rounded-none bg-[var(--border-primary)] overflow-hidden">
-                <div className="h-full bg-[var(--text-dim)] rounded-none" style={{ width: '3%' }} />
-              </div>
-              <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-medium">#33</span>
-            </div>
           </div>
 
           {/* Assertion Footer */}
           <div className="border-t border-[var(--border-primary)] pt-3.5 text-[12px] flex justify-between gap-2 flex-wrap items-center mt-2 font-mono">
             <span className="text-[var(--text-dim)]">{criteriaB}</span>
-            <span className="text-[var(--text-primary)] font-bold">{rankB} · PASS</span>
+            <span className="text-[var(--text-primary)] font-bold">Rank #{rankB} · {verdictB.toUpperCase()}</span>
           </div>
         </div>
       </div>
@@ -174,10 +147,10 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
           </div>
           <div>
             <div className="text-[14px] font-bold text-[var(--text-primary)] font-mono">
-              Hypothesis Evaluated by Verified Result Nodes
+              Hypothesis Specification & Fixture Preview
             </div>
             <div className="text-xs text-[var(--text-dim)] mt-0.5 font-mono">
-              Replacing Gini impurity with permutation drops 20-category noise feature from Rank #{rankA} to Rank #{rankB} (Δ = +{delta} positions).
+              Specification preview: Replacing Gini impurity with permutation drops 20-category noise feature from Rank #{rankA} to Rank #{rankB}{delta !== null ? ` (Δ = +${delta} positions)` : ''}.
             </div>
           </div>
         </div>

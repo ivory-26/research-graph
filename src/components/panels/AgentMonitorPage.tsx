@@ -68,7 +68,7 @@ export const AgentMonitorPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <span className="badge-solid-white !text-[8px] rounded-none">COMPLETE</span>
+              <span className="badge-solid-white !text-[8px] rounded-none">READY</span>
             </div>
 
             <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
@@ -83,7 +83,7 @@ export const AgentMonitorPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <span className="badge-solid-white !text-[8px] rounded-none">COMPLETE</span>
+              <span className="badge-solid-white !text-[8px] rounded-none">READY</span>
             </div>
 
             <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
@@ -98,7 +98,7 @@ export const AgentMonitorPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <span className="badge-solid-white !text-[8px] rounded-none">COMPLETE</span>
+              <span className="badge-solid-white !text-[8px] rounded-none">READY</span>
             </div>
 
             <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
@@ -138,13 +138,13 @@ export const AgentMonitorPage: React.FC = () => {
         {/* Selected Task Details */}
         <div className="border border-[var(--border-primary)] bg-[var(--card-bg)] p-6 space-y-4">
           <div className="text-xs uppercase font-bold text-[var(--text-primary)] tracking-wide">
-            Selected task · extract_claims
+            Sample Task Specification · extract_claims
           </div>
 
           <div className="space-y-1">
-            <div className="text-[10px] uppercase text-[var(--text-dim)]">TASK INPUT</div>
+            <div className="text-[10px] uppercase text-[var(--text-dim)]">TASK INPUT SPEC</div>
             <pre className="p-3 bg-[var(--bg-surface)] border border-[var(--border-primary)] text-[11px] text-[var(--text-secondary)] font-mono overflow-x-auto leading-relaxed">
-{`source_ids: ["src_strobl_2007"]
+{`source_ids: ["src-1"]
 strategy: "sectioned"
 model: "Gemini 2.0 Flash"
 max_attempts: 2`}
@@ -152,24 +152,20 @@ max_attempts: 2`}
           </div>
 
           <div className="space-y-1">
-            <div className="text-[10px] uppercase text-[var(--text-dim)]">TASK OUTPUT</div>
+            <div className="text-[10px] uppercase text-[var(--text-dim)]">TASK OUTPUT SPEC</div>
             <p className="text-xs text-[var(--text-muted)] font-sans leading-relaxed">
-              One candidate claim extracted and linked to a source passage. Verbatim quote validation passed with 100% substring character match against chunk #14.
+              Candidate claim extraction and evidence passage linking. Verbatim quote validation requires 100% exact substring match against chunk anchors (e.g. chunk-1).
             </p>
           </div>
 
           <div className="pt-2 border-t border-[var(--border-primary)] space-y-2 text-xs">
             <div className="flex justify-between">
-              <span className="text-[var(--text-dim)]">Latency:</span>
-              <strong className="text-[var(--text-primary)]">1.8 s</strong>
+              <span className="text-[var(--text-dim)]">Status:</span>
+              <span className="badge-solid-white !text-[8px] rounded-none">READY</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-[var(--text-dim)]">Tokens:</span>
-              <strong className="text-[var(--text-primary)]">1,284</strong>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-[var(--text-dim)]">Outcome:</span>
-              <span className="badge-solid-white !text-[8px] rounded-none">VERIFIED</span>
+              <span className="text-[var(--text-dim)]">Reproduction Mode:</span>
+              <strong className="text-[var(--text-primary)] font-mono">adapted</strong>
             </div>
           </div>
         </div>

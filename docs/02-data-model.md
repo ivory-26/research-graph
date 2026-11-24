@@ -159,7 +159,7 @@ export const runArtifacts = pgTable('run_artifacts', {
 export const agentStrategies = pgTable('agent_strategies', {
   id: uuid('id').primaryKey().defaultRandom(),
   workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'cascade' }).notNull(),
-  taskKind: text('task_kind').notNull(),        // ingest | extract_claims | propose_edges | plan_experiment | repair_script | explain_gap
+  taskKind: text('task_kind').notNull(),        // ingest | extract_claims | propose_edges | plan_experiment | repair_script | explain_gap | ask_across_sources
   name: text('name').notNull(),                 // single_pass | sectioned | table_first ...
   config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
   enabled: boolean('enabled').notNull().default(true),

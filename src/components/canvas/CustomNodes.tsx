@@ -560,14 +560,14 @@ export const RunNode: React.FC<NodeProps> = ({ data, selected }) => {
         <span className="text-[12px] font-medium text-[var(--text-primary)] truncate mr-1">
           {data.title as string}
         </span>
-        <span className="badge-orange-outline !text-[8px] !px-1 rounded-none">
-          match
+        <span className="badge-orange-outline !text-[8px] !px-1 rounded-none uppercase">
+          {data.verdict ? String(data.verdict) : 'spec'}
         </span>
       </div>
 
       <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--text-dim)] font-mono">
         <span>adapted</span>
-        <span className="text-[var(--text-primary)]">3.4s (CPU)</span>
+        <span className="text-[var(--text-primary)]">{data.durationMs ? `${data.durationMs}ms` : 'dry run'}</span>
       </div>
     </div>
   );
@@ -605,12 +605,12 @@ export const ResultNode: React.FC<NodeProps> = ({ data, selected }) => {
             <span className="text-[11px] font-mono font-bold text-[var(--text-primary)]">
               {data.title as string}
             </span>
-            <span className="badge-solid-white !text-[7px] !px-1 rounded-none">
-              PASS
+            <span className="badge-solid-white !text-[7px] !px-1 rounded-none uppercase">
+              {data.verdict ? String(data.verdict) : 'PREVIEW'}
             </span>
           </div>
           <div className="text-[9px] font-mono text-[var(--text-dim)]">
-            VERIFIED RESULT
+            {data.sublabel ? String(data.sublabel) : 'RESULT · PREVIEW'}
           </div>
         </div>
       </div>
@@ -637,7 +637,7 @@ export const ResultNode: React.FC<NodeProps> = ({ data, selected }) => {
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-[#f97316]">
           <span className="h-1.5 w-1.5 rounded-none bg-[#f97316] pulse-dot" />
-          <span className="font-bold">VERIFIED RESULT</span>
+          <span className="font-bold">{data.sublabel ? String(data.sublabel) : 'RESULT · PREVIEW'}</span>
         </div>
         <CheckCircle2 className="h-3.5 w-3.5 text-[#f97316]" />
       </div>
@@ -646,8 +646,8 @@ export const ResultNode: React.FC<NodeProps> = ({ data, selected }) => {
         <span className="text-[12px] font-medium text-[var(--text-primary)] truncate mr-1">
           {data.title as string}
         </span>
-        <span className="badge-solid-white !text-[8px] !px-1 rounded-none">
-          pass
+        <span className="badge-solid-white !text-[8px] !px-1 rounded-none uppercase">
+          {data.verdict ? String(data.verdict) : 'preview'}
         </span>
       </div>
 

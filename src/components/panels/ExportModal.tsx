@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, Download } from 'lucide-react';
+import rawWorkspace from '../../../fixtures/workspace.json';
 
 const DEFAULT_NOTEBOOK = JSON.stringify({
   cells: [
@@ -44,44 +45,19 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   if (!isOpen) return null;
 
   const handleDownloadJson = () => {
-    fetch('/fixtures/workspace.json')
-      .then((res) => {
-        if (!res.ok) throw new Error('Not found');
-        return res.blob();
-      })
-      .catch(() => {
-        return new Blob(
-          [
-            JSON.stringify(
-              {
-                workspace: {
-                  name: 'Random Forest Study',
-                  mode: 'adapted',
-                  dataset: 'OpenML:52350',
-                },
-                claim: 'Gini importance favours high-cardinality features; permutation does not',
-                sources: 3,
-                runs: ['Run A', 'Run B'],
-              },
-              null,
-              2
-            ),
-          ],
-          { type: 'application/json' }
-        );
-      })
-      .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'researchgraph-workspace.json';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        onShowToast('Downloaded workspace.json fixture');
-        onClose();
-      });
+    const blob = new Blob([JSON.stringify(rawWorkspace, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'researchgraph-workspace.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    onShowToast('Downloaded complete workspace.json fixture');
+    onClose();
   };
 
   const handleDownloadNotebook = () => {

@@ -527,6 +527,21 @@ async function executeCall<T>(
   throw new Error('callModel exhausted every attempt without a result')
 }
 
+let processTail: Promise<unknown> = Promise.resolve()
+
+/**
+ * Sequential process-wide queue shared across generation and embedding calls
+ * to uphold the ADR 0009 and docs/03 "pipeline never issues parallel requests" rule.
+ */
+export function enqueueProcessTask<T>(fn: () => Promise<T>): Promise<T> {
+  const run = processTail.then(() => fn())
+  processTail = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
 /**
  * Build an isolated wrapper. Production uses the default `callModel` export so
  * that every call in the process shares one queue; the factory exists so tests
@@ -536,20 +551,23 @@ export function createCallModel(
   overrides: Partial<CallModelRuntime> = {},
 ): CallModel {
   const runtime: CallModelRuntime = { ...DEFAULT_RUNTIME, ...overrides }
-  let tail: Promise<unknown> = Promise.resolve()
+  let localTail: Promise<unknown> = Promise.resolve()
+  const isCustom = Object.keys(overrides).length > 0
 
   return <T>(
     schema: z.ZodType<T>,
     prompt: string,
     ctx: CallModelContext,
   ): Promise<CallModelResult<T>> => {
-    const run = tail.then(() => executeCall(schema, prompt, ctx, runtime))
-    // A failed call must not poison the queue for the next one.
-    tail = run.then(
-      () => undefined,
-      () => undefined,
-    )
-    return run
+    if (isCustom) {
+      const run = localTail.then(() => executeCall(schema, prompt, ctx, runtime))
+      localTail = run.then(
+        () => undefined,
+        () => undefined,
+      )
+      return run
+    }
+    return enqueueProcessTask(() => executeCall(schema, prompt, ctx, runtime))
   }
 }
 

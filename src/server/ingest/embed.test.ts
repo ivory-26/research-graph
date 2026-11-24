@@ -215,6 +215,33 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
     expect(mockInnerJoin).toHaveBeenCalled()
   })
 
+  it('provides searchSimilarChunksForWorkspace enforcing workspaceId parameter', async () => {
+    const { searchSimilarChunksForWorkspace } = await import('./store')
+    const mockWhere = vi.fn(() => ({
+      orderBy: vi.fn(() => ({
+        limit: vi.fn(async () => []),
+      })),
+    }))
+
+    const fakeDb = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          innerJoin: vi.fn(() => ({
+            where: mockWhere,
+          })),
+        })),
+      })),
+    } as unknown as Database
+
+    const queryVec = new Array(768).fill(0.01)
+    await searchSimilarChunksForWorkspace(fakeDb, 'ws-wrapper-1', {
+      queryEmbedding: queryVec,
+      topK: 5,
+    })
+
+    expect(mockWhere).toHaveBeenCalled()
+  })
+
   it('records agent_tasks rows when workspaceId is provided, estimates tokens when usage is undefined, and passes maxRetries: 0', async () => {
     const insertedTasks: any[] = []
     const fakeStore = {
@@ -294,6 +321,40 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
     expect(insertedTasks[0].error).toContain('Embedding returned 512 dimensions, expected 768')
   })
 
+  it('records failed row and throws when returned embedding count differs from batch length', async () => {
+    const insertedTasks: any[] = []
+    const fakeStore = {
+      insert: vi.fn(async (row) => {
+        insertedTasks.push(row)
+        return { id: 'task-count-fail', ...row }
+      }),
+    }
+
+    const fakeEmbedMany = vi.fn(async () => ({
+      embeddings: [new Array(768).fill(0.01)], // only 1 embedding returned for 2 chunks!
+      usage: { tokens: 100 },
+    }))
+
+    await expect(
+      embedChunks(
+        ['First chunk', 'Second chunk'],
+        {
+          dimensions: 768,
+          workspaceId: 'ws-count-fail',
+          taskStore: fakeStore,
+        },
+        {
+          embedManyFn: fakeEmbedMany as any,
+          resolveModel: () => ({} as any),
+        },
+      ),
+    ).rejects.toThrow(/Embedding batch returned 1 vectors, expected 2/)
+
+    expect(fakeStore.insert).toHaveBeenCalledTimes(1)
+    expect(insertedTasks[0].status).toBe('failed')
+    expect(insertedTasks[0].error).toContain('Embedding batch returned 1 vectors, expected 2')
+  })
+
   it('surfaces taskStore insertion errors rather than silently swallowing them', async () => {
     const fakeStore = {
       insert: vi.fn(async () => {
@@ -346,6 +407,54 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
       expect.objectContaining({ workspaceId: 'ws-mandatory' }),
     )
   })
+
+  it('handles 429 rate limit with bounded backoff and records retried task row (ADR 0009)', async () => {
+    const insertedTasks: any[] = []
+    const fakeStore = {
+      insert: vi.fn(async (task) => {
+        insertedTasks.push(task)
+        return { id: 'task-retry-1' }
+      }),
+    }
+
+    let callCount = 0
+    const fakeEmbedMany = vi.fn(async () => {
+      callCount++
+      if (callCount === 1) {
+        const rateLimitErr: any = new Error('Too Many Requests')
+        rateLimitErr.statusCode = 429
+        throw rateLimitErr
+      }
+      return {
+        embeddings: [new Array(768).fill(0.1)],
+        usage: undefined,
+      }
+    })
+
+    const fakeSleep = vi.fn(async () => {})
+
+    const res = await embedChunks(
+      ['Text to retry'],
+      {
+        workspaceId: 'ws-retry-test',
+        taskStore: fakeStore,
+      },
+      {
+        embedManyFn: fakeEmbedMany as any,
+        resolveModel: () => ({} as any),
+        sleepFn: fakeSleep,
+      },
+    )
+
+    expect(res).toHaveLength(1)
+    expect(callCount).toBe(2)
+    expect(fakeSleep).toHaveBeenCalledTimes(1)
+    expect(insertedTasks).toHaveLength(2)
+    // First attempt recorded as retried
+    expect(insertedTasks[0].status).toBe('retried')
+    // Second attempt recorded as succeeded
+    expect(insertedTasks[1].status).toBe('succeeded')
+  })
 })
 
 /**
@@ -378,8 +487,8 @@ describe('Issue #11 Acceptance Test: Real Embedding & Stored Vector Search', () 
         const { chunks } = await ingestPdf(buf)
         expect(chunks.length).toBeGreaterThan(0)
 
-        // Take first 5 chunks to keep test fast and conservative on credits
-        const testChunks = chunks.slice(0, 5)
+        // Ingest and store the full chunk set of Strobl 2007
+        const testChunks = chunks
 
         // 2. Insert test workspace and source
         await db.insert(workspaces).values({
@@ -409,7 +518,7 @@ describe('Issue #11 Acceptance Test: Real Embedding & Stored Vector Search', () 
         expect(stored.length).toBe(testChunks.length)
 
         // 5. Embed query and search similar chunks
-        const query = 'permutation versus impurity importance'
+        const query = 'Gini importance versus permutation importance in random forests'
         const queryEmbedding = await embedQuery(query, { workspaceId: testWsId })
         expect(queryEmbedding.length).toBe(768)
 
@@ -422,11 +531,13 @@ describe('Issue #11 Acceptance Test: Real Embedding & Stored Vector Search', () 
         expect(searchResults.length).toBeGreaterThan(0)
         expect(searchResults[0].similarity).toBeGreaterThan(0.5)
         expect(searchResults[0].chunk.sourceId).toBe(testSourceId)
-        expect(searchResults[0].chunk.page).toBeGreaterThanOrEqual(1)
+        expect(searchResults[0].chunk.page).toBe(1)
+        expect(searchResults[0].chunk.text).toContain('variable selection in individual classification trees is biased')
 
         // Content relevance assertion: top returned passage must discuss variable importance in random forests
         const topChunkText = searchResults[0].chunk.text.toLowerCase()
-        expect(topChunkText).toMatch(/importance|variable|forest|rf/)
+        expect(topChunkText).toMatch(/gini|permutation/)
+        expect(topChunkText).toContain('importance')
       } finally {
         // Cleanup test data
         await db.delete(sourceChunks).where(eq(sourceChunks.sourceId, testSourceId)).catch(() => {})
@@ -434,6 +545,6 @@ describe('Issue #11 Acceptance Test: Real Embedding & Stored Vector Search', () 
         await db.delete(workspaces).where(eq(workspaces.id, testWsId)).catch(() => {})
       }
     },
-    30000,
+    120000,
   )
 })

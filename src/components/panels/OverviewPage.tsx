@@ -1,11 +1,16 @@
 import React from 'react';
 import { ArrowRight, CheckCircle2, FileText, ShieldCheck } from 'lucide-react';
+import { DEMO_SOURCES, DEMO_NODES } from '../../data/demoWorkspace';
 
 interface OverviewPageProps {
   onOpenGraph: () => void;
 }
 
 export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
+  const sourceCount = String(DEMO_SOURCES.length).padStart(2, '0');
+  const claimCount = String(DEMO_NODES.filter((n) => n.type === 'claim').length).padStart(2, '0');
+  const runCount = String(DEMO_NODES.filter((n) => n.type === 'run').length).padStart(2, '0');
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto animate-fade-in font-mono">
       {/* 3 KPI Cards */}
@@ -15,7 +20,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
             RESEARCH SOURCES
           </div>
           <div className="text-3xl font-extrabold text-[var(--text-primary)] my-2">
-            03
+            {sourceCount}
           </div>
           <div className="text-[11px] text-[var(--text-dim)]">
             All indexed in this workspace
@@ -27,10 +32,10 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
             EVIDENCE-BACKED CLAIMS
           </div>
           <div className="text-3xl font-extrabold text-[#f97316] my-2">
-            01
+            {claimCount}
           </div>
           <div className="text-[11px] text-[var(--text-dim)]">
-            1 accepted · 0 rejected
+            Evidence-grounded claims
           </div>
         </div>
 
@@ -39,7 +44,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
             EXPERIMENT RUNS
           </div>
           <div className="text-3xl font-extrabold text-[var(--text-primary)] my-2">
-            02
+            {runCount}
           </div>
           <div className="text-[11px] text-[var(--text-dim)]">
             Adapted reproduction mode

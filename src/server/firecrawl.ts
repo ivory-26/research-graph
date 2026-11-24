@@ -69,16 +69,35 @@ export interface FirecrawlDeps {
 }
 
 /**
- * Checks if a given URL points to a PDF document.
+ * Checks if a given URL points to a PDF document or if scrape metadata reports a PDF MIME type.
  * Invariant: PDFs never go through Firecrawl (Issue #15 & CLAUDE.md).
  */
-export function isPdfUrl(url: string): boolean {
+export function isPdfUrl(url: string, metadata?: Record<string, unknown>): boolean {
+  if (metadata) {
+    const contentType =
+      (metadata['content-type'] ?? metadata['contentType'] ?? metadata['mimeType'] ?? '') as string
+    if (typeof contentType === 'string' && contentType.toLowerCase().includes('application/pdf')) {
+      return true
+    }
+  }
+
   try {
     const parsed = new URL(url)
     const pathname = parsed.pathname.toLowerCase()
-    return pathname.endsWith('.pdf')
+    const isArxivPdf = parsed.hostname.includes('arxiv.org') && pathname.startsWith('/pdf')
+    const isBioRxivPdf =
+      (parsed.hostname.includes('biorxiv.org') || parsed.hostname.includes('medrxiv.org')) &&
+      pathname.includes('/content/') &&
+      pathname.endsWith('.full.pdf')
+    return (
+      pathname.endsWith('.pdf') ||
+      pathname.endsWith('.pdf/') ||
+      isArxivPdf ||
+      isBioRxivPdf
+    )
   } catch {
-    return url.toLowerCase().includes('.pdf')
+    const lower = url.toLowerCase()
+    return lower.endsWith('.pdf') || lower.includes('.pdf?') || lower.includes('.pdf#')
   }
 }
 
@@ -174,8 +193,15 @@ export async function scrapeWithFirecrawl(
     }
 
     const data = payload.data ?? {}
-    const markdown = data.markdown ?? data.content ?? ''
     const meta = data.metadata ?? {}
+
+    if (isPdfUrl(trimmed, meta)) {
+      throw new Error(
+        `PDFs never go through Firecrawl. Scraped response content-type is application/pdf: ${trimmed}`,
+      )
+    }
+
+    const markdown = data.markdown ?? data.content ?? ''
 
     return {
       url: trimmed,
@@ -259,12 +285,19 @@ export async function ingestWebSource(
   ]
 
   const chunks = chunkDocument(markdown, virtualPages, options.chunkOptions)
+  if (chunks.length === 0) {
+    throw new Error(`Content from URL produced zero valid chunks: ${trimmed}`)
+  }
 
-  // 5. Embed chunks using gemini-embedding-2 (768d)
+  // 5. Embed chunks using gemini-embedding-2 (768d) with workspaceId task accounting
   const embedFn = deps.embedChunksFn ?? embedChunks
-  const embeddings = await embedFn(chunks, { workspaceId: options.workspaceId }, deps.embedDeps ?? {})
+  const embeddings = await embedFn(
+    chunks,
+    { workspaceId: options.workspaceId },
+    deps.embedDeps ?? {},
+  )
 
-  // 6. Persist source and chunks if db is supplied
+  // 6. Persist source and chunks atomically inside a single transaction
   let db = deps.db
   if (!db) {
     const { getDb } = await import('../db/client')
@@ -280,18 +313,20 @@ export async function ingestWebSource(
     sha256,
     bytes,
     meta: {
+      ...metadata,
       firecrawl: true,
       scrapedAt: new Date().toISOString(),
-      ...metadata,
     },
   }
 
-  const [createdSource] = await db.insert(sources).values(newSource).returning()
-  if (!createdSource) {
-    throw new Error('Failed to insert source row into database.')
-  }
-
-  const chunkRows = await storeChunks(db, createdSource.id, chunks, embeddings)
+  const { createdSource, chunkRows } = await db.transaction(async (tx) => {
+    const [insertedSource] = await tx.insert(sources).values(newSource).returning()
+    if (!insertedSource) {
+      throw new Error('Failed to insert source row into database.')
+    }
+    const stored = await storeChunks(tx as Database, insertedSource.id, chunks, embeddings)
+    return { createdSource: insertedSource, chunkRows: stored }
+  })
 
   return {
     source: createdSource,

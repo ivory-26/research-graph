@@ -22,7 +22,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
       venue: 'BMC Bioinformatics',
       pages: 14,
       size: '411 KB',
-      status: 'VERIFIED',
+      status: 'INDEXED',
       doi: '10.1186/1471-2105-8-25',
     },
     {
@@ -31,7 +31,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
       venue: 'BMC Bioinformatics',
       pages: 12,
       size: '500 KB',
-      status: 'VERIFIED',
+      status: 'INDEXED',
       doi: '10.1186/1471-2105-9-307',
     },
     {
@@ -40,7 +40,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
       venue: 'Journal of Statistical Software',
       pages: 13,
       size: '378 KB',
-      status: 'VERIFIED',
+      status: 'INDEXED',
       doi: '10.18637/jss.v036.i11',
     },
   ]);
@@ -82,9 +82,9 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
         id: `src-web-${Date.now()}`,
         title: cleanTitle,
         venue: kind === 'repo' ? 'GitHub Open Source' : 'Web Page',
-        pages: 6,
-        size: '142 KB',
-        status: 'INDEXED',
+        pages: 0,
+        size: '—',
+        status: 'QUEUED',
         doi: webUrl,
       };
 

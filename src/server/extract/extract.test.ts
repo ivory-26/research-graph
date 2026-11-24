@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ingestPdf } from '../ingest'
 import { buildExtractionPrompt, extractClaims } from './claims'
 import { normalizeQuote, validateClaimQuotes, verifyVerbatimQuote } from './quote'
-import type { ChunkRef, ExtractedClaim, ExtractionResult } from './types'
+import { ExtractionResultSchema, type ChunkRef, type ExtractedClaim, type ExtractionResult } from './types'
 
 describe('Quote Normalization and Verbatim Verification (Issue #12)', () => {
   it('normalises whitespace and folds unicode quotation marks without altering dashes', () => {
@@ -21,6 +21,12 @@ describe('Quote Normalization and Verbatim Verification (Issue #12)', () => {
     // With identical em-dash, it matches verbatim
     const quoteWithEmDash = 'Random forests — an ensemble method — are robust.'
     expect(verifyVerbatimQuote(quoteWithEmDash, chunkText)).toBe(true)
+  })
+
+  it('strictly rejects case-only alterations (exact case required per docs/03)', () => {
+    const chunkText = 'Random forests are an ensemble method.'
+    const lowerQuote = 'random forests are an ensemble method.'
+    expect(verifyVerbatimQuote(lowerQuote, chunkText)).toBe(false)
   })
 
   it('matches verbatim quotes despite line breaks and irregular spacing', () => {
@@ -222,6 +228,87 @@ describe('extractClaims with model wrapper', () => {
     expect(updatedTaskId).toBe('task-fabricated-1')
   })
 
+  it('updates task row to rejected when model returns zero claims (empty claim list)', async () => {
+    const chunks: ChunkRef[] = [
+      { id: 'c1', ordinal: 0, text: 'Real chunk text here.' },
+    ]
+    let updatedStatus = ''
+    let updatedTaskId = ''
+    const mockUpdateStatus = vi.fn(async (taskId: string, status: any) => {
+      updatedTaskId = taskId
+      updatedStatus = status
+    })
+
+    const mockCallModel = vi.fn(async () => ({
+      output: {
+        claims: [],
+        datasets: [],
+        methods: [],
+        codeUrls: [],
+      },
+      task: { id: 'task-empty-1', status: 'succeeded' as const },
+      attempts: [],
+    }))
+
+    const outcome = await extractClaims({
+      workspaceId: 'ws-test',
+      sourceId: 'src-1',
+      chunks,
+      // @ts-expect-error test mock injection
+      callModelFn: mockCallModel,
+      updateTaskStatusFn: mockUpdateStatus,
+    })
+
+    expect(outcome.acceptedClaims.length).toBe(0)
+    expect(mockUpdateStatus).toHaveBeenCalledWith(
+      'task-empty-1',
+      'rejected',
+      'Model returned no claims.',
+    )
+    expect(updatedStatus).toBe('rejected')
+  })
+
+  it('sanitizes non-uuid strategyId to null and preserves strategy in inputRef', async () => {
+    const chunks: ChunkRef[] = [
+      { id: 'c1', ordinal: 0, text: 'Real chunk text here.' },
+    ]
+    let capturedCallContext: any = null
+    const mockCallModel = vi.fn(async (_schema, _prompt, context) => {
+      capturedCallContext = context
+      return {
+        output: { claims: [], datasets: [], methods: [], codeUrls: [] },
+        task: { id: 'task-strat-null' },
+        attempts: [],
+      }
+    })
+
+    await extractClaims({
+      workspaceId: 'ws-test',
+      sourceId: 'src-1',
+      chunks,
+      strategy: 'single_pass',
+      strategyId: 'single_pass', // Not a uuid!
+      // @ts-expect-error test mock injection
+      callModelFn: mockCallModel,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(capturedCallContext.strategyId).toBeNull()
+    expect(capturedCallContext.inputRef.strategy).toBe('single_pass')
+  })
+
+  it('throws descriptive error on unsupported strategy', async () => {
+    const chunks: ChunkRef[] = [{ id: 'c1', ordinal: 0, text: 'Some text' }]
+    await expect(
+      extractClaims({
+        workspaceId: 'ws-test',
+        sourceId: 'src-1',
+        chunks,
+        strategy: 'sectioned',
+      }),
+    ).rejects.toThrow(/Extraction strategy 'sectioned' is not yet supported/)
+  })
+
   it('buildExtractionPrompt formats chunks cleanly', () => {
     const prompt = buildExtractionPrompt(
       [
@@ -297,7 +384,7 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
   )
 
   it.skipIf(!fs.existsSync(stroblPdfPath))(
-    'executes extractClaims on real Strobl 2007 chunks and extracts hero claim with verbatim quote',
+    'executes extractClaims on real Strobl 2007 chunks using checked-in model output fixture and extracts hero claim with verbatim quote',
     async () => {
       const buffer = fs.readFileSync(stroblPdfPath)
       const { chunks } = await ingestPdf(buffer)
@@ -312,30 +399,13 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
         page: c.page,
       }))
 
-      const targetChunk = chunkRefs.find((c) => c.text.includes(realHeroQuote))
-      expect(targetChunk).toBeDefined()
-
-      const mockModelOutput: ExtractionResult = {
-        claims: [
-          {
-            text: 'Gini importance is unreliable when predictors vary in category count',
-            metric: 'variable importance',
-            reportedValue: null,
-            comparator: null,
-            againstValue: null,
-            datasetName: null,
-            methodName: 'Random Forest',
-            quote: realHeroQuote,
-            chunkId: targetChunk!.id!,
-          },
-        ],
-        datasets: [],
-        methods: [{ name: 'RandomForest', summary: 'Tree ensemble' }],
-        codeUrls: [],
-      }
+      // Load checked-in fixture of hand-authored model output schema for Strobl 2007 hero claim quote verification
+      const fixturePath = path.resolve(process.cwd(), 'fixtures/extract/strobl-2007-claims.json')
+      const rawFixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'))
+      const capturedModelOutput: ExtractionResult = ExtractionResultSchema.parse(rawFixture)
 
       const mockCallModel = vi.fn().mockResolvedValue({
-        output: mockModelOutput,
+        output: capturedModelOutput,
         task: { id: 'task-hero-extract', latencyMs: 250 },
         attempts: [],
       })
@@ -349,48 +419,146 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
       })
 
       expect(mockCallModel).toHaveBeenCalledTimes(1)
-      expect(outcome.acceptedClaims).toHaveLength(1)
-      expect(outcome.rejectedClaims).toHaveLength(0)
-      expect(outcome.acceptedClaims[0].quote).toBe(realHeroQuote)
-      expect(outcome.acceptedClaims[0].page).toBe(1)
+      expect(outcome.acceptedClaims.length).toBeGreaterThanOrEqual(1)
+
+      const heroClaim = outcome.acceptedClaims.find((c) => c.quote.includes('random forest variable importance measures'))
+      expect(heroClaim).toBeDefined()
+      expect(heroClaim!.quote).toBe(realHeroQuote)
+      expect(heroClaim!.page).toBe(1)
+
+      // Invariant: verifyVerbatimQuote is true against the real Strobl 2007 chunk it cites
+      const citedChunk = chunkRefs.find((c) => c.ordinal === heroClaim!.chunkOrdinal)
+      expect(citedChunk).toBeDefined()
+      expect(verifyVerbatimQuote(heroClaim!.quote, citedChunk!.text)).toBe(true)
     },
     15000,
   )
 
-  it('truncates input chunks to 30,000 characters under single_pass strategy', async () => {
-    // Generate chunks totalling 50,000 characters
-    const chunks: ChunkRef[] = []
-    for (let i = 0; i < 50; i++) {
-      chunks.push({
-        id: `c-${i}`,
-        ordinal: i,
-        text: `Chunk ${i} `.padEnd(1000, 'x'),
-        page: i + 1,
-      })
-    }
+  const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY)
+  const hasDb = Boolean(process.env.DATABASE_URL)
+  const canRunLive = hasKey && hasDb && fs.existsSync(stroblPdfPath)
+  it.skipIf(!canRunLive)(
+    'LIVE: executes extractClaims with real Gemini model on Strobl 2007 and extracts hero claim',
+    async () => {
+      const { getDb } = await import('../../db/client')
+      const { workspaces, sources } = await import('../../db/schema')
+      const { eq } = await import('drizzle-orm')
 
-    let capturedPrompt = ''
-    const mockCallModel = vi.fn().mockImplementation((_schema, prompt) => {
-      capturedPrompt = prompt
+      const db = getDb()
+      const testWsId = crypto.randomUUID()
+      const testSourceId = crypto.randomUUID()
+
+      try {
+        await db.insert(workspaces).values({
+          id: testWsId,
+          name: 'Extract Live Test Workspace',
+          slug: `test-ws-extract-${Date.now()}`,
+        })
+
+        await db.insert(sources).values({
+          id: testSourceId,
+          workspaceId: testWsId,
+          kind: 'paper',
+          title: 'Strobl 2007 Paper',
+          sha256: 'test-extract-sha',
+          bytes: 1024,
+        })
+
+        const buffer = fs.readFileSync(stroblPdfPath)
+        const { chunks } = await ingestPdf(buffer)
+        const chunkRefs: ChunkRef[] = chunks.map((c) => ({
+          id: `chunk-${c.ordinal}`,
+          ordinal: c.ordinal,
+          text: c.text,
+          page: c.page,
+        }))
+
+        const outcome = await extractClaims({
+          workspaceId: testWsId,
+          sourceId: testSourceId,
+          chunks: chunkRefs,
+          strategy: 'single_pass',
+        })
+
+        expect(outcome.acceptedClaims.length).toBeGreaterThanOrEqual(1)
+        const hero = outcome.acceptedClaims.find((c) =>
+          c.text.toLowerCase().includes('importance') || c.quote.toLowerCase().includes('importance'),
+        )
+        expect(hero).toBeDefined()
+        const cited = chunkRefs.find((c) => c.ordinal === hero!.chunkOrdinal)
+        expect(cited).toBeDefined()
+        expect(verifyVerbatimQuote(hero!.quote, cited!.text)).toBe(true)
+      } finally {
+        await db.delete(sources).where(eq(sources.id, testSourceId)).catch(() => {})
+        await db.delete(workspaces).where(eq(workspaces.id, testWsId)).catch(() => {})
+      }
+    },
+    60000,
+  )
+
+  it('truncates input chunks strictly at character level under single_pass strategy', async () => {
+    // 1. Test with one oversized first chunk that exceeds maxChars
+    const oversizedFirstChunk: ChunkRef[] = [
+      { id: 'c-giant', ordinal: 0, text: 'Z'.repeat(2000), page: 1 },
+      { id: 'c-next', ordinal: 1, text: 'W'.repeat(100), page: 1 },
+    ]
+
+    let giantCapturedPrompt = ''
+    const mockGiantCallModel = vi.fn().mockImplementation((_schema, prompt) => {
+      giantCapturedPrompt = prompt
       return Promise.resolve({
         output: { claims: [], datasets: [], methods: [], codeUrls: [] },
-        task: { id: 'task-strat' },
+        task: { id: 'task-giant' },
         attempts: [],
       })
     })
 
     await extractClaims({
-      workspaceId: 'ws-strat',
-      sourceId: 'src-strat',
-      chunks,
+      workspaceId: 'ws-giant',
+      sourceId: 'src-giant',
+      chunks: oversizedFirstChunk,
       strategy: 'single_pass',
-      maxChars: 30000,
-      callModelFn: mockCallModel as any,
+      maxChars: 500, // Budget 500: c-giant must be truncated to exactly 500 chars, c-next excluded
+      callModelFn: mockGiantCallModel as any,
+      updateTaskStatusFn: vi.fn(),
     })
 
-    // The prompt should include at most ~30 chunks (~30k characters), not all 50
-    expect(capturedPrompt).toContain('CHUNK ID: c-0')
-    expect(capturedPrompt).toContain('CHUNK ID: c-29')
-    expect(capturedPrompt).not.toContain('CHUNK ID: c-45')
+    expect(giantCapturedPrompt).toContain('CHUNK ID: c-giant')
+    expect(giantCapturedPrompt).toContain('Z'.repeat(500))
+    expect(giantCapturedPrompt).not.toContain('Z'.repeat(501))
+    expect(giantCapturedPrompt).not.toContain('CHUNK ID: c-next')
+
+    // 2. Test with fitting first chunk and partially fitting last chunk
+    const mixedChunks: ChunkRef[] = [
+      { id: 'c-0', ordinal: 0, text: 'A'.repeat(500), page: 1 },
+      { id: 'c-1', ordinal: 1, text: 'B'.repeat(800), page: 1 },
+      { id: 'c-2', ordinal: 2, text: 'C'.repeat(1000), page: 1 },
+    ]
+
+    let mixedCapturedPrompt = ''
+    const mockMixedCallModel = vi.fn().mockImplementation((_schema, prompt) => {
+      mixedCapturedPrompt = prompt
+      return Promise.resolve({
+        output: { claims: [], datasets: [], methods: [], codeUrls: [] },
+        task: { id: 'task-mixed' },
+        attempts: [],
+      })
+    })
+
+    await extractClaims({
+      workspaceId: 'ws-mixed',
+      sourceId: 'src-mixed',
+      chunks: mixedChunks,
+      strategy: 'single_pass',
+      maxChars: 1000, // Budget 1000: c-0 takes 500, c-1 takes 500, c-2 excluded
+      callModelFn: mockMixedCallModel as any,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(mixedCapturedPrompt).toContain('CHUNK ID: c-0')
+    expect(mixedCapturedPrompt).toContain('CHUNK ID: c-1')
+    expect(mixedCapturedPrompt).toContain('B'.repeat(500))
+    expect(mixedCapturedPrompt).not.toContain('B'.repeat(501))
+    expect(mixedCapturedPrompt).not.toContain('CHUNK ID: c-2')
   })
 })
