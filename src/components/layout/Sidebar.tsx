@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LayoutGrid,
   Network,
@@ -9,7 +9,7 @@ import {
   GitCompare,
   BarChart3,
   Settings,
-  ChevronDown,
+  ExternalLink,
 } from 'lucide-react';
 
 export type PageId =
@@ -26,233 +26,189 @@ export type PageId =
 interface SidebarProps {
   currentPage: PageId;
   onNavigate: (page: PageId) => void;
-  isCollapsed: boolean;
-  onToggleCollapse: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
+}
+
+interface NavItem {
+  id: PageId;
+  label: string;
+  icon: React.FC<{ className?: string }>;
+  badge?: string;
+  category: 'workspace' | 'experiments' | 'analytics' | 'system';
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   currentPage,
   onNavigate,
-  isCollapsed,
 }) => {
+  const [hoveredItem, setHoveredItem] = useState<string | null>(null);
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
+
+  const navItems: NavItem[] = [
+    { id: 'overview', label: 'Overview', icon: LayoutGrid, category: 'workspace' },
+    { id: 'graph', label: 'Research Graph', icon: Network, badge: '8', category: 'workspace' },
+    { id: 'sources', label: 'Sources', icon: FileText, badge: '3', category: 'workspace' },
+    { id: 'ask', label: 'Ask Research', icon: Sparkles, category: 'workspace' },
+    { id: 'agents', label: 'Agent Monitor', icon: Cpu, badge: '2', category: 'experiments' },
+    { id: 'experiments', label: 'Experiments', icon: FlaskConical, category: 'experiments' },
+    { id: 'compare', label: 'Run Comparison', icon: GitCompare, category: 'experiments' },
+    { id: 'strategies', label: 'Strategies', icon: BarChart3, category: 'analytics' },
+  ];
+
   return (
-    <aside
-      className={`border-r border-[var(--border-primary)] bg-[var(--bg-surface)] flex flex-col min-h-0 overflow-hidden transition-all duration-200 select-none ${
-        isCollapsed ? 'w-[68px]' : 'w-[244px]'
-      }`}
-    >
-      <div className="p-3 overflow-y-auto flex-1 space-y-4">
-        {/* Workspace Switcher */}
-        <div
-          className={`flex items-center gap-2.5 p-2.5 border border-[var(--border-primary)] bg-[var(--bg-primary)] cursor-pointer hover:border-[var(--border-secondary)] transition ${
-            isCollapsed ? 'justify-center p-2' : ''
-          }`}
-          title="Switch workspace"
+    <aside className="w-[58px] flex-none h-full flex flex-col items-center justify-between py-3 select-none bg-transparent transition-colors duration-200 z-20">
+      {/* TOP: ResearchGraph Logo & Ambient Workspace Trigger */}
+      <div className="flex flex-col items-center gap-2 relative">
+        <button
+          onClick={() => onNavigate('graph')}
+          onMouseEnter={() => setHoveredItem('logo')}
+          onMouseLeave={() => setHoveredItem(null)}
+          className="w-9 h-9 rounded-full flex items-center justify-center text-[#f97316] hover:bg-[var(--bg-surface-hover)] transition-all duration-200 group"
+          title="ResearchGraph Digital Twin"
         >
-          <div className="w-7 h-7 flex items-center justify-center bg-[#f97316]/10 text-[#f97316] border border-[#f97316]/40 flex-shrink-0 font-mono text-sm">
+          <span className="font-mono text-xl font-bold tracking-tighter transform group-hover:scale-110 transition-transform">
             ⬡
+          </span>
+        </button>
+
+        {/* Hover Tooltip for Logo */}
+        {hoveredItem === 'logo' && (
+          <div className="absolute left-14 top-1 z-50 pointer-events-none whitespace-nowrap animate-fade-in">
+            <div className="px-2.5 py-1 text-[11px] font-mono bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] text-[var(--text-primary)] shadow-2xl backdrop-blur-xl">
+              <span className="text-[#f97316] font-bold">ResearchGraph</span> · Digital Twin
+            </div>
           </div>
-          {!isCollapsed && (
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-bold text-[var(--text-primary)] truncate font-mono">
-                Random Forest Study
+        )}
+
+        {/* Subtle Workspace Dot Trigger */}
+        <button
+          onClick={() => setIsWorkspaceMenuOpen(!isWorkspaceMenuOpen)}
+          onMouseEnter={() => setHoveredItem('workspace')}
+          onMouseLeave={() => setHoveredItem(null)}
+          className="w-5 h-5 rounded-full flex items-center justify-center text-[var(--text-dim)] hover:text-[#f97316] hover:bg-[var(--bg-surface-hover)] transition"
+          title="Switch Workspace"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-[#f97316]/70 hover:bg-[#f97316]" />
+        </button>
+
+        {hoveredItem === 'workspace' && (
+          <div className="absolute left-14 top-10 z-50 pointer-events-none whitespace-nowrap animate-fade-in">
+            <div className="px-2.5 py-1 text-[10px] font-mono bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] text-[var(--text-secondary)] shadow-2xl backdrop-blur-xl">
+              Workspace: <strong className="text-[var(--text-primary)]">Random Forest Study</strong>
+            </div>
+          </div>
+        )}
+
+        {/* Workspace Switcher Menu Popover */}
+        {isWorkspaceMenuOpen && (
+          <div className="absolute left-14 top-8 z-50 w-64 bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] p-2 shadow-2xl backdrop-blur-2xl animate-fade-in text-xs font-mono space-y-1">
+            <div className="px-2 py-1 text-[9px] uppercase tracking-wider text-[var(--text-dim)] border-b border-[var(--border-primary)] flex justify-between items-center">
+              <span>Workspaces</span>
+              <span className="text-emerald-400">Online</span>
+            </div>
+            <div className="p-2 bg-[var(--bg-surface-hover)] text-[var(--text-primary)] border border-[#f97316]/40 flex items-center justify-between">
+              <div>
+                <div className="font-bold flex items-center gap-1.5 text-xs">
+                  <span className="w-2 h-2 rounded-full bg-[#f97316]" />
+                  <span>Random Forest Study</span>
+                </div>
+                <div className="text-[10px] text-[var(--text-dim)] mt-0.5">
+                  3 sources · 1 claim · Active
+                </div>
               </div>
-              <div className="text-[10px] text-[var(--text-dim)] truncate mt-0.5">
-                3 sources · Updated now
-              </div>
+              <span className="text-[9px] text-[#f97316] uppercase font-bold">Current</span>
             </div>
-          )}
-          {!isCollapsed && (
-            <ChevronDown className="h-3.5 w-3.5 text-[var(--text-dim)] flex-shrink-0" />
-          )}
-        </div>
-
-        {/* WORKSPACE GROUP */}
-        <div>
-          {!isCollapsed && (
-            <div className="px-2.5 pb-1.5 font-mono text-[9px] uppercase tracking-wider text-[var(--text-dim)]">
-              WORKSPACE
-            </div>
-          )}
-          <div className="space-y-0.5">
             <button
-              onClick={() => onNavigate('overview')}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-mono transition text-left ${
-                currentPage === 'overview'
-                  ? 'bg-[#f97316]/15 text-[#f97316] border-l-2 border-[#f97316] font-bold'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Overview"
+              onClick={() => setIsWorkspaceMenuOpen(false)}
+              className="w-full text-left p-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition flex items-center justify-between text-[11px]"
             >
-              <LayoutGrid className="h-4 w-4 flex-shrink-0" />
-              {!isCollapsed && <span className="flex-1 truncate">Overview</span>}
-            </button>
-
-            <button
-              onClick={() => onNavigate('graph')}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-mono transition text-left ${
-                currentPage === 'graph'
-                  ? 'bg-[#f97316]/15 text-[#f97316] border-l-2 border-[#f97316] font-bold'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Research Graph"
-            >
-              <Network className="h-4 w-4 flex-shrink-0" />
-              {!isCollapsed && <span className="flex-1 truncate">Research Graph</span>}
-              {!isCollapsed && (
-                <span className="text-[9px] font-mono px-1 bg-[var(--bg-surface-hover)] text-[var(--text-dim)]">
-                  8
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => onNavigate('sources')}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-mono transition text-left ${
-                currentPage === 'sources'
-                  ? 'bg-[#f97316]/15 text-[#f97316] border-l-2 border-[#f97316] font-bold'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Sources"
-            >
-              <FileText className="h-4 w-4 flex-shrink-0" />
-              {!isCollapsed && <span className="flex-1 truncate">Sources</span>}
-              {!isCollapsed && (
-                <span className="text-[9px] font-mono px-1 bg-[var(--bg-surface-hover)] text-[var(--text-dim)]">
-                  3
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => onNavigate('ask')}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-mono transition text-left ${
-                currentPage === 'ask'
-                  ? 'bg-[#f97316]/15 text-[#f97316] border-l-2 border-[#f97316] font-bold'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Ask Research"
-            >
-              <Sparkles className="h-4 w-4 flex-shrink-0 text-[var(--accent-orange)]" />
-              {!isCollapsed && <span className="flex-1 truncate">Ask Research</span>}
+              <span>+ Create new workspace</span>
+              <ExternalLink className="h-3 w-3" />
             </button>
           </div>
-        </div>
-
-        {/* EXPERIMENTS GROUP */}
-        <div>
-          {!isCollapsed && (
-            <div className="px-2.5 pb-1.5 font-mono text-[9px] uppercase tracking-wider text-[var(--text-dim)]">
-              EXPERIMENTS
-            </div>
-          )}
-          <div className="space-y-0.5">
-            <button
-              onClick={() => onNavigate('agents')}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-mono transition text-left ${
-                currentPage === 'agents'
-                  ? 'bg-[#f97316]/15 text-[#f97316] border-l-2 border-[#f97316] font-bold'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Agent Monitor"
-            >
-              <Cpu className="h-4 w-4 flex-shrink-0" />
-              {!isCollapsed && <span className="flex-1 truncate">Agent Monitor</span>}
-              {!isCollapsed && (
-                <span className="text-[9px] font-mono px-1 bg-[var(--bg-surface-hover)] text-[var(--text-dim)]">
-                  2
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => onNavigate('experiments')}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-mono transition text-left ${
-                currentPage === 'experiments'
-                  ? 'bg-[#f97316]/15 text-[#f97316] border-l-2 border-[#f97316] font-bold'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Experiments"
-            >
-              <FlaskConical className="h-4 w-4 flex-shrink-0" />
-              {!isCollapsed && <span className="flex-1 truncate">Experiments</span>}
-            </button>
-
-            <button
-              onClick={() => onNavigate('compare')}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-mono transition text-left ${
-                currentPage === 'compare'
-                  ? 'bg-[#f97316]/15 text-[#f97316] border-l-2 border-[#f97316] font-bold'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Run Comparison"
-            >
-              <GitCompare className="h-4 w-4 flex-shrink-0" />
-              {!isCollapsed && <span className="flex-1 truncate">Run Comparison</span>}
-            </button>
-          </div>
-        </div>
-
-        {/* ANALYTICS GROUP */}
-        <div>
-          {!isCollapsed && (
-            <div className="px-2.5 pb-1.5 font-mono text-[9px] uppercase tracking-wider text-[var(--text-dim)]">
-              ANALYTICS
-            </div>
-          )}
-          <div className="space-y-0.5">
-            <button
-              onClick={() => onNavigate('strategies')}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-mono transition text-left ${
-                currentPage === 'strategies'
-                  ? 'bg-[#f97316]/15 text-[#f97316] border-l-2 border-[#f97316] font-bold'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Strategies"
-            >
-              <BarChart3 className="h-4 w-4 flex-shrink-0" />
-              {!isCollapsed && <span className="flex-1 truncate">Strategies</span>}
-            </button>
-          </div>
-        </div>
-
-        {/* SYSTEM GROUP */}
-        <div>
-          {!isCollapsed && (
-            <div className="px-2.5 pb-1.5 font-mono text-[9px] uppercase tracking-wider text-[var(--text-dim)]">
-              SYSTEM
-            </div>
-          )}
-          <div className="space-y-0.5">
-            <button
-              onClick={() => onNavigate('settings')}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-xs font-mono transition text-left ${
-                currentPage === 'settings'
-                  ? 'bg-[#f97316]/15 text-[#f97316] border-l-2 border-[#f97316] font-bold'
-                  : 'text-[var(--text-muted)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title="Preferences"
-            >
-              <Settings className="h-4 w-4 flex-shrink-0" />
-              {!isCollapsed && <span className="flex-1 truncate">Preferences</span>}
-            </button>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Sidebar Footer: Profile */}
-      <div className="p-3 border-t border-[var(--border-primary)] bg-[var(--bg-primary)]">
-        <div className={`flex items-center gap-2.5 ${isCollapsed ? 'justify-center' : ''}`}>
-          <div className="w-7 h-7 rounded-full bg-[#34404a] text-white flex items-center justify-center font-bold text-xs flex-shrink-0 font-mono">
-            SP
-          </div>
-          {!isCollapsed && (
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold text-[var(--text-primary)] truncate">
-                Researcher
-              </div>
-              <div className="text-[10px] text-[var(--text-dim)] truncate">
-                Workspace owner
+      {/* MIDDLE: Primary Ambient Navigation Icons */}
+      <div className="flex flex-col items-center gap-1.5 my-auto w-full">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = currentPage === item.id;
+          const isHovered = hoveredItem === item.id;
+
+          return (
+            <div key={item.id} className="relative flex items-center justify-center w-full">
+              {/* Active Indicator (Restrained 3px vertical pill) */}
+              {isActive && (
+                <div className="absolute left-0 w-[3px] h-4 bg-[#f97316] rounded-r-full shadow-[0_0_8px_rgba(249,115,22,0.8)]" />
+              )}
+
+              {/* Navigation Icon Button */}
+              <button
+                onClick={() => onNavigate(item.id)}
+                onMouseEnter={() => setHoveredItem(item.id)}
+                onMouseLeave={() => setHoveredItem(null)}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 relative group ${
+                  isActive
+                    ? 'text-[#f97316]'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+                }`}
+                aria-label={item.label}
+              >
+                <Icon className="w-5 h-5 transition-transform duration-150 group-hover:scale-105" />
+
+                {/* Subtle Count Pip if Badge Exists */}
+                {item.badge && !isActive && (
+                  <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-[var(--border-secondary)] group-hover:bg-[var(--text-muted)]" />
+                )}
+              </button>
+
+              {/* Ambient Hover Tooltip */}
+              {isHovered && (
+                <div className="absolute left-14 z-50 pointer-events-none whitespace-nowrap animate-fade-in">
+                  <div className="flex items-center gap-2 px-2.5 py-1 text-xs font-mono bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] text-[var(--text-primary)] shadow-2xl backdrop-blur-xl">
+                    <span className={isActive ? 'text-[#f97316] font-bold' : 'font-medium'}>
+                      {item.label}
+                    </span>
+                    {item.badge && (
+                      <span className="text-[9px] px-1 py-0.2 bg-[var(--bg-surface-hover)] text-[var(--text-dim)]">
+                        {item.badge}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* BOTTOM: Preferences */}
+      <div className="flex flex-col items-center gap-2 relative">
+        {/* Settings */}
+        <div className="relative flex items-center justify-center w-full">
+          {currentPage === 'settings' && (
+            <div className="absolute left-0 w-[3px] h-4 bg-[#f97316] rounded-r-full shadow-[0_0_8px_rgba(249,115,22,0.8)]" />
+          )}
+          <button
+            onClick={() => onNavigate('settings')}
+            onMouseEnter={() => setHoveredItem('settings')}
+            onMouseLeave={() => setHoveredItem(null)}
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-200 group ${
+              currentPage === 'settings'
+                ? 'text-[#f97316]'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+            }`}
+            title="Preferences"
+          >
+            <Settings className="w-5 h-5 transition-transform duration-150 group-hover:rotate-45" />
+          </button>
+
+          {hoveredItem === 'settings' && (
+            <div className="absolute left-14 z-50 pointer-events-none whitespace-nowrap animate-fade-in">
+              <div className="px-2.5 py-1 text-xs font-mono bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] text-[var(--text-primary)] shadow-2xl backdrop-blur-xl">
+                Preferences
               </div>
             </div>
           )}

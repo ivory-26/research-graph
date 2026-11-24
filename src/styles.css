@@ -8,12 +8,12 @@
 }
 
 :root {
-  --bg-primary: #0b0d0f;
-  --bg-surface: #0b0d0f;
-  --bg-surface-hover: #15181c;
-  --bg-surface-elevated: #16191f;
-  --border-primary: #242930;
-  --border-secondary: #353d47;
+  --bg-primary: #08090b;
+  --bg-surface: #08090b;
+  --bg-surface-hover: #121418;
+  --bg-surface-elevated: #15181f;
+  --border-primary: #1e2229;
+  --border-secondary: #2d333d;
   --text-primary: #ffffff;
   --text-secondary: #e5e5e5;
   --text-muted: #a3a3a3;
@@ -21,22 +21,22 @@
   --accent-orange: #f97316;
   --accent-orange-hover: #ea580c;
   --accent-orange-glow: rgba(249, 115, 22, 0.35);
-  --canvas-bg: #0b0d0f;
-  --grid-dot: #1e2229;
-  --minimap-mask: rgba(11, 13, 15, 0.85);
-  --header-bg: #0b0d0f;
-  --card-bg: #0b0d0f;
-  --card-border: #242930;
+  --canvas-bg: #08090b;
+  --grid-dot: #171b22;
+  --minimap-mask: rgba(8, 9, 11, 0.85);
+  --header-bg: #08090b;
+  --card-bg: #08090b;
+  --card-border: #1e2229;
   --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 html.light {
   --bg-primary: #f8fafc;
-  --bg-surface: #f8fafc;
+  --bg-surface: #ffffff;
   --bg-surface-hover: #f1f5f9;
   --bg-surface-elevated: #ffffff;
-  --border-primary: #cbd5e1;
-  --border-secondary: #94a3b8;
+  --border-primary: #e2e8f0;
+  --border-secondary: #cbd5e1;
   --text-primary: #0f172a;
   --text-secondary: #334155;
   --text-muted: #64748b;
@@ -45,12 +45,12 @@ html.light {
   --accent-orange-hover: #c2410c;
   --accent-orange-glow: rgba(234, 88, 12, 0.2);
   --canvas-bg: #f8fafc;
-  --grid-dot: #e2e8f0;
+  --grid-dot: #cbd5e1;
   --minimap-mask: rgba(248, 250, 252, 0.85);
-  --header-bg: #f8fafc;
-  --card-bg: #f8fafc;
-  --card-border: #cbd5e1;
-  --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 1);
+  --header-bg: #ffffff;
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --card-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 * {
@@ -76,23 +76,21 @@ body,
 html.dark,
 html.dark body,
 html.dark #app {
-  background: #0b0d0f;
+  background: #08090b;
   color: #e5e5e5;
   background-image: 
-    radial-gradient(at 0% 0%, rgba(249, 115, 22, 0.03) 0px, transparent 40%),
-    radial-gradient(at 100% 100%, rgba(255, 255, 255, 0.015) 0px, transparent 40%);
+    radial-gradient(at 0% 0%, rgba(249, 115, 22, 0.025) 0px, transparent 40%),
+    radial-gradient(at 100% 100%, rgba(255, 255, 255, 0.01) 0px, transparent 40%);
   background-attachment: fixed;
 }
 
 html.light,
 html.light body,
 html.light #app {
-  background: #f8fafc;
-  color: #334155;
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(249, 115, 22, 0.05) 0px, transparent 40%),
-    radial-gradient(at 100% 100%, rgba(15, 23, 42, 0.02) 0px, transparent 40%);
-  background-attachment: fixed;
+  background: #f8fafc !important;
+  background-color: #f8fafc !important;
+  background-image: none !important;
+  color: #0f172a !important;
 }
 
 /* Technical Monospace & Numeral Scaling */
@@ -128,6 +126,12 @@ html.light #app {
   transition: all 0.2s ease;
 }
 
+html.light .badge-solid-white {
+  background-color: #0f172a !important;
+  color: #ffffff !important;
+  border-color: #0f172a !important;
+}
+
 .badge-orange-outline {
   border: 1px solid rgba(249, 115, 22, 0.6);
   background-color: rgba(249, 115, 22, 0.08);
@@ -137,6 +141,12 @@ html.light #app {
   letter-spacing: 0.06em;
   padding: 1px 6px;
   border-radius: 0px;
+}
+
+html.light .badge-orange-outline {
+  border-color: rgba(234, 88, 12, 0.4);
+  background-color: rgba(234, 88, 12, 0.08);
+  color: #c2410c;
 }
 
 /* Precision Sharp Technical Surface */
@@ -165,35 +175,6 @@ html.light #app {
 }
 
 /* Animations */
-@keyframes edgeFlow {
-  from {
-    stroke-dashoffset: 24;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-.edge-flow-active {
-  stroke-dasharray: 6 6;
-  animation: edgeFlow 0.8s linear infinite;
-}
-
-@keyframes electricPulse {
-  0%, 100% {
-    opacity: 0.2;
-    stroke-width: 8px;
-  }
-  50% {
-    opacity: 0.6;
-    stroke-width: 13px;
-  }
-}
-
-.edge-halo-pulse {
-  animation: electricPulse 1.8s ease-in-out infinite;
-}
-
 @keyframes pulseGlow {
   0%, 100% {
     opacity: 1;
@@ -271,6 +252,21 @@ html.dark .node-premium-card:hover {
 .react-flow__node {
   border-radius: 0px !important;
   font-family: "Geist", "Inter", sans-serif;
+  z-index: 10 !important;
+}
+
+.react-flow__node:hover,
+.react-flow__node.selected {
+  z-index: 30 !important;
+}
+
+.react-flow__node:has(.memory-node-wrapper) {
+  border-radius: 9999px !important;
+  background: transparent !important;
+}
+
+.memory-node-wrapper {
+  user-select: none;
 }
 
 .react-flow__handle {

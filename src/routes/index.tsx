@@ -20,7 +20,8 @@ import {
   DEMO_EDGES,
 } from '../data/demoWorkspace';
 import type { WorkspaceNode, WorkspaceEdge } from '../data/demoWorkspace';
-import { Plus, PanelRight, Play } from 'lucide-react';
+import { executePipelineRun, ingestSourceIntoGraph } from '../server/pipelineBridge';
+import { Plus, Play } from 'lucide-react';
 
 export const Route = createFileRoute('/')({
   component: WorkspacePage,
@@ -66,14 +67,13 @@ const PAGE_META: Record<PageId, { title: string; subtitle: string }> = {
 };
 
 function WorkspacePage() {
-  const [nodes] = useState<WorkspaceNode[]>(DEMO_NODES);
+  const [nodes, setNodes] = useState<WorkspaceNode[]>(DEMO_NODES);
   const [edges, setEdges] = useState<WorkspaceEdge[]>(DEMO_EDGES);
 
   // Active view page matching the blueprint navigation
   const [currentPage, setCurrentPage] = useState<PageId>('graph');
 
   // UI state
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
@@ -101,6 +101,7 @@ function WorkspacePage() {
   ]);
 
   const selectedEdge = edges.find((e) => e.id === selectedEdgeId) || edges[0] || null;
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
 
   const handleUpdateEdgeStatus = (edgeId: string, status: 'accepted' | 'rejected') => {
     setEdges((prev) =>
@@ -109,63 +110,84 @@ function WorkspacePage() {
     showToast(`Edge marked as ${status.toUpperCase()} in local state`);
   };
 
-  const handleApproveExperiment = () => {
+  // Connects backend source ingestion to live graph nodes & edges
+  const handleIngestSource = (title: string, kind: 'web' | 'repo' | 'pdf', url?: string) => {
+    const { newSourceNode, newClaimNode, newEdge } = ingestSourceIntoGraph({ title, kind, url });
+    setNodes((prev) => [newSourceNode, newClaimNode, ...prev]);
+    setEdges((prev) => [newEdge, ...prev]);
+    showToast(`Ingested ${title}: Added source & claim node to graph!`);
+  };
+
+  // Connects Plan & Run to the backend experiment execution pipeline
+  const handleApproveExperiment = async () => {
     setIsApprovalOpen(false);
     setIsConsoleOpen(true);
-    showToast('Plan approved. Dispatching to E2B sandbox...');
+    showToast('Plan approved. Validating spec & dispatching to E2B sandbox...');
 
-    const timestamp = new Date().toLocaleTimeString();
-    setExecutionLogs((prev) => [
-      ...prev,
-      `[${timestamp}] [APPROVAL] approved experiment specification: Random Forest Importance`,
-      `[${timestamp}] [E2B] initializing isolated sandbox (allowInternetAccess: false)...`,
-      `[${timestamp}] [E2B] pinned dataset breast-w (SHA-256 match: 7f83b165...)`,
-      `[${timestamp}] [E2B] executing python main.py in microVM...`,
-    ]);
+    try {
+      const response = await executePipelineRun();
+      setExecutionLogs(response.logs);
 
-    setTimeout(() => {
-      const finishTime = new Date().toLocaleTimeString();
-      setExecutionLogs((prev) => [
-        ...prev,
-        `[${finishTime}] [E2B] RandomForestClassifier(n_estimators=100) training complete in 3.42s`,
-        `[${finishTime}] [EVALUATE] rank_impurity(noise_20) <= 5 -> 2 <= 5 (MATCH / PASS)`,
-        `[${finishTime}] [EVALUATE] rank_permutation(noise_20) > 15 -> 29 > 15 (MATCH / PASS)`,
-        `[${finishTime}] [SANDBOX] process terminated with exitCode 0. MicroVM killed.`,
-      ]);
-      showToast('E2B run finished successfully with verdict PASS');
-    }, 1500);
+      if (response.valid) {
+        // Update the result node in the graph with the verified verdict
+        setNodes((prev) =>
+          prev.map((n) =>
+            n.id === 'res1'
+              ? {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    title: `Reproducibility Verdict: ${response.verdict.toUpperCase()}`,
+                    status: 'accepted',
+                    metrics: response.metrics,
+                  },
+                }
+              : n,
+          ),
+        );
+        showToast(`Experiment run completed: Verdict ${response.verdict.toUpperCase()}`);
+      } else {
+        showToast(`Experiment validation failed: ${response.validationErrors?.join(', ')}`);
+      }
+    } catch {
+      showToast('Execution error in sandbox runner');
+    }
   };
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--bg-primary)] text-[var(--text-secondary)] font-sans">
-      {/* Top Navbar */}
-      <Navbar
+    <div className="flex h-screen w-screen overflow-hidden bg-[var(--bg-primary)] text-[var(--text-secondary)] font-sans">
+      {/* Ambient Seamless Left Navigation Rail */}
+      <Sidebar
         currentPage={currentPage}
-        pageTitle={PAGE_META[currentPage].title}
-        isSidebarCollapsed={isSidebarCollapsed}
-        onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        onOpenApproval={() => setIsApprovalOpen(true)}
-        onOpenExport={() => setIsExportOpen(true)}
-        onToggleConsole={() => setIsConsoleOpen(!isConsoleOpen)}
+        onNavigate={(page) => {
+          setCurrentPage(page);
+          if (page === 'graph') setIsInspectorOpen(true);
+        }}
       />
 
-      {/* Main Workspace Body with Sidebar & Content */}
-      <div className="flex flex-1 overflow-hidden relative">
-        {/* Left Sidebar */}
-        <Sidebar
-          currentPage={currentPage}
-          onNavigate={(page) => {
-            setCurrentPage(page);
-            if (page === 'graph') setIsInspectorOpen(true);
+      {/* Main Continuous Workspace Area */}
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0 bg-[var(--bg-primary)]">
+        {/* Top Navbar */}
+        <Navbar
+          currentWorkspace="Research Graph"
+          isInspectorOpen={isInspectorOpen}
+          onToggleInspector={() => setIsInspectorOpen(!isInspectorOpen)}
+          onOpenApproval={() => setIsApprovalOpen(true)}
+          onOpenExport={() => setIsExportOpen(true)}
+          onToggleConsole={() => setIsConsoleOpen(!isConsoleOpen)}
+          onAddSource={() => {
+            if (currentPage === 'sources') {
+              const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+              if (input) input.click();
+            } else {
+              setCurrentPage('sources');
+            }
           }}
-          isCollapsed={isSidebarCollapsed}
-          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         />
 
-        {/* Right Content Area */}
-        <div className="flex flex-1 flex-col overflow-hidden min-w-0 bg-[var(--bg-primary)]">
-          {/* Subheader Pagebar */}
-          <div className="flex min-h-[52px] flex-none items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-surface)] px-5 py-2 select-none">
+        {/* Subheader Pagebar (Only for non-graph pages; Graph has no redundant title row) */}
+        {currentPage !== 'graph' && (
+          <div className="flex min-h-[46px] flex-none items-center justify-between border-b border-[var(--border-primary)] bg-transparent px-5 py-2 select-none">
             <div>
               <div className="text-sm font-bold text-[var(--text-primary)] font-mono">
                 {PAGE_META[currentPage].title}
@@ -176,30 +198,6 @@ function WorkspacePage() {
             </div>
 
             <div className="flex items-center gap-2">
-              {currentPage === 'graph' && (
-                <>
-                  <button
-                    onClick={() => setIsInspectorOpen(!isInspectorOpen)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono border transition ${
-                      isInspectorOpen
-                        ? 'border-[#f97316] text-[#f97316] bg-[#f97316]/10'
-                        : 'border-[var(--border-primary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                    }`}
-                    title="Toggle Context Inspector"
-                  >
-                    <PanelRight className="h-3.5 w-3.5" />
-                    <span>Inspector</span>
-                  </button>
-                  <button
-                    onClick={() => setCurrentPage('sources')}
-                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono border border-[var(--border-primary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    <span>Add source</span>
-                  </button>
-                </>
-              )}
-
               {currentPage === 'sources' && (
                 <button
                   onClick={() => {
@@ -224,75 +222,91 @@ function WorkspacePage() {
               )}
             </div>
           </div>
+        )}
 
-          {/* Page Views Container */}
-          <div className="flex-1 overflow-auto relative">
-            {currentPage === 'overview' && (
-              <OverviewPage onOpenGraph={() => setCurrentPage('graph')} />
-            )}
+        {/* Page Views Container */}
+        <div className="flex-1 overflow-auto relative">
+          {currentPage === 'overview' && (
+            <OverviewPage onOpenGraph={() => setCurrentPage('graph')} />
+          )}
 
-            {currentPage === 'graph' && (
-              <div className="relative flex h-full flex-1 overflow-hidden">
-                <ResearchCanvas
-                  initialNodes={nodes}
-                  initialEdges={edges}
-                  selectedEdgeId={selectedEdgeId}
-                  selectedNodeId={selectedNodeId}
-                  onSelectEdge={(id) => {
-                    setSelectedEdgeId(id);
+          {currentPage === 'graph' && (
+            <div className="relative flex h-full flex-1 overflow-hidden">
+              <ResearchCanvas
+                initialNodes={nodes}
+                initialEdges={edges}
+                selectedEdgeId={selectedEdgeId}
+                selectedNodeId={selectedNodeId}
+                onSelectEdge={(id) => {
+                  setSelectedEdgeId(id);
+                  setSelectedNodeId(null);
+                  setIsInspectorOpen(true);
+                }}
+                onSelectNode={(id) => {
+                  setSelectedNodeId(id);
+                  if (id) setIsInspectorOpen(true);
+                }}
+              />
+              {isInspectorOpen && (
+                <EvidencePanel
+                  node={selectedNode}
+                  edge={selectedNode ? null : selectedEdge}
+                  allNodes={nodes}
+                  allEdges={edges}
+                  onSelectNode={(id) => {
+                    setSelectedNodeId(id);
                     setIsInspectorOpen(true);
                   }}
-                  onSelectNode={(id) => setSelectedNodeId(id)}
+                  onSelectEdge={(id) => {
+                    setSelectedEdgeId(id);
+                    setSelectedNodeId(null);
+                    setIsInspectorOpen(true);
+                  }}
+                  onUpdateStatus={handleUpdateEdgeStatus}
+                  onClose={() => setIsInspectorOpen(false)}
                 />
-                {isInspectorOpen && (
-                  <EvidencePanel
-                    edge={selectedEdge}
-                    onUpdateStatus={handleUpdateEdgeStatus}
-                    onClose={() => setIsInspectorOpen(false)}
-                  />
-                )}
-              </div>
-            )}
+              )}
+            </div>
+          )}
 
-            {currentPage === 'sources' && (
-              <SourcesPage onShowToast={showToast} />
-            )}
+          {currentPage === 'sources' && (
+            <SourcesPage onShowToast={showToast} onIngestSource={handleIngestSource} />
+          )}
 
-            {currentPage === 'ask' && (
-              <AskResearchPage />
-            )}
+          {currentPage === 'ask' && (
+            <AskResearchPage />
+          )}
 
-            {currentPage === 'agents' && (
-              <AgentMonitorPage />
-            )}
+          {currentPage === 'agents' && (
+            <AgentMonitorPage />
+          )}
 
-            {currentPage === 'experiments' && (
-              <ExperimentsPage
-                onOpenApproval={() => setIsApprovalOpen(true)}
-                onOpenCompare={() => setCurrentPage('compare')}
-              />
-            )}
+          {currentPage === 'experiments' && (
+            <ExperimentsPage
+              onOpenApproval={() => setIsApprovalOpen(true)}
+              onOpenCompare={() => setCurrentPage('compare')}
+            />
+          )}
 
-            {currentPage === 'compare' && (
-              <ComparisonView />
-            )}
+          {currentPage === 'compare' && (
+            <ComparisonView />
+          )}
 
-            {currentPage === 'strategies' && (
-              <StrategyDashboard />
-            )}
+          {currentPage === 'strategies' && (
+            <StrategyDashboard />
+          )}
 
-            {currentPage === 'settings' && (
-              <SettingsPage onShowToast={showToast} />
-            )}
-          </div>
-
-          {/* Bottom Execution Console Drawer */}
-          <ConsoleDrawer
-            isOpen={isConsoleOpen}
-            onClose={() => setIsConsoleOpen(false)}
-            logs={executionLogs}
-          />
+          {currentPage === 'settings' && (
+            <SettingsPage onShowToast={showToast} />
+          )}
         </div>
+
+        {/* Bottom Execution Console Drawer */}
+        <ConsoleDrawer
+          isOpen={isConsoleOpen}
+          onClose={() => setIsConsoleOpen(false)}
+          logs={executionLogs}
+        />
       </div>
 
       {/* Global Modals */}

@@ -10,33 +10,63 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiIngestRouteImport } from './routes/api/ingest'
+import { Route as ApiRetrievalRouteImport } from './routes/api/retrieval'
+import { Route as ApiPipelineRunRouteImport } from './routes/api/pipeline/run'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiIngestRoute = ApiIngestRouteImport.update({
+  id: '/api/ingest',
+  path: '/api/ingest',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRetrievalRoute = ApiRetrievalRouteImport.update({
+  id: '/api/retrieval',
+  path: '/api/retrieval',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPipelineRunRoute = ApiPipelineRunRouteImport.update({
+  id: '/api/pipeline/run',
+  path: '/api/pipeline/run',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/ingest': typeof ApiIngestRoute
+  '/api/retrieval': typeof ApiRetrievalRoute
+  '/api/pipeline/run': typeof ApiPipelineRunRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/ingest': typeof ApiIngestRoute
+  '/api/retrieval': typeof ApiRetrievalRoute
+  '/api/pipeline/run': typeof ApiPipelineRunRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/ingest': typeof ApiIngestRoute
+  '/api/retrieval': typeof ApiRetrievalRoute
+  '/api/pipeline/run': typeof ApiPipelineRunRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/api/ingest' | '/api/retrieval' | '/api/pipeline/run'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/api/ingest' | '/api/retrieval' | '/api/pipeline/run'
+  id: '__root__' | '/' | '/api/ingest' | '/api/retrieval' | '/api/pipeline/run'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiIngestRoute: typeof ApiIngestRoute
+  ApiRetrievalRoute: typeof ApiRetrievalRoute
+  ApiPipelineRunRoute: typeof ApiPipelineRunRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +78,35 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/ingest': {
+      id: '/api/ingest'
+      path: '/api/ingest'
+      fullPath: '/api/ingest'
+      preLoaderRoute: typeof ApiIngestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/retrieval': {
+      id: '/api/retrieval'
+      path: '/api/retrieval'
+      fullPath: '/api/retrieval'
+      preLoaderRoute: typeof ApiRetrievalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/pipeline/run': {
+      id: '/api/pipeline/run'
+      path: '/api/pipeline/run'
+      fullPath: '/api/pipeline/run'
+      preLoaderRoute: typeof ApiPipelineRunRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiIngestRoute: ApiIngestRoute,
+  ApiRetrievalRoute: ApiRetrievalRoute,
+  ApiPipelineRunRoute: ApiPipelineRunRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
