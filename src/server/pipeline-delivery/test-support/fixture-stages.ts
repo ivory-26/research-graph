@@ -21,8 +21,16 @@ export type FixtureStageOptions = {
   spec: ExperimentSpec
   runId?: string
   result?: ExperimentResult
+  /** Hook after the last PLAN_EXPERIMENT emit, before `plan` returns. */
+  duringPlan?: (context: PipelineStageContext) => Promise<void>
   /** Hook after `run.started`, before the result. Used to test aborts. */
   duringExecute?: (context: PipelineStageContext) => Promise<void>
+  /**
+   * Defaults to true. With false the fixture never inspects `signal`, which
+   * simulates a provider that ignores cancellation so the transport's own
+   * deadline enforcement can be exercised.
+   */
+  cooperative?: boolean
 }
 
 export type FixtureStages = {
@@ -36,11 +44,13 @@ export function createFixtureStages(
 ): FixtureStages {
   const runId = options.runId ?? 'run-fixture-1'
   const result = options.result ?? fixtureResult()
+  const cooperative = options.cooperative ?? true
 
   let planCalls = 0
   let executeCalls = 0
 
   const throwIfAborted = (context: PipelineStageContext): void => {
+    if (!cooperative) return
     if (context.signal.aborted) throw context.signal.reason
   }
 
@@ -70,6 +80,8 @@ export function createFixtureStages(
         taskId: null,
         error: null,
       })
+
+      await options.duringPlan?.(context)
 
       return { spec: options.spec }
     },

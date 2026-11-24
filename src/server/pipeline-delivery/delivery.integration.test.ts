@@ -7,8 +7,11 @@
  * the runtime workstream (#23/#24/#25) is not on main. The approval is written
  * by a separate handler call, which is the cross-request case #6 exists for.
  *
- * Skipped unless `TEST_DATABASE_URL` is set. See the PR description for the
- * exact command used to run them against a disposable pgvector container.
+ * Skipped unless `TEST_DATABASE_URL` is set. The URL names a *server*; the
+ * harness creates a uniquely named, disposable database on it, migrates only
+ * that database, and drops only that database. The database named in the URL
+ * is never migrated or truncated. See `test-support/pg.ts` for the checks and
+ * the local pgvector command.
  */
 import {
   afterAll,
@@ -32,7 +35,6 @@ import {
 } from './test-support/fixture-stages'
 import {
   createTestDatabase,
-  resetData,
   seedWorkspace,
   type SeededWorkspace,
   type TestDatabase,
@@ -69,7 +71,7 @@ describeIntegration('pipeline delivery over real Postgres', () => {
   })
 
   beforeEach(async () => {
-    await resetData(testDb.pool)
+    await testDb.reset()
     seed = await seedWorkspace(testDb.pool)
   })
 
@@ -641,6 +643,174 @@ describeIntegration('pipeline delivery over real Postgres', () => {
 
     await sse.waitForClose(5_000)
     expect(fixture.executeCalls).toBe(1)
+    expect(await getClaim(seed.experimentId)).toMatchObject({
+      close_reason: 'failed',
+    })
+  })
+
+  it('stops streaming at the budget even when plan ignores the abort signal', async () => {
+    let releasePlan: () => void = () => undefined
+    const planGate = new Promise<void>((resolve) => {
+      releasePlan = resolve
+    })
+
+    const fixture = createFixtureStages({
+      spec: seed.spec,
+      cooperative: false,
+      // Never settles until the test releases it, and never looks at `signal`.
+      duringPlan: () => planGate,
+    })
+    const handlers = handlersFor({
+      fixture,
+      timings: {
+        budgetMs: 500,
+        heartbeatIntervalMs: 50,
+        approvalPollIntervalMs: 20,
+        eventPollIntervalMs: 20,
+        claimTtlMs: 5_000,
+      },
+    })
+
+    const sse = consume(
+      await handlers.stream(streamRequest(seed.experimentId), {
+        experimentId: seed.experimentId,
+      }),
+    )
+
+    const failed = (await sse.waitFor(
+      (event) => event.type === 'pipeline.failed',
+      5_000,
+    )) as Extract<PipelineEvent, { type: 'pipeline.failed' }>
+    expect(failed.error).toMatch(/budget/i)
+    await sse.waitForClose(5_000)
+
+    // No run had started, so there is exactly one terminal and no timeout.
+    expect(await countEvents(seed.experimentId, 'pipeline.failed')).toBe(1)
+    expect(await countEvents(seed.experimentId, 'run.timeout')).toBe(0)
+    expect(await countEvents(seed.experimentId, 'approval.requested')).toBe(0)
+    expect(await getGate(seed.experimentId)).toBeNull()
+    expect(fixture.planCalls).toBe(1)
+    expect(fixture.executeCalls).toBe(0)
+
+    // The stage returns after the deadline. Its continuation must not open a
+    // gate, append an event, or write anything else.
+    releasePlan()
+    await new Promise((resolve) => setTimeout(resolve, 150))
+
+    expect(await countEvents(seed.experimentId, 'pipeline.failed')).toBe(1)
+    expect(await countEvents(seed.experimentId, 'approval.requested')).toBe(0)
+    expect(await getGate(seed.experimentId)).toBeNull()
+    expect(await getClaim(seed.experimentId)).toMatchObject({
+      close_reason: 'failed',
+    })
+  })
+
+  it('writes run.timeout and one terminal when execute ignores the abort signal', async () => {
+    let releaseExecute: () => void = () => undefined
+    const executeGate = new Promise<void>((resolve) => {
+      releaseExecute = resolve
+    })
+
+    const fixture = createFixtureStages({
+      spec: seed.spec,
+      cooperative: false,
+      duringExecute: () => executeGate,
+    })
+    const handlers = handlersFor({
+      fixture,
+      timings: {
+        budgetMs: 600,
+        heartbeatIntervalMs: 60,
+        approvalPollIntervalMs: 20,
+        eventPollIntervalMs: 20,
+        claimTtlMs: 5_000,
+      },
+    })
+
+    const sse = consume(
+      await handlers.stream(streamRequest(seed.experimentId), {
+        experimentId: seed.experimentId,
+      }),
+    )
+    const requested = await sse.waitFor(
+      (event) => event.type === 'approval.requested',
+    )
+
+    await handlers.approve(
+      approveRequest(seed.experimentId, {
+        gateSeq: requested.seq,
+        decision: 'approved',
+      }),
+      { experimentId: seed.experimentId },
+    )
+
+    const timedOut = (await sse.waitFor(
+      (event) => event.type === 'run.timeout',
+      5_000,
+    )) as Extract<PipelineEvent, { type: 'run.timeout' }>
+    expect(timedOut.runId).toBe('run-fixture-1')
+    expect(timedOut.budgetMs).toBe(600)
+
+    const failed = (await sse.waitFor(
+      (event) => event.type === 'pipeline.failed',
+      5_000,
+    )) as Extract<PipelineEvent, { type: 'pipeline.failed' }>
+    expect(failed.error).toMatch(/budget/i)
+    await sse.waitForClose(5_000)
+
+    // The stage returns late and keeps going. None of its later events may be
+    // persisted, and `pipeline.completed` must never appear.
+    releaseExecute()
+    await new Promise((resolve) => setTimeout(resolve, 150))
+
+    expect(await countEvents(seed.experimentId, 'pipeline.completed')).toBe(0)
+    expect(await countEvents(seed.experimentId, 'run.succeeded')).toBe(0)
+    expect(await countEvents(seed.experimentId, 'run.timeout')).toBe(1)
+    expect(await countEvents(seed.experimentId, 'pipeline.failed')).toBe(1)
+    expect(await getClaim(seed.experimentId)).toMatchObject({
+      close_reason: 'failed',
+    })
+    expect(fixture.executeCalls).toBe(1)
+  })
+
+  it('never publishes a raw provider exception in the terminal event', async () => {
+    const secret = 'sk-test-provider-secret@db.internal:5432'
+    const fixture = createFixtureStages({
+      spec: seed.spec,
+      duringPlan: async () => {
+        throw new Error(`provider rejected the call (${secret})`)
+      },
+    })
+    const handlers = handlersFor({ fixture })
+
+    const sse = consume(
+      await handlers.stream(streamRequest(seed.experimentId), {
+        experimentId: seed.experimentId,
+      }),
+    )
+
+    const failed = (await sse.waitFor(
+      (event) => event.type === 'pipeline.failed',
+      5_000,
+    )) as Extract<PipelineEvent, { type: 'pipeline.failed' }>
+    expect(failed.error).not.toContain('sk-test-provider-secret')
+    expect(failed.error).not.toContain('db.internal')
+    expect(failed.error).toMatch(/unexpectedly/i)
+    await sse.waitForClose(5_000)
+
+    const persisted = await testDb.pool.query<{
+      event: Extract<PipelineEvent, { type: 'pipeline.failed' }>
+    }>(
+      `SELECT event
+         FROM pipeline_events
+        WHERE experiment_id = $1 AND type = 'pipeline.failed'`,
+      [seed.experimentId],
+    )
+    expect(persisted.rows).toHaveLength(1)
+    expect(persisted.rows[0]?.event.error).toBe(failed.error)
+    expect(JSON.stringify(persisted.rows[0]?.event)).not.toContain(
+      'sk-test-provider-secret',
+    )
     expect(await getClaim(seed.experimentId)).toMatchObject({
       close_reason: 'failed',
     })

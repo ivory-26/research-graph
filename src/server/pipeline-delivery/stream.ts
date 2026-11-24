@@ -17,6 +17,17 @@
  * Terminal semantics are the database's: appending `pipeline.completed`,
  * `pipeline.failed` or `pipeline.cancelled` closes the claim. A rejection
  * therefore ends as `pipeline.cancelled`, and EXECUTE is never reached.
+ *
+ * Deadline semantics: the 240-second budget is enforced here, by the caller,
+ * not only by the abort signal handed to the stages. A stage that ignores its
+ * signal cannot keep heartbeats alive or keep the response open: when the
+ * budget signal aborts, this module stops the heartbeat, appends the terminal
+ * event itself (`run.timeout` when a run had started, then `pipeline.failed`),
+ * delivers it, and closes the writer without waiting for the stage promise.
+ * `emit` refuses every event after the deadline, so a stage that returns late
+ * cannot append `pipeline.completed` or anything else. The cooperative signal
+ * is still passed to stages for real cleanup; it is no longer the only
+ * guarantee.
  */
 import type { PipelineEvent } from '../../shared/events'
 import type { PipelineEventInput } from '../../db/pipeline-validation'
@@ -102,6 +113,22 @@ function createWriter(
   }
 }
 
+/**
+ * Per-stream mutable state. The stage runner and the caller-side deadline
+ * supervisor share it so a single terminal event is written and every later
+ * write is refused, whichever of them acts first.
+ */
+type StreamState = {
+  /** Highest seq delivered to the client. */
+  cursor: number
+  /** True once a terminal event has been observed (durably or on the wire). */
+  terminal: boolean
+  /** True once the response is being finalized; no more work is accepted. */
+  finalized: boolean
+  /** `runId` from the last delivered `run.started`, for `run.timeout`. */
+  activeRunId: string | null
+}
+
 type RunContext = {
   writer: StreamWriter
   signal: AbortSignal
@@ -110,14 +137,44 @@ type RunContext = {
   budgetExpired(): boolean
 }
 
-function describeError(error: unknown): string {
+/**
+ * The text persisted as `pipeline.failed.error`.
+ *
+ * A raw exception message is not safe here: a driver or provider error can
+ * carry a connection string, a host, an API key fragment or a request id, and
+ * this string is both stored durably and streamed to the client. Details stay
+ * in the server log; the wire carries a code the database layer authored.
+ */
+export function describeStreamFailure(error: unknown): string {
   if (error instanceof PipelineDbError) {
-    return `${error.code}: ${error.message}`
+    return `The pipeline database refused the operation (${error.code})`
   }
-  if (error instanceof Error) {
-    return error.message
-  }
-  return String(error)
+  return 'The pipeline failed unexpectedly'
+}
+
+function budgetFailureMessage(budgetMs: number): string {
+  return `Pipeline stream budget of ${budgetMs} ms exhausted`
+}
+
+/** Resolves when the signal aborts. Never rejects and is not tied to a timer. */
+function waitForAbort(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve()
+  return new Promise((resolve) => {
+    signal.addEventListener('abort', () => resolve(), { once: true })
+  })
+}
+
+/** Writes one persisted event, refusing to deliver anything twice. */
+function writeEvent(
+  writer: StreamWriter,
+  state: StreamState,
+  event: PipelineEvent,
+): void {
+  if (event.seq <= state.cursor) return
+  if (isTerminalEventType(event.type)) state.terminal = true
+  if (event.type === 'run.started') state.activeRunId = event.runId
+  state.cursor = event.seq
+  writer.write(formatSseEvent(event))
 }
 
 /**
@@ -153,6 +210,13 @@ export function openPipelineStream(
       // round-trip. A comment is ignored by every SSE client.
       writer.write(SSE_HEARTBEAT_FRAME)
 
+      const state: StreamState = {
+        cursor: input.cursor,
+        terminal: false,
+        finalized: false,
+        activeRunId: null,
+      }
+
       const context: RunContext = {
         writer,
         signal,
@@ -164,21 +228,82 @@ export function openPipelineStream(
         budgetExpired: () => streamBudget.signal.aborted,
       }
 
-      const run =
-        input.mode === 'owner'
-          ? runOwner(context, input)
-          : runFollower(context, input)
+      let released = false
+      const release = (): void => {
+        if (released) return
+        released = true
+        state.finalized = true
+        stopHeartbeat?.()
+        streamBudget.dispose()
+        writer.close()
+      }
 
-      void run
-        .catch((error) => {
-          // Last-resort boundary: never let an exception escape into the
-          // stream without closing the response.
+      // Both outcomes are handled here, so the losing branch of the race can
+      // never leave an unhandled rejection behind.
+      const run = (
+        input.mode === 'owner'
+          ? runOwner(context, input, state)
+          : runFollower(context, input, state)
+      ).then(
+        () => 'finished' as const,
+        (error: unknown) => {
           console.error('[pipeline-delivery] stream failed', error)
-        })
-        .finally(() => {
+          return 'finished' as const
+        },
+      )
+
+      const finalize = async (outcome: 'finished' | 'aborted'): Promise<void> => {
+        // The budget check comes first even for a finished run: a cooperative
+        // stage rejects as soon as its signal aborts, so the run can settle
+        // before the abort listener's microtask wins the race. The terminal is
+        // still owed.
+        if (streamBudget.signal.aborted && !state.terminal) {
+          state.finalized = true
           stopHeartbeat?.()
-          streamBudget.dispose()
-          writer.close()
+          try {
+            if (input.mode === 'owner') {
+              await finalizeOwnerAtBudget(input, writer, state)
+            } else {
+              // A follower cannot write a terminal event: it does not own the
+              // claim. A diagnostic comment is honest and changes no durable
+              // state.
+              writer.write(': stream budget exhausted\n\n')
+            }
+          } catch (error) {
+            // Finalization failed (for example, the database is unreachable).
+            // The response still closes; the claim then expires on its lease.
+            console.error(
+              '[pipeline-delivery] stream finalization failed',
+              error,
+            )
+          } finally {
+            release()
+          }
+          return
+        }
+
+        if (outcome === 'finished') {
+          release()
+          return
+        }
+
+        // A request abort (client disconnect) is not a terminal result
+        // (ADR 0003): no event is appended, and the claim expires on its own
+        // lease.
+        state.finalized = true
+        stopHeartbeat?.()
+        release()
+      }
+
+      void Promise.race([
+        run,
+        waitForAbort(signal).then(() => 'aborted' as const),
+      ])
+        .then(finalize)
+        .catch((error: unknown) => {
+          // Finalization itself must never become an unhandled rejection.
+          console.error('[pipeline-delivery] stream close failed', error)
+          release()
         })
     },
 
@@ -197,9 +322,109 @@ export function openPipelineStream(
   })
 }
 
+/**
+ * The terminal sequence for a budget expiry that the stage runner did not
+ * reach. Runs only after the budget signal aborted.
+ */
+async function finalizeOwnerAtBudget(
+  input: OpenPipelineStreamInput,
+  writer: StreamWriter,
+  state: StreamState,
+): Promise<void> {
+  const { data, experiment, timings } = input
+  const scope = {
+    experimentId: experiment.id,
+    workspaceId: experiment.workspaceId,
+  }
+
+  /** Delivers every persisted event the client has not seen yet. */
+  const replayUnseen = async (): Promise<void> => {
+    let after = state.cursor
+
+    for (;;) {
+      const page = await data.replayPipelineEvents({
+        ...scope,
+        afterSeq: after,
+        limit: 200,
+      })
+
+      for (const event of page.events) {
+        writeEvent(writer, state, event)
+        if (state.terminal) return
+      }
+
+      if (!page.hasMore) return
+      const last = page.events[page.events.length - 1]
+      if (!last || last.seq <= after) return
+      after = last.seq
+    }
+  }
+
+  /**
+   * Appends one event and delivers it. `EXPERIMENT_TERMINAL` means another
+   * writer published the terminal first, which is a success for this stream:
+   * the caller replays it rather than inventing a second one.
+   */
+  const appendEvent = async (
+    eventInput: PipelineEventInput,
+  ): Promise<'written' | 'terminal-exists' | 'failed'> => {
+    try {
+      const event = await data.appendPipelineEvent({
+        ...scope,
+        event: eventInput,
+      })
+      writeEvent(writer, state, event)
+      return 'written'
+    } catch (error) {
+      if (
+        error instanceof PipelineDbError &&
+        error.code === 'EXPERIMENT_TERMINAL'
+      ) {
+        return 'terminal-exists'
+      }
+      console.error(
+        '[pipeline-delivery] could not append the budget terminal event',
+        error,
+      )
+      return 'failed'
+    }
+  }
+
+  await replayUnseen()
+  if (state.terminal) return
+
+  if (state.activeRunId === null) {
+    // A `run.started` append may have been in flight when the deadline fired.
+    // One more read closes that window as far as the row lock ordering allows;
+    // without it a run that started at the deadline could miss `run.timeout`.
+    await replayUnseen()
+    if (state.terminal) return
+  }
+
+  if (state.activeRunId !== null) {
+    const outcome = await appendEvent({
+      type: 'run.timeout',
+      runId: state.activeRunId,
+      budgetMs: timings.budgetMs,
+    })
+    if (outcome === 'terminal-exists') {
+      await replayUnseen()
+      return
+    }
+    if (state.terminal) return
+  }
+
+  const outcome = await appendEvent({
+    type: 'pipeline.failed',
+    error: budgetFailureMessage(timings.budgetMs),
+  })
+  if (outcome === 'terminal-exists') await replayUnseen()
+}
+
 async function runOwner(
   context: RunContext,
   input: OpenPipelineStreamInput,
+  state: StreamState,
 ): Promise<void> {
   const stages = input.stages
   const ownerClaimId = input.ownerClaimId
@@ -211,18 +436,13 @@ async function runOwner(
   const experimentId = experiment.id
   const workspaceId = experiment.workspaceId
 
-  let cursor = input.cursor
-  let terminal = false
-  let activeRunId: string | null = null
-
-  const writeEvent = (event: PipelineEvent): void => {
-    if (event.seq <= cursor) return
-    if (isTerminalEventType(event.type)) context.stopHeartbeat()
-    context.writer.write(formatSseEvent(event))
-    cursor = event.seq
-    if (isTerminalEventType(event.type)) terminal = true
-    if (event.type === 'run.started') activeRunId = event.runId
-  }
+  /**
+   * No stage work is accepted after the deadline or after finalization. This
+   * is what prevents a slow provider from appending `pipeline.completed` or
+   * anything else once the budget is gone.
+   */
+  const stopped = (): boolean =>
+    context.cancelled() || context.budgetExpired() || state.finalized
 
   /**
    * Writes every persisted event after the cursor. Used at the gate and after
@@ -230,8 +450,8 @@ async function runOwner(
    * delivered with their real, persisted seq.
    */
   const flushPersisted = async (): Promise<void> => {
-    if (terminal) return
-    let after = cursor
+    if (state.terminal || state.finalized) return
+    let after = state.cursor
 
     for (;;) {
       const page = await data.replayPipelineEvents({
@@ -242,8 +462,8 @@ async function runOwner(
       })
 
       for (const event of page.events) {
-        writeEvent(event)
-        if (terminal) return
+        writeEvent(context.writer, state, event)
+        if (state.terminal) return
       }
 
       if (!page.hasMore) return
@@ -254,20 +474,23 @@ async function runOwner(
   }
 
   const emit: PipelineEmit = async (eventInput) => {
-    if (context.cancelled()) throw new StreamCancelledError()
+    if (stopped() || state.terminal) throw new StreamCancelledError()
     const event = await data.appendPipelineEvent({
       experimentId,
       workspaceId,
       event: eventInput,
     })
-    if (context.cancelled()) throw new StreamCancelledError()
-    writeEvent(event)
+    // The deadline may have passed while the append was in flight. The row is
+    // already committed; the budget finalizer replays it, so do not write it
+    // here and do not let the stage continue.
+    if (stopped() || state.terminal) throw new StreamCancelledError()
+    writeEvent(context.writer, state, event)
     return event
   }
 
   /** Best-effort terminal append. A failure means a terminal already exists. */
   const safeEmit = async (eventInput: PipelineEventInput): Promise<void> => {
-    if (context.cancelled() || terminal) return
+    if (stopped() || state.terminal) return
     try {
       await emit(eventInput)
     } catch {
@@ -277,10 +500,10 @@ async function runOwner(
 
   try {
     for (const event of input.initialEvents) {
-      writeEvent(event)
-      if (terminal) return
+      writeEvent(context.writer, state, event)
+      if (state.terminal) return
     }
-    if (terminal) return
+    if (state.terminal) return
 
     await emit({ type: 'pipeline.started', mode: experiment.mode })
 
@@ -293,7 +516,7 @@ async function runOwner(
     }
 
     const plan = await stages.plan(stageContext)
-    if (context.cancelled()) throw new StreamCancelledError()
+    if (stopped() || state.terminal) throw new StreamCancelledError()
 
     const opened = await data.openApprovalGate({
       experimentId,
@@ -304,7 +527,7 @@ async function runOwner(
 
     // Deliver the persisted approval.requested event.
     await flushPersisted()
-    if (terminal || context.cancelled()) return
+    if (stopped() || state.terminal) return
 
     const resolved = await waitForApproval(
       async () => {
@@ -327,7 +550,7 @@ async function runOwner(
 
     // Deliver the approval.resolved event written by the other request.
     await flushPersisted()
-    if (terminal || context.cancelled()) return
+    if (stopped() || state.terminal) return
 
     if (resolved.state === 'rejected') {
       // A rejection ends the run as cancelled. EXECUTE is never called.
@@ -342,13 +565,17 @@ async function runOwner(
     )
 
     await flushPersisted()
-    if (terminal || context.cancelled()) return
+    if (stopped() || state.terminal) return
 
     await emit({ type: 'pipeline.completed', runId: execution.runId })
   } catch (error) {
-    if (terminal || context.cancelled()) return
+    if (state.terminal || state.finalized || context.cancelled()) return
 
     if (error instanceof StreamCancelledError) return
+
+    // The deadline supervisor owns the terminal event at expiry; it writes
+    // `run.timeout` (when a run had started) and `pipeline.failed`.
+    if (context.budgetExpired()) return
 
     if (
       error instanceof PipelineDbError &&
@@ -360,81 +587,59 @@ async function runOwner(
       return
     }
 
-    if (context.budgetExpired()) {
-      if (activeRunId !== null) {
-        await safeEmit({
-          type: 'run.timeout',
-          runId: activeRunId,
-          budgetMs: timings.budgetMs,
-        })
-      }
-      await safeEmit({
-        type: 'pipeline.failed',
-        error: `Pipeline stream budget of ${timings.budgetMs} ms exhausted`,
-      })
-      return
-    }
-
-    await safeEmit({ type: 'pipeline.failed', error: describeError(error) })
+    // Full detail stays in the log; the durable/streamed text is generic.
+    console.error('[pipeline-delivery] pipeline failed', error)
+    await safeEmit({
+      type: 'pipeline.failed',
+      error: describeStreamFailure(error),
+    })
   }
 }
 
 async function runFollower(
   context: RunContext,
   input: OpenPipelineStreamInput,
+  state: StreamState,
 ): Promise<void> {
   const { experiment, data, timings } = input
   const experimentId = experiment.id
   const workspaceId = experiment.workspaceId
 
-  let cursor = input.cursor
-  let terminal = false
-
-  const writeEvent = (event: PipelineEvent): void => {
-    if (event.seq <= cursor) return
-    if (isTerminalEventType(event.type)) context.stopHeartbeat()
-    context.writer.write(formatSseEvent(event))
-    cursor = event.seq
-    if (isTerminalEventType(event.type)) terminal = true
-  }
-
   try {
     for (const event of input.initialEvents) {
-      writeEvent(event)
-      if (terminal) return
+      writeEvent(context.writer, state, event)
+      if (state.terminal) return
     }
-    if (terminal) return
+    if (state.terminal) return
 
     for (;;) {
       const page = await data.replayPipelineEvents({
         experimentId,
         workspaceId,
-        afterSeq: cursor,
+        afterSeq: state.cursor,
         limit: 200,
       })
 
       for (const event of page.events) {
-        writeEvent(event)
-        if (terminal) return
+        writeEvent(context.writer, state, event)
+        if (state.terminal) return
       }
-      if (terminal) return
+      if (state.terminal) return
       if (context.cancelled()) return
 
       if (context.budgetExpired()) {
-        // A follower cannot write a terminal event: it does not own the claim.
-        // A diagnostic comment is honest and changes no durable state.
-        context.writer.write(': stream budget exhausted\n\n')
+        // The caller-side supervisor writes the diagnostic comment and closes
+        // the response; a follower cannot write a terminal event because it
+        // does not own the claim.
         return
       }
 
       await abortableSleep(timings.eventPollIntervalMs, context.signal)
     }
   } catch {
-    if (context.cancelled()) return
-    if (context.budgetExpired()) {
-      context.writer.write(': stream budget exhausted\n\n')
-      return
-    }
+    if (state.terminal || state.finalized) return
+    if (context.cancelled() || context.budgetExpired()) return
+
     // A durable read failure means this follower cannot know whether more
     // events exist. Close without fabricating an event.
     context.writer.write(': stream ended: durable read failed\n\n')

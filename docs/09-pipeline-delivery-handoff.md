@@ -75,8 +75,11 @@ Rules the provider must keep:
   (the database rejects a gate with a mismatched spec).
 - `execute` is called only after an approval, with the **offered** spec from
   the gate, never a newer plan.
-- A budget abort must stop work and let the transport emit `run.timeout` (when
-  a run had started) followed by `pipeline.failed`.
+- A budget abort should stop work and release resources, but the transport no
+  longer depends on that: it enforces the deadline itself and emits
+  `run.timeout` (when a run had started) followed by `pipeline.failed`.
+- `emit` rejects after the deadline. A stage that returns late cannot append
+  anything, including `pipeline.completed`.
 - Writing result/run nodes and the `produced` edge is #7's job, not the
   transport's.
 
@@ -123,9 +126,46 @@ the only contract is the `PipelineStages` interface above.
 - **240 s budget, 15 s heartbeat.** Defaults are the #33 primitives; tests
   inject shorter values. Budget expiry emits `run.timeout` when a run had
   started, then `pipeline.failed`; the terminal append closes the claim.
+- **Caller-side deadline.** The budget is enforced by the stream, not only by
+  the abort signal handed to a stage. `openPipelineStream` races the stage
+  runner against the budget/abort signal: when the budget fires it stops the
+  heartbeat, replays any committed events, appends `run.timeout` (when a run
+  had started) and one `pipeline.failed`, delivers them, and closes the
+  response without waiting for a stage that ignores `signal`. `emit` refuses
+  everything after the deadline, so a late stage cannot write
+  `pipeline.completed` or open a gate. The losing promise always has a
+  rejection handler, so a late stage rejection is not unhandled.
 - **Terminal semantics.** Only the claim owner appends a terminal event. A
   follower that runs out of budget closes with a comment and fabricates
   nothing.
+- **Failure text.** `pipeline.failed.error` is persisted and streamed, so a
+  raw provider or driver exception message is never copied into it. The wire
+  gets a generic sentence, or the database layer's own error code; full detail
+  stays in the server log.
+
+## What the deadline still cannot guarantee
+
+The transport now stops the response and writes the terminal independently of
+a non-cooperative stage, but these limits remain until the real provider (and
+the real sandbox) is wired:
+
+- **In-flight work is not rolled back.** A stage that ignores `signal` keeps
+  running in the Node process after the response closes. Its `emit` calls are
+  refused, but a database write already in flight when the deadline fires may
+  still commit. The durable event log stays ordered; the client may not see
+  that last event before the terminal.
+- **The sandbox is not killed by the transport.** `PipelineStages` has no
+  cancel hook. Killing an E2B sandbox on timeout belongs to the runner that
+  implements `execute`; until then, a cooperative stage is the only thing that
+  stops remote work.
+- **A terminal is only as durable as the database.** If the terminal append
+  fails (database unreachable), the response still closes, but no terminal row
+  exists; the claim then expires on its lease and ADR 0003 applies (the run is
+  lost).
+- **Real provider error shapes are untested.** The sanitizer is covered
+  against synthetic provider errors and the coded `PipelineDbError`; once
+  #23/#24/#25 land, confirm their thrown errors do not depend on `error`
+  reaching the client.
 
 ## Tests
 
@@ -134,19 +174,34 @@ handlers against a real Postgres database (committed migrations, real
 constraints and transactions) and covers: cross-request approve, rejection
 cancellation, concurrent GET claiming once, reconnect replay, auth/member
 denial (anonymous, non-member, member of another workspace), origin guards,
-gate-seq/actor binding, body validation, wait timeout, execute timeout, and
-"no provider means 503 with no claim written".
+gate-seq/actor binding, body validation, wait timeout, execute timeout,
+non-cooperative `plan` and `execute` (deadline enforced without their help),
+provider-error sanitization, and "no provider means 503 with no claim
+written".
 
 The stage provider in `test-support/fixture-stages.ts` is **test-only and
 disclosed**. It emits deterministic pipeline events and writes no `runs`,
 `nodes` or `edges` rows. No production path imports it.
 
-Run against a disposable pgvector database:
+Run against a local disposable pgvector container:
 
 ```bash
-TEST_DATABASE_URL=postgresql://... \
+docker run --rm -d --name rg-test-pg \
+  -e POSTGRES_PASSWORD=postgres -p 127.0.0.1:55432:5432 \
+  pgvector/pgvector:pg18
+
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/postgres \
   pnpm exec vitest run src/server/pipeline-delivery
 ```
+
+`TEST_DATABASE_URL` names a **server**, not a database the suite may modify.
+The harness creates a uniquely named `rg_test_*` database on it, migrates and
+resets only that database, and drops only that database when the suite ends.
+The database named in the URL is never migrated, truncated or dropped. The
+host must be loopback unless `TEST_DATABASE_ALLOW_REMOTE=1` is set explicitly
+for a disposable CI server. The role needs `CREATEDB`. `test-support/pg.ts`
+holds the checks; `test-support/pg-safety.test.ts` covers them without a
+connection.
 
 Without `TEST_DATABASE_URL`, the integration suite skips and the rest of
 `pnpm test` is unaffected.

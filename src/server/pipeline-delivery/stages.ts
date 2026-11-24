@@ -36,7 +36,13 @@ export type PipelineStageContext = {
   workspaceId: string
   /** The verified actor that owns the stream. */
   actorId: string
-  /** Aborts on client disconnect or when the 240-second budget expires. */
+  /**
+   * Aborts on client disconnect or when the 240-second budget expires. A
+   * provider should use it to stop work and release resources. It is not the
+   * transport's only guarantee: the stream also enforces the deadline itself,
+   * closes, and writes the terminal event even when a stage ignores this
+   * signal. After expiry `emit` rejects, so a late stage cannot append.
+   */
   signal: AbortSignal
   emit: PipelineEmit
 }
