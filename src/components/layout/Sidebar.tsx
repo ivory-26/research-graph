@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import rawWorkspace from '../../../fixtures/workspace.json';
 import {
   LayoutGrid,
   Network,
@@ -45,12 +46,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
 
+  const totalNodesCount = rawWorkspace.nodes.length;
+  const sourceNodesCount = rawWorkspace.nodes.filter((n) => n.type === 'source').length;
+  const claimNodesCount = rawWorkspace.nodes.filter((n) => n.type === 'claim').length;
+
   const navItems: NavItem[] = [
     { id: 'overview', label: 'Overview', icon: LayoutGrid, category: 'workspace' },
-    { id: 'graph', label: 'Research Graph', icon: Network, badge: '8', category: 'workspace' },
-    { id: 'sources', label: 'Sources', icon: FileText, badge: '3', category: 'workspace' },
+    { id: 'graph', label: 'Research Graph', icon: Network, badge: String(totalNodesCount), category: 'workspace' },
+    { id: 'sources', label: 'Sources', icon: FileText, badge: String(sourceNodesCount), category: 'workspace' },
     { id: 'ask', label: 'Ask Research', icon: Sparkles, category: 'workspace' },
-    { id: 'agents', label: 'Agent Monitor', icon: Cpu, badge: '2', category: 'experiments' },
+    { id: 'agents', label: 'Agent Monitor', icon: Cpu, category: 'experiments' },
     { id: 'experiments', label: 'Experiments', icon: FlaskConical, category: 'experiments' },
     { id: 'compare', label: 'Run Comparison', icon: GitCompare, category: 'experiments' },
     { id: 'strategies', label: 'Strategies', icon: BarChart3, category: 'analytics' },
@@ -114,7 +119,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span>Random Forest Study</span>
                 </div>
                 <div className="text-[10px] text-[var(--text-dim)] mt-0.5">
-                  3 sources · 1 claim · Active
+                  {sourceNodesCount} sources · {claimNodesCount} claim · Active
                 </div>
               </div>
               <span className="text-[9px] text-[#f97316] uppercase font-bold">Current</span>

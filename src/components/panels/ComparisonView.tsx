@@ -26,8 +26,8 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
   const verdictB = (resB?.data?.verdict as string) || 'preview';
   const delta = typeof rankA === 'number' && typeof rankB === 'number' ? rankB - rankA : null;
 
-  const datasetNode = DEMO_NODES.find((n) => n.type === 'dataset');
-  const maxRank = ((datasetNode?.data?.features as number) || 30) + 3;
+  // Total features in Strobl 2007 simulation setup: 9 binarized + 3 noise = 12
+  const maxRank = 12;
   const barWidthA = typeof rankA === 'number' ? `${Math.max(5, Math.min(100, Math.round((1 - (rankA - 1) / maxRank) * 100)))}%` : '50%';
   const barWidthB = typeof rankB === 'number' ? `${Math.max(5, Math.min(100, Math.round((1 - (rankB - 1) / maxRank) * 100)))}%` : '50%';
 

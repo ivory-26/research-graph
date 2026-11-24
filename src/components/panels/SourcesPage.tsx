@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Upload, Globe, GitBranch, Sparkles, CheckCircle2, ArrowRight } from 'lucide-react';
 import { IngestionPanel } from './IngestionPanel';
 import { DEMO_SOURCES } from '../../data/demoWorkspace';
+import rawWorkspace from '../../../fixtures/workspace.json';
 
 interface SourcesPageProps {
   onShowToast: (msg: string) => void;
@@ -17,15 +18,20 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
   const [selectedSourceForViewer, setSelectedSourceForViewer] = useState<string | null>(null);
 
   const [sources, setSources] = useState(() =>
-    DEMO_SOURCES.map((s) => ({
-      id: s.id,
-      title: s.title,
-      venue: s.venue,
-      pages: Math.max(1, Math.round(s.bytes / 35000)),
-      size: `${(s.bytes / 1024).toFixed(0)} KB`,
-      status: 'SEEDED',
-      doi: s.doi || s.url || '',
-    }))
+    DEMO_SOURCES.map((s) => {
+      const node = (rawWorkspace.nodes as any[]).find(
+        (n) => n.data?.sourceId === s.id || n.id === s.id
+      );
+      return {
+        id: s.id,
+        title: s.title,
+        venue: s.venue,
+        pages: node?.data?.pages ?? Math.max(1, Math.round(s.bytes / 35000)),
+        size: `${(s.bytes / 1024).toFixed(0)} KB`,
+        status: 'SEEDED',
+        doi: s.doi || s.url || '',
+      };
+    })
   );
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {

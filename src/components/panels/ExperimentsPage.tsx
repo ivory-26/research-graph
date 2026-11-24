@@ -156,7 +156,7 @@ export const ExperimentsPage: React.FC<ExperimentsPageProps> = ({
                 <td className="p-3">
                   <span className="badge-orange-outline !text-[8px] rounded-none">ADAPTED</span>
                 </td>
-                <td className="p-3 font-mono text-[11px] text-[var(--text-dim)]">rank_permutation(noise_20) &gt; 15</td>
+                <td className="p-3 font-mono text-[11px] text-[var(--text-dim)]">rank_permutation(noise_20) &gt; 5</td>
                 <td className="p-3">
                   <span className="badge-solid-white !text-[8px] rounded-none">SPECIFICATION</span>
                 </td>

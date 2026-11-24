@@ -110,6 +110,12 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
               </span>
             </div>
             <div className="flex items-center justify-between">
+              <span className="l">Dataset Size:</span>
+              <span className="m text-[var(--text-primary)] font-mono text-[11px]">
+                {primaryDataset?.bytes != null ? `${primaryDataset.bytes} bytes` : 'unknown until fetched'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
               <span className="l">Target Assertions:</span>
               <span className="m text-[var(--text-primary)] font-mono">{criteriaText}</span>
             </div>

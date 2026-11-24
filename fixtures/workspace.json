@@ -250,13 +250,13 @@
         "title": "Result A",
         "verdict": "preview",
         "metrics": {
-          "rank_impurity_noise_20": 2,
-          "rank_permutation_noise_20": 29
+          "rank_impurity_noise_20": 4,
+          "rank_permutation_noise_20": 11
         },
         "criteria": "rank_impurity(noise_20) <= 5",
         "verdictDetail": {
           "passed": true,
-          "summary": "Specification target: Noise feature with 20 categories ranked #2 in impurity importance."
+          "summary": "Specification target: Noise feature with 20 categories ranked #4 in impurity importance."
         }
       }
     },
@@ -271,13 +271,13 @@
         "title": "Result B",
         "verdict": "preview",
         "metrics": {
-          "rank_impurity_noise_20": 2,
-          "rank_permutation_noise_20": 29
+          "rank_impurity_noise_20": 4,
+          "rank_permutation_noise_20": 11
         },
-        "criteria": "rank_permutation(noise_20) > 15",
+        "criteria": "rank_permutation(noise_20) > 5",
         "verdictDetail": {
           "passed": true,
-          "summary": "Specification target: Permutation importance drops noise_20 from rank 2 to rank 29 (bottom quartile)."
+          "summary": "Specification target: Permutation importance drops noise_20 from rank 4 to rank 11 (bottom quartile)."
         }
       }
     }

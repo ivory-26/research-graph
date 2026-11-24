@@ -167,11 +167,11 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
                 </td>
                 <td className="py-3 text-[var(--text-muted)]">Claim</td>
                 <td className="py-3">
-                  <span className="badge-orange-outline !text-[8px] rounded-none">
-                    PROPOSED
+                  <span className="badge-solid-white !text-[8px] rounded-none">
+                    SEEDED
                   </span>
                 </td>
-                <td className="py-3 text-right text-[var(--text-dim)]">Today</td>
+                <td className="py-3 text-right text-[var(--text-dim)]">Seeded</td>
               </tr>
               <tr className="hover:bg-[var(--bg-surface-hover)]">
                 <td className="py-3 font-semibold text-[var(--text-primary)] flex items-center gap-2">

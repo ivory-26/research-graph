@@ -3,7 +3,7 @@ import { DEMO_STRATEGIES } from '../../data/demoWorkspace';
 
 export const AgentMonitorPage: React.FC = () => {
   const totalTasks = DEMO_STRATEGIES.reduce((sum, s) => sum + s.attempts, 0);
-  const medianLatency = DEMO_STRATEGIES.length > 0
+  const avgLatency = DEMO_STRATEGIES.length > 0
     ? (DEMO_STRATEGIES.reduce((sum, s) => sum + s.avgLatencyMs, 0) / DEMO_STRATEGIES.length / 1000).toFixed(1)
     : '0.0';
 
@@ -36,14 +36,15 @@ export const AgentMonitorPage: React.FC = () => {
         </div>
 
         <div className="border border-[var(--border-primary)] bg-[var(--card-bg)] p-5">
-          <div className="text-[10px] uppercase tracking-wider text-[var(--text-dim)]">
-            AVG LATENCY
+          <div className="text-[10px] uppercase tracking-wider text-[var(--text-dim)] flex items-center justify-between">
+            <span>AVG LATENCY</span>
+            <span className="badge-orange-outline !text-[8px] rounded-none">PREVIEW</span>
           </div>
           <div className="text-2xl font-extrabold text-[#f97316] my-2">
-            {medianLatency}s
+            {avgLatency}s
           </div>
           <div className="text-[11px] text-[var(--text-dim)]">
-            Average task latency
+            Mean task duration in demo fixture
           </div>
         </div>
       </div>

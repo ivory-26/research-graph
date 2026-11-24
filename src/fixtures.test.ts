@@ -133,8 +133,8 @@ describe('Workspace Fixture (Issue #17 Acceptance Criteria)', () => {
     expect(results.length).toBeGreaterThanOrEqual(2);
     expect(results.every((r: any) => r.data.verdict === 'preview')).toBe(true);
     for (const res of results) {
-      expect(res.data.metrics.rank_impurity_noise_20).toBe(2);
-      expect(res.data.metrics.rank_permutation_noise_20).toBe(29);
+      expect(res.data.metrics.rank_impurity_noise_20).toBe(4);
+      expect(res.data.metrics.rank_permutation_noise_20).toBe(11);
     }
   });
 

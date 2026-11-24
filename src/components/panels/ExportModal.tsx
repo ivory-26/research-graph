@@ -8,6 +8,14 @@ function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
   const dataset = spec.datasets[0];
   const checks = spec.criteria.checks;
 
+  const claimNode = (rawWorkspace.nodes as any[]).find((n) => n.type === 'claim');
+  const claimQuote =
+    claimNode?.data?.locator?.quote ||
+    'A variable with more categories has a higher probability to be selected in individual splits purely by chance. Consequently, impurity-based variable importance measures (Gini importance) are severely biased towards variables with many categories, even when they carry no actual information about the response.';
+  const claimPage = claimNode?.data?.locator?.page ?? 4;
+  const claimCharStart = claimNode?.data?.locator?.charStart ?? 3810;
+  const claimCharEnd = claimNode?.data?.locator?.charEnd ?? 4220;
+
   return JSON.stringify(
     {
       cells: [
@@ -18,7 +26,7 @@ function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
             '# Reproducibility Record: Strobl et al. (2007)\n',
             '**Paper:** Strobl et al. (2007) *Bias in random forest variable importance measures: Illustrations, sources and a solution*\n',
             '**DOI:** `10.1186/1471-2105-8-25`\n',
-            '**Claim (Verbatim):** "the variable importance measure of the original random forest method ... is artificially preferred for variables with many categories"\n',
+            `**Claim (Verbatim, p. ${claimPage}, chars ${claimCharStart}–${claimCharEnd}):** "${claimQuote}"\n`,
             `**Mode:** ${spec.mode}\n`,
             '**Verdict Status:** Specification Preview\n',
           ],
@@ -30,7 +38,7 @@ function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
           outputs: [],
           source: [
             '# 1. Pinned dependencies install\n',
-            '!pip install -q "scikit-learn==1.9.1" "pandas==2.2.0" "numpy==1.26.4"\n',
+            '!pip install -q "scikit-learn==1.9.1" "pandas==2.3.3" "numpy==2.5.5" "scipy==1.17.1" "matplotlib==3.10.0"\n',
           ],
         },
         {
@@ -41,10 +49,9 @@ function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
           source: [
             '# 2. Dataset retrieval and verification\n',
             'import pathlib, urllib.request, hashlib\n',
-            'data_dir = pathlib.Path("data")\n',
-            'data_dir.mkdir(exist_ok=True)\n',
-            `data_url = "${dataset?.url || 'https://raw.githubusercontent.com/datasets/breast-cancer/master/data/data.csv'}"\n`,
-            `dest_path = data_dir / "${dataset?.name || 'breast-w'}.csv"\n`,
+            `dest_path = pathlib.Path("${dataset?.path || 'data/breast-w.arff'}")\n`,
+            'dest_path.parent.mkdir(parents=True, exist_ok=True)\n',
+            `data_url = "${dataset?.url || 'https://www.openml.org/data/download/52350/breast-w.arff'}"\n`,
             'if not dest_path.exists():\n',
             '    urllib.request.urlretrieve(data_url, dest_path)\n',
             'data_bytes = dest_path.read_bytes()\n',

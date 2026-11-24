@@ -8,12 +8,26 @@ interface SettingsPageProps {
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({ onShowToast }) => {
   const { theme, toggleTheme } = useTheme();
-  const [workspaceName, setWorkspaceName] = useState('Random Forest Study');
-  const [mode, setMode] = useState('Adapted');
-  const [dataset, setDataset] = useState('OpenML:52350');
+  const [workspaceName, setWorkspaceName] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('rg_pref_ws') || 'Random Forest Study';
+    return 'Random Forest Study';
+  });
+  const [mode, setMode] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('rg_pref_mode') || 'Adapted';
+    return 'Adapted';
+  });
+  const [dataset, setDataset] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('rg_pref_dataset') || 'OpenML:52350';
+    return 'OpenML:52350';
+  });
 
   const handleSave = () => {
-    onShowToast('Preferences saved successfully');
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('rg_pref_ws', workspaceName);
+      localStorage.setItem('rg_pref_mode', mode);
+      localStorage.setItem('rg_pref_dataset', dataset);
+    }
+    onShowToast('Preferences saved to browser storage.');
   };
 
   return (
@@ -94,9 +108,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onShowToast }) => {
                 onChange={(e) => setMode(e.target.value)}
                 className="w-full bg-[var(--bg-surface)] border border-[var(--border-primary)] p-2 text-xs text-[var(--text-primary)] outline-none focus:border-[#f97316]"
               >
-                <option value="Adapted">Adapted</option>
-                <option value="Exact">Exact</option>
-                <option value="Conceptual">Conceptual</option>
+                <option value="Adapted">Adapted (empirically supported)</option>
               </select>
             </div>
 

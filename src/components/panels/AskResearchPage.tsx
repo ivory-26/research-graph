@@ -137,14 +137,8 @@ export const AskResearchPage: React.FC = () => {
       };
 
       setMessages((prev) => [...prev, aiMsg]);
+      setIsSearching(false);
     } catch {
-      const errorMsg: Message = {
-        id: `ai-err-${Date.now()}`,
-        sender: 'ai',
-        text: 'Unable to retrieve answer for query. Please select another query.',
-      };
-      setMessages((prev) => [...prev, errorMsg]);
-    } finally {
       setIsSearching(false);
     }
   };
@@ -159,7 +153,7 @@ export const AskResearchPage: React.FC = () => {
             <span>Ask Ingested Sources (Inquiry Preview)</span>
           </div>
           <div className="text-[11px] text-[var(--text-dim)] font-sans mt-0.5">
-            Literature inquiry preview · sample queries over indexed workspace papers
+            Literature inquiry preview · sample queries over workspace sources
           </div>
         </div>
         <span className="badge-solid-white !text-[9px] rounded-none">

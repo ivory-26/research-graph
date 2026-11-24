@@ -92,11 +92,9 @@ function WorkspacePage() {
     }, 2800);
   };
 
-  // Execution console simulation logs
+  // Execution console: neutral standby state until plan approval
   const [executionLogs, setExecutionLogs] = useState<string[]>([
-    '[09:41:02] workspace loaded · fixture: strobl-rf-importance',
-    '[09:41:03] 3 sources · 1 claim · 2 methods · 1 dataset · 2 runs indexed',
-    '[09:41:04] awaiting user action · E2B runner idle',
+    'Execution console ready · awaiting plan specification review',
   ]);
 
   const selectedEdge = edges.find((e) => e.id === selectedEdgeId) || edges[0] || null;
