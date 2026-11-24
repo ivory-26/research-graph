@@ -56,21 +56,26 @@ html.light {
 }
 
 /* Light theme contrast parity: map dark-tuned pastel accents to WCAG AA >= 4.5:1 values on light backgrounds */
-html.light .text-sky-400 {
+html.light .text-sky-400,
+html.light .text-sky-600 {
   color: #0369a1 !important;
 }
 html.light .text-violet-400,
-html.light .text-violet-300 {
+html.light .text-violet-300,
+html.light .text-violet-600 {
   color: #6d28d9 !important;
 }
-html.light .text-pink-400 {
+html.light .text-pink-400,
+html.light .text-pink-600 {
   color: #be185d !important;
 }
-html.light .text-amber-400 {
+html.light .text-amber-400,
+html.light .text-amber-600 {
   color: #b45309 !important;
 }
 html.light .text-emerald-400,
-html.light .text-emerald-300 {
+html.light .text-emerald-300,
+html.light .text-emerald-600 {
   color: #047857 !important;
 }
 

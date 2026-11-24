@@ -610,7 +610,7 @@ function CanvasInner({
                   ? 'bg-[#f97316] text-black font-bold shadow-[0_0_15px_rgba(249,115,22,0.55)]'
                   : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
                   }`}
-                title="Organic Force-Directed Memory Knowledge Graph"
+                title="Organic Force-Directed Memory Graph"
               >
                 <Share2 className="h-3 w-3" />
                 <span>MEMORY GRAPH</span>

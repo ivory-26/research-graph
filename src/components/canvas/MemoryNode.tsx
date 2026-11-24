@@ -304,7 +304,7 @@ export const MemoryNode: React.FC<NodeProps> = ({ id, data, selected }) => {
                 {sublabel}
               </span>
               <span className="font-mono text-[8px] text-[var(--text-dim)] border-l border-[var(--border-primary)] pl-2">
-                {degree} {degree === 1 ? 'connection' : 'connections'}
+                {degree} {degree === 1 ? 'edge' : 'edges'}
               </span>
             </div>
             <div className="text-[11px] font-semibold text-[var(--text-primary)] max-w-xs truncate font-mono">

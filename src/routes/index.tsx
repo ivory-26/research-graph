@@ -109,7 +109,7 @@ function WorkspacePage() {
 
   // Records source ingestion notification
   const handleIngestSource = (title: string, kind: 'web' | 'repo' | 'pdf', _url?: string) => {
-    showToast(`Source added: ${title} (${kind.toUpperCase()})`);
+    showToast(`Source queued: ${title} (${kind.toUpperCase()})`);
   };
 
   // Connects Plan & Run to the experiment approval lifecycle

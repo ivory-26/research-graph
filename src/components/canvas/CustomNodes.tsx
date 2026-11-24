@@ -574,7 +574,7 @@ export const RunNode: React.FC<NodeProps> = ({ data, selected }) => {
       </div>
 
       <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--text-dim)] font-mono">
-        <span>adapted</span>
+        <span>{String(data.mode ?? 'adapted')}</span>
         <span className="text-[var(--text-primary)]">{data.durationMs ? `${data.durationMs}ms` : 'dry run'}</span>
       </div>
     </div>

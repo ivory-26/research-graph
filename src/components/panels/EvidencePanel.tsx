@@ -425,7 +425,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         {/* Connected Knowledge Entities */}
         {neighborNodes.length > 0 && (
           <div className="space-y-1.5">
-            <div className="l">CONNECTED ENTITIES ({neighborNodes.length})</div>
+            <div className="l">CONNECTED NODES ({neighborNodes.length})</div>
             <div className="flex flex-wrap gap-1">
               {neighborNodes.map((nbr) => {
                 const nbrTheme = NODE_CATEGORY_THEMES[nbr.type] || NODE_CATEGORY_THEMES.source;
@@ -490,10 +490,10 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         <span className="badge-orange-outline rounded-none">{relation}</span>
         <span
           className={`b rounded-none ${isAccepted
-              ? 'border-[var(--text-primary)] bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold'
-              : isRejected
-                ? 'border-red-500/50 bg-red-500/10 text-red-500'
-                : 'border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-dim)]'
+            ? 'border-[var(--text-primary)] bg-[var(--text-primary)] text-[var(--bg-primary)] font-bold'
+            : isRejected
+              ? 'border-red-500/50 bg-red-500/10 text-red-500'
+              : 'border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-dim)]'
             }`}
         >
           {status}
@@ -542,8 +542,8 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           <button
             onClick={() => onUpdateStatus?.(edge.id, 'accepted')}
             className={`flex-1 h-9 rounded-none font-mono uppercase text-xs font-bold transition flex items-center justify-center gap-1.5 ${isAccepted
-                ? 'bg-[#f97316] text-black shadow-[0_0_15px_rgba(249,115,22,0.3)]'
-                : 'bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-90'
+              ? 'bg-[#f97316] text-black shadow-[0_0_15px_rgba(249,115,22,0.3)]'
+              : 'bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-90'
               }`}
           >
             <Check className="h-3.5 w-3.5" />
@@ -552,8 +552,8 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           <button
             onClick={() => onUpdateStatus?.(edge.id, 'rejected')}
             className={`flex-1 h-9 rounded-none font-mono uppercase text-xs transition border flex items-center justify-center gap-1.5 ${isRejected
-                ? 'bg-[var(--bg-surface)] text-red-500 border-red-500'
-                : 'bg-[var(--bg-surface)] text-[var(--text-dim)] border-[var(--border-primary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]'
+              ? 'bg-[var(--bg-surface)] text-red-500 border-red-500'
+              : 'bg-[var(--bg-surface)] text-[var(--text-dim)] border-[var(--border-primary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]'
               }`}
           >
             <XIcon className="h-3.5 w-3.5" />
