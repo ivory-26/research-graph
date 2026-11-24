@@ -68,7 +68,7 @@ export interface RejectedCitation {
 
 export interface RetrievePassagesOptions {
   /** Workspace scope for multi-tenant isolation */
-  workspaceId: string
+  workspaceId?: string
   /** Filter to specific source IDs */
   sourceIds?: string[]
   /** Maximum number of passages to return (default: 6) */
@@ -115,7 +115,7 @@ export interface RetrievalDeps {
 export async function retrieveCrossSourcePassages(
   db: Database,
   query: string,
-  options: RetrievePassagesOptions,
+  options: RetrievePassagesOptions = {},
   deps: RetrievalDeps = {},
 ): Promise<RetrievedPassage[]> {
   const trimmed = query.trim()
@@ -288,7 +288,7 @@ export function verifyCitationQuotes(
  */
 export async function askAcrossSources(
   query: string,
-  options: AskAcrossSourcesOptions,
+  options: AskAcrossSourcesOptions = {},
   deps: RetrievalDeps = {},
 ): Promise<AskAcrossSourcesResult> {
   const trimmed = query.trim()

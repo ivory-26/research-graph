@@ -1,5 +1,5 @@
 import rawWorkspace from '../../fixtures/workspace.json';
-import { HERO_EXPERIMENT_SPEC_RUN_A } from '../server/planner';
+import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../fixtures/hero-spec';
 
 export type NodeType = 'source' | 'claim' | 'method' | 'dataset' | 'result' | 'run' | 'note';
 export type EdgeRelation = 'supports' | 'contradicts' | 'cites' | 'uses_dataset' | 'tests' | 'produced' | 'derived_from';

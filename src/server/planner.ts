@@ -1,35 +1,17 @@
+import { posix } from 'node:path'
 import type { ExperimentSpec } from '../shared/types'
+import { PINNED_E2B_TEMPLATE } from './runner'
 
 /**
- * Pure isomorphic POSIX path normalizer.
- * Replaces node:path.posix so that planner logic remains 100% browser-compatible
- * without externalizing or throwing runtime module errors in client builds.
- */
-export function normalizePosixPath(p: string): string {
-  const normalized = p.replace(/\\/g, '/')
-  const segments = normalized.split('/')
-  const stack: string[] = []
-  for (const seg of segments) {
-    if (!seg || seg === '.') continue
-    if (seg === '..') {
-      stack.pop()
-    } else {
-      stack.push(seg)
-    }
-  }
-  const prefix = normalized.startsWith('/') ? '/' : ''
-  const result = prefix + stack.join('/')
-  return result || '.'
-}
-
-/**
- * Hard rules that an ExperimentSpec must satisfy, as specified in docs/03-agent-pipeline.md:
+ * Hard rules that an ExperimentSpec must satisfy, as specified in docs/03-agent-pipeline.md
+ * and Issue #23:
  * - mode is present and is not 'exact' (current product only produces 'adapted' or 'conceptual').
  * - Exactly one entrypoint, and it must exist in files (e.g. entrypoint "python main.py" -> "main.py" exists in files).
  * - Every dataset has a valid, resolvable URL (http/https).
- * - The script writes its metrics as json.dump to /output/metrics.json.
- * - Estimated runtime (timeoutSeconds) is under or equal to 60 seconds (or timeoutSeconds <= 120 per spec contract).
- * - No `pip install` inside any script file.
+ * - The script writes its metrics as json.dump to /output/metrics.json in executable code.
+ * - Estimated runtime (parameters.estimatedRuntimeSeconds or spec constraint) is under 60 seconds (Issue #23 / docs/03:83).
+ * - timeoutSeconds is bounded at 120 seconds (docs/04-experiment-runtime.md:18).
+ * - No `pip install` or `pip3 install` inside executable script files.
  * - Structural: network is 'none', language is 'python'.
  */
 
@@ -40,18 +22,703 @@ export interface SpecValidationResult {
 
 /**
  * Extracts the normalized file path from an entrypoint command string like "python main.py" or "python3 script.py"
+ * Strictly requires python or python3 invocation of a .py file, or a direct .py script.
+ * Rejects shell wrappers, shell operators (&&, ;, |, >, <), flags, and non-python entrypoints.
  */
 export function extractEntrypointFile(entrypoint: string): string | null {
-  const parts = entrypoint.trim().split(/\s+/)
-  if (parts.length >= 2 && (parts[0] === 'python' || parts[0] === 'python3')) {
-    const raw = parts[1] ?? null
-    return raw ? normalizePosixPath(raw) : null
+  const trimmed = entrypoint.trim()
+  // Reject shell operators, pipes, redirects, subshells, chaining
+  if (/[;&|><\n\r`$()]/.test(trimmed)) {
+    return null
   }
-  if (parts.length === 1 && parts[0]?.endsWith('.py')) {
-    return normalizePosixPath(parts[0])
+  const parts = trimmed.split(/\s+/)
+  if (parts.length === 2 && (parts[0] === 'python' || parts[0] === 'python3')) {
+    const raw = parts[1]
+    if (raw && raw.endsWith('.py') && !raw.startsWith('-')) {
+      return posix.normalize(raw.replace(/\\/g, '/'))
+    }
+    return null
   }
-  const fallback = parts[parts.length - 1] ?? null
-  return fallback ? normalizePosixPath(fallback) : null
+  if (parts.length === 1 && parts[0] && parts[0].endsWith('.py') && !parts[0].startsWith('-')) {
+    return posix.normalize(parts[0].replace(/\\/g, '/'))
+  }
+  return null
+}
+
+/**
+ * Strips single-line comments from Python source code, preserving line structure and string literals.
+ */
+export function stripPythonComments(source: string): string {
+  let result = ''
+  let i = 0
+  const n = source.length
+  let inSingle = false
+  let inDouble = false
+  let inTripleSingle = false
+  let inTripleDouble = false
+
+  while (i < n) {
+    if (inTripleDouble) {
+      if (source.slice(i, i + 3) === '"""' && source[i - 1] !== '\\') {
+        inTripleDouble = false
+        result += '"""'
+        i += 3
+        continue
+      }
+      result += source[i]
+      i++
+      continue
+    }
+    if (inTripleSingle) {
+      if (source.slice(i, i + 3) === "'''" && source[i - 1] !== '\\') {
+        inTripleSingle = false
+        result += "'''"
+        i += 3
+        continue
+      }
+      result += source[i]
+      i++
+      continue
+    }
+    if (inDouble) {
+      if (source[i] === '"' && source[i - 1] !== '\\') {
+        inDouble = false
+      }
+      result += source[i]
+      i++
+      continue
+    }
+    if (inSingle) {
+      if (source[i] === "'" && source[i - 1] !== '\\') {
+        inSingle = false
+      }
+      result += source[i]
+      i++
+      continue
+    }
+
+    if (source.slice(i, i + 3) === '"""' && (i === 0 || source[i - 1] !== '\\')) {
+      inTripleDouble = true
+      result += '"""'
+      i += 3
+      continue
+    }
+    if (source.slice(i, i + 3) === "'''" && (i === 0 || source[i - 1] !== '\\')) {
+      inTripleSingle = true
+      result += "'''"
+      i += 3
+      continue
+    }
+    if (source[i] === '"' && (i === 0 || source[i - 1] !== '\\')) {
+      inDouble = true
+      result += '"'
+      i++
+      continue
+    }
+    if (source[i] === "'" && (i === 0 || source[i - 1] !== '\\')) {
+      inSingle = true
+      result += "'"
+      i++
+      continue
+    }
+    if (source[i] === '#') {
+      while (i < n && source[i] !== '\n') {
+        i++
+      }
+      continue
+    }
+
+    result += source[i]
+    i++
+  }
+  return result
+}
+
+/**
+ * Strips comments, single-line string literals, and multi-line docstrings from Python source code
+ * so string literals, print statements, comments and docstrings cannot satisfy executable code checks.
+ */
+export function stripPythonLiteralsAndComments(source: string): string {
+  let result = ''
+  let i = 0
+  const n = source.length
+
+  while (i < n) {
+    // 1. Single line comment
+    if (source[i] === '#') {
+      while (i < n && source[i] !== '\n') {
+        i++
+      }
+      continue
+    }
+
+    // 2. Triple quoted docstrings: """ or '''
+    if (
+      (source.slice(i, i + 3) === '"""' || source.slice(i, i + 3) === "'''") &&
+      (i === 0 || source[i - 1] !== '\\')
+    ) {
+      const quote = source.slice(i, i + 3)
+      i += 3
+      while (i < n && source.slice(i, i + 3) !== quote) {
+        if (source[i] === '\\') {
+          i += 2
+        } else {
+          i++
+        }
+      }
+      i += 3
+      result += ' '
+      continue
+    }
+
+    // 3. Regular string literals: "..." or '...'
+    if (
+      (source[i] === '"' || source[i] === "'") &&
+      (i === 0 || source[i - 1] !== '\\')
+    ) {
+      const quote = source[i]
+      i++
+      while (i < n && source[i] !== quote && source[i] !== '\n') {
+        if (source[i] === '\\') {
+          i += 2
+        } else {
+          i++
+        }
+      }
+      if (i < n && source[i] === quote) {
+        i++
+      }
+      result += ' '
+      continue
+    }
+
+    result += source[i]
+    i++
+  }
+
+  return result
+}
+
+/**
+ * Checks whether Python source code contains an executable pip/pip3 install command.
+ * Inspects both stripped code (for inline shell/magic invocation) and string arguments
+ * passed to os.system or subprocess calls.
+ * Ignores comments, docstrings, and non-execution print statements.
+ */
+export function hasProhibitedPipInstall(source: string): boolean {
+  // 1. Direct executable invocation (e.g. !pip install or direct CLI syntax)
+  const executableCode = stripPythonLiteralsAndComments(source)
+  const pipPattern = /\b(pip|pip3)\s+install\b/i
+  if (pipPattern.test(executableCode)) {
+    return true
+  }
+
+  // 2. Prohibited pip invocation passed to os.system or subprocess
+  const codeWithoutComments = stripPythonComments(source)
+  const systemSubprocessPipPattern =
+    /(?:os\.system|subprocess\.(?:run|call|Popen|check_call|check_output))\s*\(\s*(?:\[\s*)?[frb]?['"][^'"]*\b(pip|pip3)\s+install\b/i
+  const listArgSubprocessPipPattern =
+    /subprocess\.(?:run|call|Popen|check_call|check_output)\s*\(\s*\[[^\]]*['"](?:pip|pip3)['"]\s*,\s*['"]install['"]/i
+
+  if (
+    systemSubprocessPipPattern.test(codeWithoutComments) ||
+    listArgSubprocessPipPattern.test(codeWithoutComments)
+  ) {
+    return true
+  }
+
+  // 3. Prohibited pip invocation via variable indirection: cmd = 'pip3 install torch'; os.system(cmd)
+  const varAssignRegex = /\b([a-zA-Z_]\w*)\s*=\s*f?['"][^'"]*\b(pip|pip3)\s+install\b/gi
+  let varMatch: RegExpExecArray | null
+  while ((varMatch = varAssignRegex.exec(codeWithoutComments)) !== null) {
+    const varName = varMatch[1]!
+    const varUsedInExecRegex = new RegExp(
+      `(?:os\\.system|subprocess\\.(?:run|call|Popen|check_call|check_output))\\s*\\(\\s*(?:\\[\\s*)?${varName}\\b`,
+    )
+    if (varUsedInExecRegex.test(codeWithoutComments)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Checks whether Python source code imports or executes subprocess.
+ * Prohibited per docs/04-experiment-runtime.md:96 ("No pip install. No subprocess. No network calls.")
+ */
+export function hasProhibitedSubprocess(source: string): boolean {
+  const executableCode = stripPythonLiteralsAndComments(source)
+  const pattern = /\b(?:import\s+subprocess|from\s+subprocess\s+import|subprocess\.)\b/
+  return pattern.test(executableCode)
+}
+
+/**
+ * Analyzes Python source to find functions reachable from module-level execution.
+ */
+function getReachablePythonFunctions(codeWithoutComments: string): Set<string> {
+  const lines = codeWithoutComments.split('\n')
+  const functionCallsInside = new Map<string, Set<string>>()
+  const callsAtModuleLevel = new Set<string>()
+  const scopeStack: Array<{ name: string; indent: number }> = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i]!
+    const trimmed = rawLine.trim()
+    if (!trimmed) continue
+
+    let indent = 0
+    for (let c = 0; c < rawLine.length; c++) {
+      if (rawLine[c] === ' ') indent++
+      else if (rawLine[c] === '\t') indent += 4
+      else break
+    }
+
+    while (scopeStack.length > 0 && scopeStack[scopeStack.length - 1]!.indent >= indent) {
+      scopeStack.pop()
+    }
+
+    const defMatch = /^def\s+([a-zA-Z_]\w*)\s*\(/.exec(trimmed)
+    if (defMatch && defMatch[1]) {
+      const funcName = defMatch[1]
+      scopeStack.push({ name: funcName, indent })
+      if (!functionCallsInside.has(funcName)) {
+        functionCallsInside.set(funcName, new Set())
+      }
+      continue
+    }
+
+    const classMatch = /^class\s+([a-zA-Z_]\w*)\b/.exec(trimmed)
+    if (classMatch && classMatch[1]) {
+      scopeStack.push({ name: `__class_${classMatch[1]}__`, indent })
+      continue
+    }
+
+    const callRegex = /\b([a-zA-Z_]\w*)\s*\(/g
+    let cm: RegExpExecArray | null
+    const currentScope = scopeStack.length > 0 ? scopeStack[scopeStack.length - 1]!.name : null
+
+    while ((cm = callRegex.exec(trimmed)) !== null) {
+      const calledName = cm[1]!
+      if (
+        calledName === 'print' ||
+        calledName === 'open' ||
+        calledName === 'json' ||
+        calledName === 'Path' ||
+        calledName === 'range' ||
+        calledName === 'len' ||
+        calledName === 'int' ||
+        calledName === 'str' ||
+        calledName === 'float' ||
+        calledName === 'dict' ||
+        calledName === 'list' ||
+        calledName === 'set'
+      ) {
+        continue
+      }
+      if (currentScope === null) {
+        callsAtModuleLevel.add(calledName)
+      } else {
+        if (!functionCallsInside.has(currentScope)) {
+          functionCallsInside.set(currentScope, new Set())
+        }
+        functionCallsInside.get(currentScope)!.add(calledName)
+      }
+    }
+  }
+
+  const reachable = new Set<string>(callsAtModuleLevel)
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const funcName of Array.from(reachable)) {
+      const callsInside = functionCallsInside.get(funcName)
+      if (callsInside) {
+        for (const called of callsInside) {
+          if (!reachable.has(called)) {
+            reachable.add(called)
+            changed = true
+          }
+        }
+      }
+    }
+  }
+
+  return reachable
+}
+
+/**
+ * Returns the enclosing function name at a given character index in codeWithoutComments,
+ * or null if the index is at module level.
+ */
+function getEnclosingFunctionName(codeWithoutComments: string, charIndex: number): string | null {
+  const upToChar = codeWithoutComments.slice(0, charIndex)
+  const lines = upToChar.split('\n')
+  const scopeStack: Array<{ name: string; indent: number }> = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i]!
+    const trimmed = rawLine.trim()
+    if (!trimmed) continue
+
+    let indent = 0
+    for (let c = 0; c < rawLine.length; c++) {
+      if (rawLine[c] === ' ') indent++
+      else if (rawLine[c] === '\t') indent += 4
+      else break
+    }
+
+    while (scopeStack.length > 0 && scopeStack[scopeStack.length - 1]!.indent >= indent) {
+      scopeStack.pop()
+    }
+
+    const defMatch = /^def\s+([a-zA-Z_]\w*)\s*\(/.exec(trimmed)
+    if (defMatch && defMatch[1]) {
+      scopeStack.push({ name: defMatch[1], indent })
+      continue
+    }
+
+    const classMatch = /^class\s+([a-zA-Z_]\w*)\b/.exec(trimmed)
+    if (classMatch && classMatch[1]) {
+      scopeStack.push({ name: `__class_${classMatch[1]}__`, indent })
+      continue
+    }
+  }
+
+  return scopeStack.length > 0 ? scopeStack[scopeStack.length - 1]!.name : null
+}
+
+/**
+ * Creates a byte mask where 1 indicates the index falls inside a string literal.
+ */
+function getStringLiteralMask(code: string): Uint8Array {
+  const n = code.length
+  const mask = new Uint8Array(n)
+  let i = 0
+  let inSingle = false
+  let inDouble = false
+  let inTripleSingle = false
+  let inTripleDouble = false
+
+  while (i < n) {
+    if (inTripleDouble) {
+      mask[i] = 1
+      if (code.slice(i, i + 3) === '"""' && code[i - 1] !== '\\') {
+        if (i + 1 < n) mask[i + 1] = 1
+        if (i + 2 < n) mask[i + 2] = 1
+        inTripleDouble = false
+        i += 3
+        continue
+      }
+      i++
+      continue
+    }
+    if (inTripleSingle) {
+      mask[i] = 1
+      if (code.slice(i, i + 3) === "'''" && code[i - 1] !== '\\') {
+        if (i + 1 < n) mask[i + 1] = 1
+        if (i + 2 < n) mask[i + 2] = 1
+        inTripleSingle = false
+        i += 3
+        continue
+      }
+      i++
+      continue
+    }
+    if (inDouble) {
+      mask[i] = 1
+      if (code[i] === '"' && code[i - 1] !== '\\') {
+        inDouble = false
+      }
+      i++
+      continue
+    }
+    if (inSingle) {
+      mask[i] = 1
+      if (code[i] === "'" && code[i - 1] !== '\\') {
+        inSingle = false
+      }
+      i++
+      continue
+    }
+
+    if (code.slice(i, i + 3) === '"""' && (i === 0 || code[i - 1] !== '\\')) {
+      inTripleDouble = true
+      mask[i] = 1
+      if (i + 1 < n) mask[i + 1] = 1
+      if (i + 2 < n) mask[i + 2] = 1
+      i += 3
+      continue
+    }
+    if (code.slice(i, i + 3) === "'''" && (i === 0 || code[i - 1] !== '\\')) {
+      inTripleSingle = true
+      mask[i] = 1
+      if (i + 1 < n) mask[i + 1] = 1
+      if (i + 2 < n) mask[i + 2] = 1
+      i += 3
+      continue
+    }
+    if (code[i] === '"' && (i === 0 || code[i - 1] !== '\\')) {
+      inDouble = true
+      mask[i] = 1
+      i++
+      continue
+    }
+    if (code[i] === "'" && (i === 0 || code[i - 1] !== '\\')) {
+      inSingle = true
+      mask[i] = 1
+      i++
+      continue
+    }
+
+    i++
+  }
+
+  return mask
+}
+
+/**
+ * Validates that an executable module actually writes metrics to /output/metrics.json via json.dump.
+ * Ensures the target path is checked inside the json.dump/open call and rejects string/comment/decoy occurrences.
+ * Requires at least one reachable json.dump targeting /output/metrics.json (at module level or called function),
+ * and does not fail on unrelated json writes to other files.
+ */
+export function validateScriptMetricsOutput(source: string): boolean {
+  // 1. Must contain json.dump call in executable code (outside strings and comments)
+  const executableCode = stripPythonLiteralsAndComments(source)
+  const hasExecutableJsonDump = /\bjson\.dump\s*\(/.test(executableCode)
+  if (!hasExecutableJsonDump) {
+    return false
+  }
+
+  // 2. Strip comments to ensure comments cannot satisfy the target path check
+  const codeWithoutComments = stripPythonComments(source)
+
+  // 3. Collect variables representing the output directory (/output)
+  // Matches out = pathlib.Path("/output"), out_dir = Path('/output'), out = "/output", etc.
+  const outDirVars = new Set<string>()
+  const outDirRegex =
+    /\b([a-zA-Z_]\w*)\s*=\s*(?:(?:pathlib\.)?Path\s*\(\s*['"]\/output['"]\s*\)|['"]\/output['"])\s*(?:$|;|\n)/g
+  let dirMatch: RegExpExecArray | null
+  while ((dirMatch = outDirRegex.exec(codeWithoutComments)) !== null) {
+    if (dirMatch[1]) {
+      outDirVars.add(dirMatch[1])
+    }
+  }
+
+  // 4. Collect variables assigned directly to the metrics file path
+  const metricsFileVars = new Set<string>()
+  const metricsFileRegex =
+    /\b([a-zA-Z_]\w*)\s*=\s*(?:(?:pathlib\.)?Path\s*\(\s*['"]\/output\/metrics\.json['"]\s*\)|['"]\/output\/metrics\.json['"]|(?:os\.path\.)?join\s*\(\s*['"]\/output['"]\s*,\s*['"]metrics\.json['"]\s*\))\s*(?:$|;|\n)/g
+  let fileVarMatch: RegExpExecArray | null
+  while ((fileVarMatch = metricsFileRegex.exec(codeWithoutComments)) !== null) {
+    if (fileVarMatch[1]) {
+      metricsFileVars.add(fileVarMatch[1])
+    }
+  }
+  for (const d of outDirVars) {
+    const slashRegex = new RegExp(
+      `\\b([a-zA-Z_]\\w*)\\s*=\\s*${d}\\s*\\/\\s*['"]metrics\\.json['"]\\s*(?:$|;|\\n)`,
+      'g',
+    )
+    let sm: RegExpExecArray | null
+    while ((sm = slashRegex.exec(codeWithoutComments)) !== null) {
+      if (sm[1]) {
+        metricsFileVars.add(sm[1])
+      }
+    }
+    const joinRegex = new RegExp(
+      `\\b([a-zA-Z_]\\w*)\\s*=\\s*(?:os\\.path\\.)?join\\s*\\(\\s*${d}\\s*,\\s*['"]metrics\\.json['"]\\s*\\)\\s*(?:$|;|\\n)`,
+      'g',
+    )
+    let jm: RegExpExecArray | null
+    while ((jm = joinRegex.exec(codeWithoutComments)) !== null) {
+      if (jm[1]) {
+        metricsFileVars.add(jm[1])
+      }
+    }
+  }
+
+  const isValidMetricsTargetPath = (rawExpr: string): boolean => {
+    let expr = rawExpr.trim()
+    while (expr.startsWith('(') && expr.endsWith(')')) {
+      expr = expr.slice(1, -1).trim()
+    }
+    if (
+      /^['"]\/output\/metrics\.json['"]$/.test(expr) ||
+      /^(?:pathlib\.)?Path\s*\(\s*['"]\/output\/metrics\.json['"]\s*\)$/.test(expr) ||
+      /^(?:os\.path\.)?join\s*\(\s*['"]\/output['"]\s*,\s*['"]metrics\.json['"]\s*\)$/.test(expr)
+    ) {
+      return true
+    }
+    if (metricsFileVars.has(expr)) {
+      return true
+    }
+    for (const d of outDirVars) {
+      if (
+        new RegExp(`^${d}\\s*\\/\\s*['"]metrics\\.json['"]$`).test(expr) ||
+        new RegExp(`^(?:os\\.path\\.)?join\\s*\\(\\s*${d}\\s*,\\s*['"]metrics\\.json['"]\\s*\\)$`).test(expr)
+      ) {
+        return true
+      }
+    }
+    return false
+  }
+
+  const isValidFileHandle = (fileArg: string): boolean => {
+    const trimmed = fileArg.trim()
+    // Pattern 1: Inline open(...)
+    const openMatch = /^open\s*\((.*)\)$/s.exec(trimmed)
+    if (openMatch && openMatch[1]) {
+      const inside = openMatch[1].trim()
+      const firstArg = inside.split(',')[0]?.trim() ?? ''
+      return isValidMetricsTargetPath(firstArg)
+    }
+
+    // Pattern 2: Inline (...).open(...)
+    const dotOpenMatch = /^(.*)\.open\s*\([^)]*\)$/s.exec(trimmed)
+    if (dotOpenMatch && dotOpenMatch[1]) {
+      return isValidMetricsTargetPath(dotOpenMatch[1])
+    }
+
+    // Pattern 3: Variable handle like f or fp
+    if (/^[a-zA-Z_]\w*$/.test(trimmed)) {
+      const varName = trimmed
+      const withFullRegex = new RegExp(
+        `with\\s+open\\s*\\(([^,)]+)[^)]*\\)\\s+as\\s+${varName}\\b`,
+        'g',
+      )
+      let wm: RegExpExecArray | null
+      while ((wm = withFullRegex.exec(codeWithoutComments)) !== null) {
+        if (wm[1] && isValidMetricsTargetPath(wm[1])) {
+          return true
+        }
+      }
+
+      const withDotOpenRegex = new RegExp(
+        `with\\s+([^\\s]+)\\.open\\s*\\([^)]*\\)\\s+as\\s+${varName}\\b`,
+        'g',
+      )
+      let wdm: RegExpExecArray | null
+      while ((wdm = withDotOpenRegex.exec(codeWithoutComments)) !== null) {
+        if (wdm[1] && isValidMetricsTargetPath(wdm[1])) {
+          return true
+        }
+      }
+
+      const assignOpenRegex = new RegExp(
+        `\\b${varName}\\s*=\\s*open\\s*\\(([^,)]+)`,
+        'g',
+      )
+      let am: RegExpExecArray | null
+      while ((am = assignOpenRegex.exec(codeWithoutComments)) !== null) {
+        if (am[1] && isValidMetricsTargetPath(am[1])) {
+          return true
+        }
+      }
+
+      const assignDotOpenRegex = new RegExp(
+        `\\b${varName}\\s*=\\s*([^\\s]+)\\.open\\s*\\(`,
+        'g',
+      )
+      let adm: RegExpExecArray | null
+      while ((adm = assignDotOpenRegex.exec(codeWithoutComments)) !== null) {
+        if (adm[1] && isValidMetricsTargetPath(adm[1])) {
+          return true
+        }
+      }
+    }
+
+    return false
+  }
+
+  // 5. Inspect all json.dump calls in executable code and check reachability
+  const literalMask = getStringLiteralMask(codeWithoutComments)
+  const reachableFunctions = getReachablePythonFunctions(codeWithoutComments)
+  const dumpCallRegex = /\bjson\.dump\s*\(/g
+  let reachableValidMetricsDumps = 0
+  let match: RegExpExecArray | null
+
+  while ((match = dumpCallRegex.exec(codeWithoutComments)) !== null) {
+    const dumpIndex = match.index
+    // Skip occurrences that fall inside string literals (e.g. print("json.dump(...)"))
+    if (literalMask[dumpIndex]) {
+      continue
+    }
+    const enclosingFunc = getEnclosingFunctionName(codeWithoutComments, dumpIndex)
+    const isReachable = enclosingFunc === null || reachableFunctions.has(enclosingFunc)
+
+    const startIdx = match.index + match[0].length
+    let parenDepth = 1
+    let endIdx = startIdx
+    let inString: string | null = null
+
+    while (endIdx < codeWithoutComments.length && parenDepth > 0) {
+      const char = codeWithoutComments[endIdx]
+      if (inString) {
+        if (char === inString && codeWithoutComments[endIdx - 1] !== '\\') {
+          inString = null
+        }
+      } else if (char === '"' || char === "'") {
+        inString = char
+      } else if (char === '(' || char === '[' || char === '{') {
+        parenDepth++
+      } else if (char === ')' || char === ']' || char === '}') {
+        parenDepth--
+      }
+      endIdx++
+    }
+
+    if (parenDepth === 0) {
+      const argsStr = codeWithoutComments.slice(startIdx, endIdx - 1).trim()
+      let depth = 0
+      let splitIdx = -1
+      let strChar: string | null = null
+      for (let k = 0; k < argsStr.length; k++) {
+        const c = argsStr[k]
+        if (strChar) {
+          if (c === strChar && argsStr[k - 1] !== '\\') strChar = null
+        } else if (c === '"' || c === "'") {
+          strChar = c
+        } else if (c === '(' || c === '[' || c === '{') {
+          depth++
+        } else if (c === ')' || c === ']' || c === '}') {
+          depth--
+        } else if (c === ',' && depth === 0) {
+          splitIdx = k
+          break
+        }
+      }
+
+      if (splitIdx !== -1) {
+        const remainder = argsStr.slice(splitIdx + 1).trim()
+        let fpDepth = 0
+        let fpEnd = remainder.length
+        let fpStrChar: string | null = null
+        for (let k = 0; k < remainder.length; k++) {
+          const c = remainder[k]
+          if (fpStrChar) {
+            if (c === fpStrChar && remainder[k - 1] !== '\\') fpStrChar = null
+          } else if (c === '"' || c === "'") {
+            fpStrChar = c
+          } else if (c === '(' || c === '[' || c === '{') {
+            fpDepth++
+          } else if (c === ')' || c === ']' || c === '}') {
+            fpDepth--
+          } else if (c === ',' && fpDepth === 0) {
+            fpEnd = k
+            break
+          }
+        }
+        const fileArg = remainder.slice(0, fpEnd).trim()
+        if (isValidFileHandle(fileArg) && isReachable) {
+          reachableValidMetricsDumps++
+        }
+      }
+    }
+  }
+
+  return reachableValidMetricsDumps > 0
 }
 
 export function validateExperimentSpec(spec: unknown): SpecValidationResult {
@@ -88,41 +755,73 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
   }
 
   // 5. files
+  const normalizedFilesMap = new Map<string, string>()
   if (!s.files || typeof s.files !== 'object' || Array.isArray(s.files)) {
     errors.push('files must be a Record<string, string>')
+  } else if (Object.keys(s.files).length === 0) {
+    errors.push('files cannot be empty: must provide at least the entrypoint script')
+  } else {
+    for (const [key, content] of Object.entries(s.files)) {
+      if (typeof content !== 'string') {
+        errors.push(`file '${key}' content must be a string`)
+        continue
+      }
+      // Check for path traversal or absolute paths in file keys
+      const normalizedKey = posix.normalize(key.replace(/\\/g, '/'))
+      if (
+        normalizedKey.startsWith('../') ||
+        normalizedKey === '..' ||
+        posix.isAbsolute(key) ||
+        key.startsWith('/') ||
+        key.startsWith('\\')
+      ) {
+        errors.push(`file '${key}' has invalid path: path traversal or absolute paths are prohibited`)
+        continue
+      }
+      normalizedFilesMap.set(normalizedKey, content)
+
+      if (hasProhibitedPipInstall(content)) {
+        errors.push(
+          `file '${key}' contains prohibited 'pip install' or 'pip3 install'. Base image already includes required libraries.`,
+        )
+      }
+
+      if (hasProhibitedSubprocess(content)) {
+        errors.push(
+          `file '${key}' contains prohibited 'subprocess' invocation (docs/04:96 forbids subprocess execution in sandbox scripts)`,
+        )
+      }
+    }
   }
 
   // 6. entrypoint exists in files (normalized via posix)
+  let entryFile: string | null = null
   if (!s.entrypoint || typeof s.entrypoint !== 'string') {
     errors.push('entrypoint must be a non-empty string')
-  } else if (s.files && typeof s.files === 'object') {
-    const entryFile = extractEntrypointFile(s.entrypoint)
-    const normalizedFiles = new Set(
-      Object.keys(s.files).map((f) => normalizePosixPath(f)),
-    )
-    if (!entryFile || !normalizedFiles.has(entryFile)) {
+  } else {
+    if (hasProhibitedPipInstall(s.entrypoint)) {
+      errors.push("entrypoint cannot contain prohibited 'pip install' or 'pip3 install'")
+    }
+    if (hasProhibitedSubprocess(s.entrypoint)) {
+      errors.push("entrypoint cannot contain prohibited 'subprocess'")
+    }
+    entryFile = extractEntrypointFile(s.entrypoint)
+    if (!entryFile) {
+      errors.push(
+        `entrypoint '${s.entrypoint}' must invoke python with a .py script (shell wrappers, operators, and additional arguments are prohibited)`,
+      )
+    } else if (!normalizedFilesMap.has(entryFile)) {
       errors.push(`entrypoint '${s.entrypoint}' references file '${entryFile}', which does not exist in files`)
     }
   }
 
-  // 7. No pip install in files, and must write to /output/metrics.json
-  if (s.files && typeof s.files === 'object') {
-    let hasMetricsOutput = false
-    for (const [filename, source] of Object.entries(s.files)) {
-      if (typeof source !== 'string') {
-        errors.push(`file '${filename}' content must be a string`)
-        continue
-      }
-      if (/pip\s+install/i.test(source)) {
-        errors.push(`file '${filename}' contains prohibited 'pip install'. Base image already includes required libraries.`)
-      }
-      if (source.includes('/output/metrics.json') || (source.includes('metrics.json') && source.includes('/output'))) {
-        hasMetricsOutput = true
-      }
-    }
-
-    if (!hasMetricsOutput) {
-      errors.push('Script must write metrics as json.dump to /output/metrics.json')
+  // 7. Entrypoint file must write to /output/metrics.json via json.dump
+  if (entryFile && normalizedFilesMap.has(entryFile)) {
+    const entrySource = normalizedFilesMap.get(entryFile)!
+    if (!validateScriptMetricsOutput(entrySource)) {
+      errors.push(
+        `Entrypoint file '${entryFile}' must write metrics as json.dump to /output/metrics.json in executable code`,
+      )
     }
   }
 
@@ -141,6 +840,17 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
       }
       if (!d.path || typeof d.path !== 'string') {
         errors.push(`dataset[${i}].path must be a non-empty string`)
+      } else {
+        const normPath = posix.normalize(d.path.replace(/\\/g, '/'))
+        if (
+          normPath.startsWith('../') ||
+          normPath === '..' ||
+          posix.isAbsolute(d.path) ||
+          d.path.startsWith('/') ||
+          d.path.startsWith('\\')
+        ) {
+          errors.push(`dataset[${i}].path '${d.path}' cannot contain path traversal or absolute paths`)
+        }
       }
       if (!d.url || typeof d.url !== 'string') {
         errors.push(`dataset[${i}].url must be a resolvable string`)
@@ -157,11 +867,33 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
     }
   }
 
-  // 9. timeoutSeconds
+  // 9. Runtime constraints:
+  // - timeoutSeconds <= 120 per docs/04-experiment-runtime.md:18
+  // - estimated runtime under 60 seconds per docs/03-agent-pipeline.md:83 and Issue #23
   if (typeof s.timeoutSeconds !== 'number' || s.timeoutSeconds <= 0) {
     errors.push('timeoutSeconds must be a positive number')
   } else if (s.timeoutSeconds > 120) {
-    errors.push('timeoutSeconds cannot exceed 120 seconds')
+    errors.push('timeoutSeconds cannot exceed 120 seconds (docs/04 contract bound)')
+  }
+
+  const params =
+    s.parameters && typeof s.parameters === 'object' && !Array.isArray(s.parameters)
+      ? (s.parameters as Record<string, unknown>)
+      : null
+
+  const estimatedRuntime = params?.estimatedRuntimeSeconds
+  if (
+    typeof estimatedRuntime !== 'number' ||
+    !Number.isFinite(estimatedRuntime) ||
+    estimatedRuntime <= 0
+  ) {
+    errors.push(
+      'parameters.estimatedRuntimeSeconds must be a positive finite number under 60 seconds (Issue #23 / docs/03 rule)',
+    )
+  } else if (estimatedRuntime >= 60) {
+    errors.push(
+      `parameters.estimatedRuntimeSeconds is ${estimatedRuntime}s, but must be under 60 seconds (Issue #23 / docs/03 rule)`,
+    )
   }
 
   // 10. criteria
@@ -197,125 +929,17 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
     }
   }
 
+  // 11. image is mandatory and must match PINNED_E2B_TEMPLATE
+  if (typeof s.image !== 'string' || s.image.trim() === '') {
+    errors.push(`image is mandatory and must match '${PINNED_E2B_TEMPLATE}'`)
+  } else if (s.image !== PINNED_E2B_TEMPLATE) {
+    errors.push(
+      `image '${s.image}' is not supported. Must be '${PINNED_E2B_TEMPLATE}'`,
+    )
+  }
+
   return {
     valid: errors.length === 0,
     errors,
   }
-}
-
-/**
- * Hand-written hero spec (Strobl et al. 2007 - Run A: Impurity Importance Bias)
- * Source paper: Strobl et al., "Bias in random forest variable importance measures", BMC Bioinformatics 2007.
- * Tests breast-w dataset with added noise variables.
- * Uses dynamic paths resolved via Python pathlib.Path.
- */
-export const HERO_EXPERIMENT_SPEC_RUN_A: ExperimentSpec = {
-  claimNodeId: 'claim-strobl-2007-gini-bias',
-  mode: 'adapted',
-  language: 'python',
-  image: 'default',
-  entrypoint: 'python main.py',
-  files: {
-    'main.py': `import json
-import os
-import pathlib
-import numpy as np
-import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-
-# 1. Output directory: dynamic resolution from env or standard default
-out_dir = pathlib.Path(os.environ.get("OUTPUT_DIR", "/output"))
-out_dir.mkdir(parents=True, exist_ok=True)
-
-# 2. Seed for reproducibility
-np.random.seed(42)
-
-# 3. Load dataset dynamically: check env, relative path, or synthetic fallback
-data_env = os.environ.get("DATA_PATH")
-candidates = [pathlib.Path(data_env)] if data_env else []
-candidates.extend([
-    pathlib.Path("data") / "breast-w.csv",
-    pathlib.Path(__file__).parent / "data" / "breast-w.csv",
-])
-
-df = None
-for p in candidates:
-    if p.exists() and p.is_file():
-        try:
-            df = pd.read_csv(p)
-            break
-        except Exception:
-            pass
-
-if df is not None:
-    X = df.iloc[:, :-1].select_dtypes(include=[np.number]).values
-    y = df.iloc[:, -1].astype('category').cat.codes.values
-else:
-    raise FileNotFoundError("Pinned breast-w dataset not found in expected locations.")
-
-n_samples = X.shape[0]
-
-# 4. Append three uninformative (noise) categorical variables with 2, 5, and 20 levels
-noise_c2 = np.random.choice(2, size=(n_samples, 1))
-noise_c5 = np.random.choice(5, size=(n_samples, 1))
-noise_c20 = np.random.choice(20, size=(n_samples, 1))
-
-X_augmented = np.hstack([X, noise_c2, noise_c5, noise_c20])
-n_total_features = X_augmented.shape[1]
-noise_20_index = n_total_features - 1  # Last column is noise with 20 levels
-
-# 5. Fit Random Forest
-rf = RandomForestClassifier(n_estimators=100, random_state=42)
-rf.fit(X_augmented, y)
-
-# 6. Compute impurity-based feature importances (Gini importance)
-importances = rf.feature_importances_
-# Rank features: rank 1 is highest importance
-ranked_indices = np.argsort(-importances)
-ranks = {idx: int(rank + 1) for rank, idx in enumerate(ranked_indices)}
-
-rank_impurity_noise_20 = ranks[noise_20_index]
-
-# 7. Write metrics to /output/metrics.json dynamically
-metrics = {
-    "rank_impurity_noise_20": float(rank_impurity_noise_20),
-    "n_features": float(n_total_features),
-    "noise_20_importance": float(importances[noise_20_index]),
-}
-
-metrics_file = out_dir / "metrics.json"
-with open(metrics_file, "w") as f:
-    json.dump(metrics, f, indent=2)
-
-print(f"Computed metrics written to {metrics_file}: {metrics}")
-`,
-  },
-  datasets: [
-    {
-      name: 'breast-w',
-      url: 'https://raw.githubusercontent.com/datasets/breast-cancer/master/data/data.csv',
-      path: 'data/breast-w.csv',
-      sha256: null,
-      bytes: 52350,
-    },
-  ],
-  parameters: {
-    importance_method: 'impurity',
-    n_estimators: 100,
-    seed: 42,
-  },
-  criteria: {
-    mode: 'all',
-    checks: [
-      {
-        metric: 'rank_impurity_noise_20',
-        op: 'lte',
-        value: 5,
-      },
-    ],
-  },
-  timeoutSeconds: 60,
-  memoryMb: 2048,
-  cpuCount: 1,
-  network: 'none',
 }

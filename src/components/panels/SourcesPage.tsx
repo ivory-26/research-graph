@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Upload, Globe, GitBranch, Sparkles, CheckCircle2, ArrowRight } from 'lucide-react';
 import { IngestionPanel } from './IngestionPanel';
+import { DEMO_SOURCES } from '../../data/demoWorkspace';
 
 interface SourcesPageProps {
   onShowToast: (msg: string) => void;
@@ -15,35 +16,17 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
   const [isChunkViewerOpen, setIsChunkViewerOpen] = useState(false);
   const [selectedSourceForViewer, setSelectedSourceForViewer] = useState<string | null>(null);
 
-  const [sources, setSources] = useState([
-    {
-      id: 'src-1',
-      title: 'Strobl et al. 2007',
-      venue: 'BMC Bioinformatics',
-      pages: 14,
-      size: '411 KB',
+  const [sources, setSources] = useState(() =>
+    DEMO_SOURCES.map((s) => ({
+      id: s.id,
+      title: s.title,
+      venue: s.venue,
+      pages: Math.max(1, Math.round(s.bytes / 35000)),
+      size: `${(s.bytes / 1024).toFixed(0)} KB`,
       status: 'SEEDED',
-      doi: '10.1186/1471-2105-8-25',
-    },
-    {
-      id: 'src-2',
-      title: 'Strobl et al. 2008',
-      venue: 'BMC Bioinformatics',
-      pages: 12,
-      size: '500 KB',
-      status: 'SEEDED',
-      doi: '10.1186/1471-2105-9-307',
-    },
-    {
-      id: 'src-3',
-      title: 'Kursa & Rudnicki 2010',
-      venue: 'Journal of Statistical Software',
-      pages: 13,
-      size: '378 KB',
-      status: 'SEEDED',
-      doi: '10.18637/jss.v036.i11',
-    },
-  ]);
+      doi: s.doi || s.url || '',
+    }))
+  );
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -72,19 +55,18 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
   const handleWebIngest = async () => {
     if (!webUrl.trim() || isIngestingWeb) return;
     setIsIngestingWeb(true);
-    onShowToast(`Dispatching Firecrawl ingestion for ${webUrl}...`);
+    const kind: 'repo' | 'web' = webUrl.includes('github.com') ? 'repo' : 'web';
+    const cleanTitle = webTitle.trim() || (kind === 'repo' ? 'GitHub Repo Source' : 'Web Source');
+    onShowToast(`Adding ${cleanTitle} to workspace...`);
 
     setTimeout(() => {
-      const kind: 'repo' | 'web' = webUrl.includes('github.com') ? 'repo' : 'web';
-      const cleanTitle = webTitle.trim() || (kind === 'repo' ? 'GitHub Repo Source' : 'Web Source');
-
       const newSourceItem = {
         id: `src-web-${Date.now()}`,
         title: cleanTitle,
         venue: kind === 'repo' ? 'GitHub Open Source' : 'Web Page',
         pages: 0,
         size: '—',
-        status: 'QUEUED',
+        status: 'SEEDED',
         doi: webUrl,
       };
 
@@ -93,7 +75,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
         onIngestSource(cleanTitle, kind, webUrl);
       }
       setIsIngestingWeb(false);
-      onShowToast(`Source added to indexing queue.`);
+      onShowToast(`Sample source added to workspace list.`);
     }, 1200);
   };
 
@@ -176,11 +158,11 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
                 {isIngestingWeb ? (
                   <>
                     <span className="inline-block h-3 w-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                    <span>Queueing Firecrawl Ingestion...</span>
+                    <span>Adding source to workspace...</span>
                   </>
                 ) : (
                   <>
-                    <span>Queue Firecrawl Ingestion</span>
+                    <span>Add Source to Workspace</span>
                     <ArrowRight className="h-3.5 w-3.5" />
                   </>
                 )}

@@ -94,7 +94,7 @@ export const AskResearchPage: React.FC = () => {
     {
       id: 'm1',
       sender: 'ai',
-      text: 'Ask evidence-grounded questions across your indexed research papers (Strobl 2007, Strobl 2008, Kursa 2010). Citations link to verbatim passages in workspace chunks.',
+      text: 'Ask evidence-grounded questions across workspace research papers (Strobl 2007, Strobl 2008, Kursa 2010). Citations link to verbatim passages in workspace chunks.',
       citations: [
         {
           sourceId: 'src-1',
@@ -141,7 +141,7 @@ export const AskResearchPage: React.FC = () => {
       const errorMsg: Message = {
         id: `ai-err-${Date.now()}`,
         sender: 'ai',
-        text: 'Error querying retrieval API. Please ensure the workspace papers are indexed.',
+        text: 'Unable to retrieve answer for query. Please select another query.',
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {

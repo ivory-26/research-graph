@@ -41,9 +41,9 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
   }, [isOpen, initialTab, selectedSourceId]);
 
   const handleCrawl = () => {
-    setCrawlStatus('Queueing paper project page via Firecrawl API...');
+    setCrawlStatus('Adding paper project page to local sources...');
     setTimeout(() => {
-      setCrawlStatus('Source URL queued for pipeline ingestion and chunk extraction.');
+      setCrawlStatus('Source added to workspace list.');
     }, 800);
   };
 

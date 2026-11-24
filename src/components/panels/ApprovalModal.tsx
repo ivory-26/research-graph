@@ -1,5 +1,5 @@
 import React from 'react';
-import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../server/planner';
+import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../../fixtures/hero-spec';
 import { ShieldCheck, Cpu, HardDrive, WifiOff, X } from 'lucide-react';
 
 interface ApprovalModalProps {
@@ -104,9 +104,9 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="l">Dataset Source & Size:</span>
+              <span className="l">Dataset Source:</span>
               <span className="m text-[#f97316] font-mono text-[11px] truncate max-w-[450px]">
-                {primaryDataset?.url} {primaryDataset?.bytes ? `(${primaryDataset.bytes} bytes)` : ''}
+                {primaryDataset?.url}
               </span>
             </div>
             <div className="flex items-center justify-between">

@@ -22,11 +22,12 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
   const rankB = resB?.data?.metrics?.rank_permutation_noise_20 ?? '—';
   const criteriaA = resA?.data?.criteria ?? '';
   const criteriaB = resB?.data?.criteria ?? '';
-  const verdictA = 'preview';
-  const verdictB = 'preview';
+  const verdictA = (resA?.data?.verdict as string) || 'preview';
+  const verdictB = (resB?.data?.verdict as string) || 'preview';
   const delta = typeof rankA === 'number' && typeof rankB === 'number' ? rankB - rankA : null;
 
-  const maxRank = 33;
+  const datasetNode = DEMO_NODES.find((n) => n.type === 'dataset');
+  const maxRank = ((datasetNode?.data?.features as number) || 30) + 3;
   const barWidthA = typeof rankA === 'number' ? `${Math.max(5, Math.min(100, Math.round((1 - (rankA - 1) / maxRank) * 100)))}%` : '50%';
   const barWidthB = typeof rankB === 'number' ? `${Math.max(5, Math.min(100, Math.round((1 - (rankB - 1) / maxRank) * 100)))}%` : '50%';
 

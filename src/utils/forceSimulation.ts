@@ -107,7 +107,7 @@ export function computeForceLayout(
     if (nodeDegrees[e.target] !== undefined) nodeDegrees[e.target] += 1;
   }
 
-  // 2. Initialize Simulation Nodes with Controlled Dimensions (36–48px normal, 48–54px central hubs)
+  // 2. Initialize Simulation Nodes with Controlled Dimensions (38–54px diameter)
   const simNodes: SimNode[] = nodes.map((n, idx) => {
     const deg = nodeDegrees[n.id] || 0;
 

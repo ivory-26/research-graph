@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus } from 'lucide-react';
-import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../server/planner';
+import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../../fixtures/hero-spec';
 
 interface ExperimentsPageProps {
   onOpenApproval: () => void;

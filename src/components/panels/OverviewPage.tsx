@@ -71,7 +71,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
                 </div>
               </div>
               <span className="badge-solid-white !text-[8px] rounded-none">
-                INDEXED
+                SEEDED
               </span>
             </div>
 
@@ -155,10 +155,10 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
                 <td className="py-3 text-[var(--text-muted)]">Source Paper</td>
                 <td className="py-3">
                   <span className="badge-solid-white !text-[8px] rounded-none">
-                    INDEXED
+                    SEEDED
                   </span>
                 </td>
-                <td className="py-3 text-right text-[var(--text-dim)]">Today</td>
+                <td className="py-3 text-right text-[var(--text-dim)]">Seeded</td>
               </tr>
               <tr className="hover:bg-[var(--bg-surface-hover)]">
                 <td className="py-3 font-semibold text-[var(--text-primary)] flex items-center gap-2">

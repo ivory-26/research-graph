@@ -1,7 +1,7 @@
 import React from 'react';
 import { X, Download } from 'lucide-react';
 import rawWorkspace from '../../../fixtures/workspace.json';
-import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../server/planner';
+import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../../fixtures/hero-spec';
 
 function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
   const scriptCode = spec.files['main.py'] || '';

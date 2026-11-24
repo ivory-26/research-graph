@@ -124,7 +124,7 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
   describe('retrieveCrossSourcePassages', () => {
     it('throws error when workspaceId is missing for multi-tenant isolation', async () => {
       const mockDb = {} as unknown as Database
-      await expect(retrieveCrossSourcePassages(mockDb, 'random forests bias', {} as any)).rejects.toThrow(
+      await expect(retrieveCrossSourcePassages(mockDb, 'random forests bias')).rejects.toThrow(
         'workspaceId is required for cross-source retrieval multi-tenant isolation.',
       )
     })
@@ -336,11 +336,11 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
 
   describe('askAcrossSources', () => {
     it('throws error if query is empty', async () => {
-      await expect(askAcrossSources('  ', { workspaceId: 'ws-1' })).rejects.toThrow('Query string cannot be empty.')
+      await expect(askAcrossSources('  ')).rejects.toThrow('Query string cannot be empty.')
     })
 
     it('throws error if workspaceId is missing', async () => {
-      await expect(askAcrossSources('valid query', { passages: [] } as any)).rejects.toThrow(
+      await expect(askAcrossSources('valid query', { passages: [] })).rejects.toThrow(
         'workspaceId is required for askAcrossSources.',
       )
     })
@@ -507,7 +507,6 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       await askAcrossSources(
         'What is the answer?',
         {
-          workspaceId: 'ws-context-only',
           context: { workspaceId: 'ws-context-only', strategyId: 'invalid-non-uuid-string' },
         },
         fakeDeps,
@@ -759,7 +758,7 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       expect(res.citations[0]?.verified).toBe(true)
       expect(res.citations[1]?.verified).toBe(true)
       expect(res.citations[2]?.verified).toBe(true)
-    }, 30000)
+    })
 
     const hasDb = Boolean(process.env.DATABASE_URL)
     const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY)

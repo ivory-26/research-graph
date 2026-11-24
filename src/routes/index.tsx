@@ -123,8 +123,6 @@ function WorkspacePage() {
     setExecutionLogs((prev) => [
       ...prev,
       `[${new Date().toLocaleTimeString()}] plan specification reviewed and confirmed`,
-      `[${new Date().toLocaleTimeString()}] execution sandbox profile: network=none, memory=2048MB, timeout=60s`,
-      `[${new Date().toLocaleTimeString()}] workstation standing by for live execution dispatch`,
     ]);
   };
 

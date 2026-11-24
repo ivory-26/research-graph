@@ -242,7 +242,7 @@
     {
       "id": "result-a",
       "type": "result",
-      "title": "Result A (Impurity Match)",
+      "title": "Result A (Impurity Specification)",
       "position": { "x": 890, "y": 230 },
       "data": {
         "type": "result",

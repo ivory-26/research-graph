@@ -38,6 +38,8 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
   onUpdateStatus,
   onClose,
 }) => {
+  const datasetNode = allNodes.find((n) => n.type === 'dataset');
+
   // If neither node nor edge is provided, render the Workspace & Variables Inspector
   if (!node && !edge) {
     return (
@@ -62,7 +64,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         <div className="flex items-center gap-2">
           <span className="badge-orange-outline text-[10px]">MODE: ADAPTED</span>
           <span className="b border-[var(--border-primary)] bg-[var(--bg-surface-hover)] text-[var(--text-muted)] text-[10px]">
-            DATA: OPENML:52350
+            DATA: {((datasetNode?.data?.sublabel as string) || 'OPENML:52350').toUpperCase()}
           </span>
         </div>
 
@@ -74,17 +76,19 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
 
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-[var(--text-dim)]">Dataset:</span>
-            <span className="text-[var(--text-primary)] font-bold">breast-w</span>
+            <span className="text-[var(--text-primary)] font-bold">{datasetNode?.data?.name || datasetNode?.title || 'breast-w'}</span>
           </div>
 
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-[var(--text-dim)]">OpenML ID:</span>
-            <span className="text-sky-400">52350</span>
+            <span className="text-sky-400">{(datasetNode?.data?.openmlId as string) || '52350'}</span>
           </div>
 
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-[var(--text-dim)]">Dimensions:</span>
-            <span className="text-[var(--text-primary)]">569 rows × 30 features</span>
+            <span className="text-[var(--text-primary)]">
+              {datasetNode?.data?.rows ? `${datasetNode.data.rows} rows × ${datasetNode.data.features || 30} features` : '569 rows × 30 features'}
+            </span>
           </div>
 
           <div className="border-t border-[var(--border-primary)] pt-2 space-y-1.5">
