@@ -16,11 +16,7 @@ import {
   verifyEnvironmentPackages,
 } from './runner'
 import { evaluateExperiment } from './evaluate'
-import {
-  HERO_EXPERIMENT_SPEC_RUN_A,
-  HERO_RECORDED_RUN_RESULT,
-  evaluateHeroRunMetrics,
-} from '../../fixtures/hero-spec'
+import { HERO_EXPERIMENT_SPEC_RUN_A, HERO_RECORDED_RUN_RESULT } from '../../fixtures/hero-spec'
 import type { DatasetRef } from '../shared/types'
 
 describe('validateMetricsPayload', () => {
@@ -543,11 +539,11 @@ describe('HERO_RECORDED_RUN_RESULT', () => {
       },
     ])
 
-    // Verify metrics against verification script evaluation contract
-    const evalResult = evaluateHeroRunMetrics(HERO_RECORDED_RUN_RESULT.metrics)
-    expect(evalResult.matchesClaim).toBe(true)
-    expect(evalResult.satisfiesImpurity).toBe(true)
-    expect(evalResult.satisfiesPermutation).toBe(true)
+    // Verify metrics against claim criteria
+    expect(HERO_RECORDED_RUN_RESULT.metrics.rank_impurity_noise_20).toBeLessThanOrEqual(5)
+    expect(HERO_RECORDED_RUN_RESULT.metrics.rank_permutation_noise_20).toBeGreaterThan(5)
+    expect(HERO_RECORDED_RUN_RESULT.metrics.rank_impurity_noise_20).toBe(4)
+    expect(HERO_RECORDED_RUN_RESULT.metrics.rank_permutation_noise_20).toBe(11)
 
     // Assert against evaluateExperiment contract
     const verdict = evaluateExperiment(

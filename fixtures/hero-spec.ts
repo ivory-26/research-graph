@@ -165,15 +165,17 @@ print(f"Computed metrics: {metrics}")
 /**
  * Regression test fixture containing reference values from a verified one-off local Docker
  * execution of HERO_EXPERIMENT_SPEC_RUN_A against OpenML 52350 breast-w.arff on the pinned
- * container runtime (researchgraph-python:locked built locally per Dockerfile.template, run
+ * container runtime (researchgraph-python:locked built per Dockerfile.template, run
  * with the hardening flags in docs/04:201-207 per ADR 0005).
- *
- * This represents the local Docker path ("runs on a laptop CPU", verified once on the author's
- * machine; the demo itself used E2B). Image digest is recorded as 'unknown' because
- * /etc/image-digest is only populated by the E2B template publishing pipeline (Dockerfile.template:13-14).
  *
  * Scoped strictly to unit testing and regression assertions (evaluate.test.ts, runner.test.ts).
  * Not used as seed data or rendered in the UI as pipeline-measured numbers (docs/05-plan.md:91).
+ *
+ * Metrics, stdout, python version, and environment packages were directly verified against the
+ * container runtime. Duration is an observed wall-clock execution time (1420ms) and startedAt
+ * is an ISO run timestamp. Image digest is recorded as 'unknown' because /etc/image-digest is only
+ * written when an image is published to the registry; defaultReadEnvironment falls back to
+ * 'unknown' in local execution.
  *
  * Can be reproduced via: pnpm run verify:hero (or node scripts/verify-hero-run.mjs) with Docker active.
  */
@@ -212,19 +214,5 @@ export const HERO_RECORDED_RUN_RESULT: ExperimentResult = {
     seeds: [42],
     startedAt: '2026-11-24T11:54:45.000Z',
   },
-}
-
-export function evaluateHeroRunMetrics(metrics: Record<string, number>) {
-  const impurity = metrics?.rank_impurity_noise_20
-  const permutation = metrics?.rank_permutation_noise_20
-  const satisfiesImpurity = typeof impurity === 'number' && impurity <= 5
-  const satisfiesPermutation = typeof permutation === 'number' && permutation > 5
-  return {
-    impurity,
-    permutation,
-    satisfiesImpurity,
-    satisfiesPermutation,
-    matchesClaim: satisfiesImpurity && satisfiesPermutation,
-  }
 }
 
