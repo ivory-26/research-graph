@@ -1,4 +1,10 @@
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router';
+import type { ReactNode } from 'react';
+import {
+  HeadContent,
+  Outlet,
+  Scripts,
+  createRootRoute,
+} from '@tanstack/react-router';
 import appCss from '../styles.css?url';
 import { ThemeProvider } from '../context/ThemeContext';
 
@@ -27,7 +33,6 @@ export const Route = createRootRoute({
       },
     ],
   }),
-  shellComponent: RootDocument,
   errorComponent: ({ error, reset }) => (
     <div className="flex h-screen w-screen flex-col items-center justify-center bg-[#08090b] text-[#e5e5e5] p-6 font-mono">
       <div className="max-w-md w-full border border-red-500/40 bg-red-950/20 p-5 space-y-3">
@@ -41,13 +46,13 @@ export const Route = createRootRoute({
         <div className="pt-2 flex gap-2">
           <button
             onClick={() => reset()}
-            className="px-3 py-1.5 bg-[#f97316] text-black font-bold text-xs hover:bg-[#ea580c] transition"
+            className="px-3 py-1.5 bg-[#f97316] text-black font-bold text-xs hover:bg-[#ea580c] transition cursor-pointer"
           >
             Retry
           </button>
           <button
             onClick={() => window.location.reload()}
-            className="px-3 py-1.5 border border-[#1e2229] bg-[#121418] text-white text-xs hover:bg-[#1a1e24] transition"
+            className="px-3 py-1.5 border border-[#1e2229] bg-[#121418] text-white text-xs hover:bg-[#1a1e24] transition cursor-pointer"
           >
             Reload Page
           </button>
@@ -55,9 +60,18 @@ export const Route = createRootRoute({
       </div>
     </div>
   ),
+  component: RootComponent,
 });
 
-function RootDocument({ children }: { children: React.ReactNode }) {
+function RootComponent() {
+  return (
+    <RootDocument>
+      <Outlet />
+    </RootDocument>
+  );
+}
+
+function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en" className="dark h-full w-full" suppressHydrationWarning>
       <head>

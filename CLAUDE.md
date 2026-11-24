@@ -30,7 +30,7 @@ These are not style preferences. Breaking one of them breaks the product's only 
 
 | Thing | Version / note |
 |---|---|
-| Node | 22+ (AI SDK 7 is ESM-only) |
+| Node | 26.x LTS (AI SDK 7 is ESM-only); `.nvmrc` pins 26.13.1 |
 | `@tanstack/react-start` | ≥ 1.168.60 — earlier versions carry CVE-2026-102989 |
 | `ai` | 7.x — `ToolLoopAgent`, `tool({ inputSchema })`, `generateText({ output: Output.object() })`. `generateObject` is deprecated |
 | `@ai-sdk/react` | 4.x — `useChat({ transport })`, `message.parts`. `handleSubmit` and `api` props no longer exist |
@@ -46,14 +46,18 @@ Gemini constrains our schemas: flat or one level of nesting, no recursive `$ref`
 
 ## Commands
 
-Intended once the repo is scaffolded; none of these exist yet.
+Scaffold (#31) and schema (#32) are merged. Database commands read `DATABASE_URL` from `.env`; see [src/db/README.md](./src/db/README.md).
 
 ```bash
 pnpm dev             # TanStack Start dev server
-pnpm db:push         # Drizzle migrations against Neon
-pnpm db:studio       # inspect the workspace graph
-pnpm seed            # rebuild the recorded workspace from empty, under a minute
+pnpm build           # Vite client + SSR, Nitro server bundle
 pnpm typecheck
+pnpm db:generate     # after editing src/db/schema.ts: new SQL + snapshot
+pnpm db:migrate      # apply committed migrations (empty database included)
+pnpm db:push         # disposable branch only: pgvector bootstrap, then push
+pnpm db:check        # validate the migration journal and snapshots
+pnpm db:studio       # inspect the public schema
+pnpm seed            # rebuild the recorded workspace — lands with #8, not on main yet
 ```
 
 ## Layout
@@ -63,6 +67,7 @@ src/
   routes/            TanStack Start routes
   server/            server functions, pipeline, runners, model calls
   db/                schema, migrations, queries
+  shared/            contracts frozen on day 0 — types, events
   components/        canvas, panels, approval screen
 docs/                the documents above
 ```

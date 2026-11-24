@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiIngestRouteImport } from './routes/api/ingest'
 import { Route as ApiRetrievalRouteImport } from './routes/api/retrieval'
 import { Route as ApiPipelineRunRouteImport } from './routes/api/pipeline/run'
@@ -19,16 +20,25 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
 const ApiIngestRoute = ApiIngestRouteImport.update({
   id: '/api/ingest',
   path: '/api/ingest',
   getParentRoute: () => rootRouteImport,
 } as any)
+
 const ApiRetrievalRoute = ApiRetrievalRouteImport.update({
   id: '/api/retrieval',
   path: '/api/retrieval',
   getParentRoute: () => rootRouteImport,
 } as any)
+
 const ApiPipelineRunRoute = ApiPipelineRunRouteImport.update({
   id: '/api/pipeline/run',
   path: '/api/pipeline/run',
@@ -37,33 +47,41 @@ const ApiPipelineRunRoute = ApiPipelineRunRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/ingest': typeof ApiIngestRoute
   '/api/retrieval': typeof ApiRetrievalRoute
   '/api/pipeline/run': typeof ApiPipelineRunRoute
 }
+
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/ingest': typeof ApiIngestRoute
   '/api/retrieval': typeof ApiRetrievalRoute
   '/api/pipeline/run': typeof ApiPipelineRunRoute
 }
+
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/ingest': typeof ApiIngestRoute
   '/api/retrieval': typeof ApiRetrievalRoute
   '/api/pipeline/run': typeof ApiPipelineRunRoute
 }
+
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/ingest' | '/api/retrieval' | '/api/pipeline/run'
+  fullPaths: '/' | '/api/auth/$' | '/api/ingest' | '/api/retrieval' | '/api/pipeline/run'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/ingest' | '/api/retrieval' | '/api/pipeline/run'
-  id: '__root__' | '/' | '/api/ingest' | '/api/retrieval' | '/api/pipeline/run'
+  to: '/' | '/api/auth/$' | '/api/ingest' | '/api/retrieval' | '/api/pipeline/run'
+  id: '__root__' | '/' | '/api/auth/$' | '/api/ingest' | '/api/retrieval' | '/api/pipeline/run'
   fileRoutesById: FileRoutesById
 }
+
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiIngestRoute: typeof ApiIngestRoute
   ApiRetrievalRoute: typeof ApiRetrievalRoute
   ApiPipelineRunRoute: typeof ApiPipelineRunRoute
@@ -76,6 +94,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/ingest': {
@@ -104,16 +129,17 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiIngestRoute: ApiIngestRoute,
   ApiRetrievalRoute: ApiRetrievalRoute,
   ApiPipelineRunRoute: ApiPipelineRunRoute,
 }
+
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true

@@ -73,7 +73,7 @@ A heartbeat comment is written every 15 seconds so intermediaries do not drop an
 
 ## Deployment
 
-Vercel via Nitro's preset (`nitro()` plugin, `vercel deploy`). TanStack Start has no Vercel-specific preset; the documented path is Nitro's. Node 22+, ESM only — AI SDK 7 requires both.
+Vercel via Nitro's preset (`nitro()` plugin, `vercel deploy`). TanStack Start has no Vercel-specific preset; the documented path is Nitro's. Node 26 LTS (`26.x`), ESM only — AI SDK 7 requires both. Vercel exposes only major versions, so `engines.node` stays `26.x`; `.nvmrc` and `.node-version` pin the latest 26 patch for local work.
 
 Pin `@tanstack/react-start` at **≥ 1.168.60**. Anything from 1.143.12 to 1.168.59 carries CVE-2026-102989, a critical reflected XSS in server-function response handling. Never scaffold from an older lockfile.
 

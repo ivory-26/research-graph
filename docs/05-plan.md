@@ -31,6 +31,23 @@ If everything else is missing and that spine works, the submission succeeds. If 
 
 Friday 27 is the compression point. If the pipeline is not wired by end of Friday, cut in this order: scoring dashboard → Firecrawl → notebook export → retry loop. Do not cut what-if, and do not cut the comparison view.
 
+## Landed
+
+The plan above is intent; this table is what is on `main`. Updated as PRs merge.
+
+| Date | Landed | PR |
+|---|---|---|
+| 23 Nov | TanStack Start scaffold, shared contracts, `ExperimentRunner` interface | [#31](https://github.com/ivory-26/research-graph/pull/31) |
+| 23 Nov | Drizzle schema, 11 tables, evidence and self-loop checks, pgvector migration, Neon client | [#32](https://github.com/ivory-26/research-graph/pull/32) |
+| 23 Nov | SSE transport primitives: framing and `Last-Event-ID` parsing, 15 s heartbeat, abort-aware 500 ms approval polling, 240 s stream budget | [#33](https://github.com/ivory-26/research-graph/pull/33) |
+| 23 Nov | Gemini `callModel` wrapper: sequential queue, bounded 429 backoff, Zod validation, one `agent_tasks` row per physical attempt with latency, tokens and cost | [#34](https://github.com/ivory-26/research-graph/pull/34) |
+| 23 Nov | Neon Auth session verification, workspace membership guard and same-origin `/api/auth/$` proxy, with auth docs and a live-branch harness | [#36](https://github.com/ivory-26/research-graph/pull/36) |
+| 23 Nov | Pipeline runtime persistence: ordered event log and replay, one execution claim per experiment, and compare-and-set approval gates | [#37](https://github.com/ivory-26/research-graph/pull/37) |
+| 23 Nov | Dependency refresh: pnpm 12.23.0, `@xyflow/react` 13.0.3, `unpdf` 2.2.2; declared Node floor raised to 22.22.0 | [#38](https://github.com/ivory-26/research-graph/pull/38) |
+| 23 Nov | Runtime moved to Node 26 LTS (`26.x`); `.nvmrc` and `.node-version` pin 26.13.1, satisfying `unpdf`'s Node >= 24 requirement | [#41](https://github.com/ivory-26/research-graph/pull/41) |
+
+#33 is transport only and #37 is the persistence layer. Neither is the pipeline endpoint: `GET /api/pipeline/:experimentId`, the route mounts, #4 authorization at the route boundary, the approval write path wired to the verified actor, and the database-backed `ReadApproval` remain in #6's delivery. Approval state is read through an injected reader for exactly that reason.
+
 ## Workstreams
 
 Not assigned to people — assign on the day, by who is free. The seams are chosen so that any stream can stall for a day without blocking the others.
