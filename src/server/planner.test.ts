@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   extractEntrypointFile,
   hasProhibitedPipInstall,
+  hasProhibitedSubprocess,
   stripPythonLiteralsAndComments,
   validateExperimentSpec,
   validateScriptMetricsOutput,
@@ -102,6 +103,35 @@ def w():
 json.dump({}, open("metrics.json", "w"))
 `
     expect(validateScriptMetricsOutput(decoy)).toBe(false)
+  })
+
+  it('rejects dead-code-only dump inside uncalled function (Blocker 2)', () => {
+    const deadCodeOnly = `
+import json
+def w():
+    json.dump({}, open('/output/metrics.json', 'w'))
+`
+    expect(validateScriptMetricsOutput(deadCodeOnly)).toBe(false)
+  })
+
+  it('accepts dump inside a function that is actually invoked in the script', () => {
+    const calledFn = `
+import json
+def w():
+    json.dump({}, open('/output/metrics.json', 'w'))
+w()
+`
+    expect(validateScriptMetricsOutput(calledFn)).toBe(true)
+  })
+
+  it('accepts metrics dump alongside auxiliary json writes to other files (Should Fix 3)', () => {
+    const multiDump = `
+import json, pathlib
+out = pathlib.Path("/output")
+json.dump({"rank_impurity_noise_20": 1}, open(out / "metrics.json", "w"))
+json.dump({"predictions": [0, 1]}, open("predictions.json", "w"))
+`
+    expect(validateScriptMetricsOutput(multiDump)).toBe(true)
   })
 
   it('does not flag pip install in print statements or docstrings', () => {
@@ -291,18 +321,36 @@ describe('validateExperimentSpec', () => {
     expect(result.errors.some((e) => e.includes('files cannot be empty'))).toBe(true)
   })
 
-  it('validates spec.image against PINNED_E2B_TEMPLATE and default', () => {
+  it('rejects script containing prohibited subprocess (docs/04:96)', () => {
+    const subprocessSpec: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      files: {
+        'main.py': `import subprocess\nsubprocess.run(['echo', 'prohibited'])\nimport json\nwith open('/output/metrics.json', 'w') as f: json.dump({}, f)`,
+      },
+    }
+    const result = validateExperimentSpec(subprocessSpec)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.includes("prohibited 'subprocess'"))).toBe(true)
+  })
+
+  it('validates spec.image strictly against PINNED_E2B_TEMPLATE and rejects default / missing', () => {
     const validPinned = {
       ...HERO_EXPERIMENT_SPEC_RUN_A,
       image: 'researchgraph-python:locked',
     }
     expect(validateExperimentSpec(validPinned).valid).toBe(true)
 
-    const validDefault = {
+    const invalidDefault = {
       ...HERO_EXPERIMENT_SPEC_RUN_A,
       image: 'default',
     }
-    expect(validateExperimentSpec(validDefault).valid).toBe(true)
+    expect(validateExperimentSpec(invalidDefault).valid).toBe(false)
+
+    const missingImage = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      image: undefined as unknown as string,
+    }
+    expect(validateExperimentSpec(missingImage).valid).toBe(false)
 
     const invalidImage = {
       ...HERO_EXPERIMENT_SPEC_RUN_A,

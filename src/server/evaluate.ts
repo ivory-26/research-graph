@@ -188,7 +188,7 @@ export function evaluateExperiment(
 }
 
 const ExplainGapSchema = z.object({
-  explanation: z.string().max(2000),
+  explanation: z.string(),
 })
 
 export interface ExplainGapOptions {
@@ -234,11 +234,17 @@ export async function evaluateAndExplainExperiment(
       taskKind: 'explain_gap',
     })
 
+    const rawExplanation = response.output.explanation
+    const explanation =
+      typeof rawExplanation === 'string' && rawExplanation.length > 500
+        ? rawExplanation.slice(0, 500)
+        : rawExplanation
+
     return {
       verdict: outcome.verdict, // Verdict is locked; model cannot change it
       detail: {
         checks: outcome.detail.checks,
-        explanation: response.output.explanation,
+        explanation,
       },
     }
   } catch (err) {

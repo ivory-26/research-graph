@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   E2BRunner,
   MetricsExtractionError,
+  PackageVerificationError,
   PINNED_IMAGE_PACKAGES,
   SANDBOX_METRICS_PATH,
   SandboxTimeoutError,
   defaultCollectArtifacts,
+  defaultReadEnvironment,
   fetchDataset,
   runnerErrorToFailedResult,
   sanitizeSandboxPath,
@@ -88,6 +90,50 @@ describe('runnerErrorToFailedResult mapping', () => {
     // Persisted evaluation must return verdict 'failed'
     const evalOutcome = evaluateExperiment(HERO_EXPERIMENT_SPEC_RUN_A, failedResult)
     expect(evalOutcome.verdict).toBe('failed')
+  })
+
+  it('maps PackageVerificationError into a failed ExperimentResult while retaining stdout, duration, and metrics', () => {
+    const err = new PackageVerificationError(
+      'Sandbox environment failed package verification: missing matplotlib',
+      0,
+      'computed output',
+      '',
+      1500,
+      undefined,
+      { accuracy: 0.92 },
+    )
+    const failedResult = runnerErrorToFailedResult(err, HERO_EXPERIMENT_SPEC_RUN_A)
+
+    expect(failedResult.exitCode).toBe(1)
+    expect(failedResult.stdout).toBe('computed output')
+    expect(failedResult.stderr).toContain('failed package verification')
+    expect(failedResult.durationMs).toBe(1500)
+    expect(failedResult.metrics).toEqual({ accuracy: 0.92 })
+
+    const evalOutcome = evaluateExperiment(HERO_EXPERIMENT_SPEC_RUN_A, failedResult)
+    expect(evalOutcome.verdict).toBe('failed')
+  })
+
+  it('records imageDigest as unknown when /etc/image-digest is absent', async () => {
+    const mockSandbox = {
+      commands: {
+        run: vi.fn().mockImplementation(async (cmd: string) => {
+          if (cmd.includes('cat /etc/image-digest')) {
+            return { exitCode: 0, stdout: '', stderr: '' }
+          }
+          if (cmd.includes('python --version')) {
+            return { exitCode: 0, stdout: 'Python 3.12.0', stderr: '' }
+          }
+          if (cmd.includes('pip list')) {
+            return { exitCode: 0, stdout: '[]', stderr: '' }
+          }
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }),
+      },
+    } as any
+
+    const env = await defaultReadEnvironment(mockSandbox, HERO_EXPERIMENT_SPEC_RUN_A, '2026-11-24T12:00:00Z')
+    expect(env.imageDigest).toBe('unknown')
   })
 })
 

@@ -32,8 +32,8 @@ export const SANDBOX_METRICS_PATH = '/output/metrics.json'
 export const PINNED_E2B_TEMPLATE = 'researchgraph-python:locked'
 
 /**
- * Pinned libraries expected in the locked Python runtime environment (docs/04-experiment-runtime.md:196).
- * Note: PyPI pandas released 2.2.3 -> 2.3.0 -> 3.0.0; the image builder pins 2.3.3 or matching release.
+ * Pinned libraries expected in the locked Python runtime environment (docs/04-experiment-runtime.md).
+ * Pinned versions: numpy 2.5.5, pandas 2.3.3, scikit-learn 1.9.1, scipy 1.17.1, matplotlib 3.10.0.
  */
 export const PINNED_IMAGE_PACKAGES: Record<string, string> = {
   numpy: '2.5.5',
@@ -41,6 +41,25 @@ export const PINNED_IMAGE_PACKAGES: Record<string, string> = {
   'scikit-learn': '1.9.1',
   scipy: '1.17.1',
   matplotlib: '3.10.0',
+}
+
+/**
+ * Typed error indicating that the sandbox environment failed pinned package verification.
+ * Preserves execution stdout, stderr, durationMs, environment, and metrics so evidence is not lost.
+ */
+export class PackageVerificationError extends Error {
+  constructor(
+    message: string,
+    public readonly exitCode: number,
+    public readonly stdout: string,
+    public readonly stderr: string,
+    public readonly durationMs: number = 0,
+    public readonly environment?: RunEnvironment,
+    public readonly metrics: Record<string, number> = {},
+  ) {
+    super(message)
+    this.name = 'PackageVerificationError'
+  }
 }
 
 /**
@@ -90,6 +109,26 @@ export function runnerErrorToFailedResult(
   fallbackSpec: ExperimentSpec,
   startedAt: string = new Date().toISOString(),
 ): ExperimentResult {
+  if (err instanceof PackageVerificationError) {
+    return {
+      exitCode: err.exitCode || 1,
+      stdout: err.stdout,
+      stderr: err.stderr ? `${err.stderr}\n${err.message}` : err.message,
+      metrics: err.metrics,
+      artifacts: [],
+      durationMs: err.durationMs,
+      environment:
+        err.environment ?? {
+          imageDigest: fallbackSpec.image,
+          python: 'unknown',
+          packages: {},
+          datasets: [],
+          seeds: typeof fallbackSpec.parameters.seed === 'number' ? [fallbackSpec.parameters.seed] : [],
+          startedAt,
+        },
+    }
+  }
+
   if (err instanceof MetricsExtractionError) {
     return {
       exitCode: err.exitCode || 1,
@@ -461,10 +500,10 @@ export async function defaultReadEnvironment(
     } else if (spec.image.startsWith('sha256:')) {
       imageDigest = spec.image
     } else {
-      imageDigest = `sha256:${createHash('sha256').update(spec.image).digest('hex').slice(0, 16)}`
+      imageDigest = 'unknown'
     }
   } catch {
-    imageDigest = `sha256:${createHash('sha256').update(spec.image).digest('hex').slice(0, 16)}`
+    imageDigest = 'unknown'
   }
 
   // Explicitly capture pip list and do not swallow failures silently
@@ -666,11 +705,19 @@ export class E2BRunner implements ExperimentRunner {
 
       // Verify pinned packages by default or when explicitly enabled
       const shouldVerify = this.options.verifyPackages ?? true
-      if (shouldVerify) {
+      if (shouldVerify && spec.image === PINNED_E2B_TEMPLATE) {
         const pkgVerification = verifyEnvironmentPackages(environment.packages)
         if (!pkgVerification.valid) {
           const detail = [...pkgVerification.missing, ...pkgVerification.mismatched].join(', ')
-          throw new Error(`Sandbox environment failed package verification: ${detail}`)
+          throw new PackageVerificationError(
+            `Sandbox environment failed package verification: ${detail}`,
+            proc.exitCode,
+            proc.stdout,
+            proc.stderr,
+            durationMs,
+            environment,
+            validatedMetrics,
+          )
         }
       }
 

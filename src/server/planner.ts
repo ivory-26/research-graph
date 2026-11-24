@@ -231,9 +231,155 @@ export function hasProhibitedPipInstall(source: string): boolean {
 }
 
 /**
+ * Checks whether Python source code imports or executes subprocess.
+ * Prohibited per docs/04-experiment-runtime.md:96 ("No pip install. No subprocess. No network calls.")
+ */
+export function hasProhibitedSubprocess(source: string): boolean {
+  const executableCode = stripPythonLiteralsAndComments(source)
+  const pattern = /\b(?:import\s+subprocess|from\s+subprocess\s+import|subprocess\.)\b/
+  return pattern.test(executableCode)
+}
+
+/**
+ * Analyzes Python source to find functions reachable from module-level execution.
+ */
+function getReachablePythonFunctions(codeWithoutComments: string): Set<string> {
+  const lines = codeWithoutComments.split('\n')
+  const functionCallsInside = new Map<string, Set<string>>()
+  const callsAtModuleLevel = new Set<string>()
+  const scopeStack: Array<{ name: string; indent: number }> = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i]!
+    const trimmed = rawLine.trim()
+    if (!trimmed) continue
+
+    let indent = 0
+    for (let c = 0; c < rawLine.length; c++) {
+      if (rawLine[c] === ' ') indent++
+      else if (rawLine[c] === '\t') indent += 4
+      else break
+    }
+
+    while (scopeStack.length > 0 && scopeStack[scopeStack.length - 1]!.indent >= indent) {
+      scopeStack.pop()
+    }
+
+    const defMatch = /^def\s+([a-zA-Z_]\w*)\s*\(/.exec(trimmed)
+    if (defMatch && defMatch[1]) {
+      const funcName = defMatch[1]
+      scopeStack.push({ name: funcName, indent })
+      if (!functionCallsInside.has(funcName)) {
+        functionCallsInside.set(funcName, new Set())
+      }
+      continue
+    }
+
+    const classMatch = /^class\s+([a-zA-Z_]\w*)\b/.exec(trimmed)
+    if (classMatch && classMatch[1]) {
+      scopeStack.push({ name: `__class_${classMatch[1]}__`, indent })
+      continue
+    }
+
+    const callRegex = /\b([a-zA-Z_]\w*)\s*\(/g
+    let cm: RegExpExecArray | null
+    const currentScope = scopeStack.length > 0 ? scopeStack[scopeStack.length - 1]!.name : null
+
+    while ((cm = callRegex.exec(trimmed)) !== null) {
+      const calledName = cm[1]!
+      if (
+        calledName === 'print' ||
+        calledName === 'open' ||
+        calledName === 'json' ||
+        calledName === 'Path' ||
+        calledName === 'range' ||
+        calledName === 'len' ||
+        calledName === 'int' ||
+        calledName === 'str' ||
+        calledName === 'float' ||
+        calledName === 'dict' ||
+        calledName === 'list' ||
+        calledName === 'set'
+      ) {
+        continue
+      }
+      if (currentScope === null) {
+        callsAtModuleLevel.add(calledName)
+      } else {
+        if (!functionCallsInside.has(currentScope)) {
+          functionCallsInside.set(currentScope, new Set())
+        }
+        functionCallsInside.get(currentScope)!.add(calledName)
+      }
+    }
+  }
+
+  const reachable = new Set<string>(callsAtModuleLevel)
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const funcName of Array.from(reachable)) {
+      const callsInside = functionCallsInside.get(funcName)
+      if (callsInside) {
+        for (const called of callsInside) {
+          if (!reachable.has(called)) {
+            reachable.add(called)
+            changed = true
+          }
+        }
+      }
+    }
+  }
+
+  return reachable
+}
+
+/**
+ * Returns the enclosing function name at a given character index in codeWithoutComments,
+ * or null if the index is at module level.
+ */
+function getEnclosingFunctionName(codeWithoutComments: string, charIndex: number): string | null {
+  const upToChar = codeWithoutComments.slice(0, charIndex)
+  const lines = upToChar.split('\n')
+  const scopeStack: Array<{ name: string; indent: number }> = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i]!
+    const trimmed = rawLine.trim()
+    if (!trimmed) continue
+
+    let indent = 0
+    for (let c = 0; c < rawLine.length; c++) {
+      if (rawLine[c] === ' ') indent++
+      else if (rawLine[c] === '\t') indent += 4
+      else break
+    }
+
+    while (scopeStack.length > 0 && scopeStack[scopeStack.length - 1]!.indent >= indent) {
+      scopeStack.pop()
+    }
+
+    const defMatch = /^def\s+([a-zA-Z_]\w*)\s*\(/.exec(trimmed)
+    if (defMatch && defMatch[1]) {
+      scopeStack.push({ name: defMatch[1], indent })
+      continue
+    }
+
+    const classMatch = /^class\s+([a-zA-Z_]\w*)\b/.exec(trimmed)
+    if (classMatch && classMatch[1]) {
+      scopeStack.push({ name: `__class_${classMatch[1]}__`, indent })
+      continue
+    }
+  }
+
+  return scopeStack.length > 0 ? scopeStack[scopeStack.length - 1]!.name : null
+}
+
+/**
  * Validates that an executable module actually writes metrics to /output/metrics.json via json.dump.
  * Ensures the target path is checked inside the json.dump/open call and rejects string/comment/decoy occurrences.
- * All json.dump calls in the module must target /output/metrics.json, and at least one must be present.
+ * Requires at least one reachable json.dump targeting /output/metrics.json (at module level or called function),
+ * and does not fail on unrelated json writes to other files.
  */
 export function validateScriptMetricsOutput(source: string): boolean {
   // 1. Must contain json.dump call in executable code (outside strings and comments)
@@ -384,14 +530,17 @@ export function validateScriptMetricsOutput(source: string): boolean {
     return false
   }
 
-  // 5. Inspect all json.dump calls in executable code
+  // 5. Inspect all json.dump calls in executable code and check reachability
+  const reachableFunctions = getReachablePythonFunctions(codeWithoutComments)
   const dumpCallRegex = /\bjson\.dump\s*\(/g
-  let totalDumps = 0
-  let validDumps = 0
+  let reachableValidMetricsDumps = 0
   let match: RegExpExecArray | null
 
   while ((match = dumpCallRegex.exec(codeWithoutComments)) !== null) {
-    totalDumps++
+    const dumpIndex = match.index
+    const enclosingFunc = getEnclosingFunctionName(codeWithoutComments, dumpIndex)
+    const isReachable = enclosingFunc === null || reachableFunctions.has(enclosingFunc)
+
     const startIdx = match.index + match[0].length
     let parenDepth = 1
     let endIdx = startIdx
@@ -455,14 +604,14 @@ export function validateScriptMetricsOutput(source: string): boolean {
           }
         }
         const fileArg = remainder.slice(0, fpEnd).trim()
-        if (isValidFileHandle(fileArg)) {
-          validDumps++
+        if (isValidFileHandle(fileArg) && isReachable) {
+          reachableValidMetricsDumps++
         }
       }
     }
   }
 
-  return totalDumps > 0 && validDumps === totalDumps
+  return reachableValidMetricsDumps > 0
 }
 
 export function validateExperimentSpec(spec: unknown): SpecValidationResult {
@@ -529,6 +678,12 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
           `file '${key}' contains prohibited 'pip install' or 'pip3 install'. Base image already includes required libraries.`,
         )
       }
+
+      if (hasProhibitedSubprocess(content)) {
+        errors.push(
+          `file '${key}' contains prohibited 'subprocess' invocation (docs/04:96 forbids subprocess execution in sandbox scripts)`,
+        )
+      }
     }
   }
 
@@ -539,6 +694,9 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
   } else {
     if (hasProhibitedPipInstall(s.entrypoint)) {
       errors.push("entrypoint cannot contain prohibited 'pip install' or 'pip3 install'")
+    }
+    if (hasProhibitedSubprocess(s.entrypoint)) {
+      errors.push("entrypoint cannot contain prohibited 'subprocess'")
     }
     entryFile = extractEntrypointFile(s.entrypoint)
     if (!entryFile) {
@@ -666,15 +824,13 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
     }
   }
 
-  // 11. image
-  if (s.image !== undefined) {
-    if (typeof s.image !== 'string' || s.image.trim() === '') {
-      errors.push('image must be a non-empty string')
-    } else if (s.image !== PINNED_E2B_TEMPLATE && s.image !== 'default') {
-      errors.push(
-        `image '${s.image}' is not supported. Must be '${PINNED_E2B_TEMPLATE}' or 'default'`,
-      )
-    }
+  // 11. image is mandatory and must match PINNED_E2B_TEMPLATE
+  if (typeof s.image !== 'string' || s.image.trim() === '') {
+    errors.push(`image is mandatory and must match '${PINNED_E2B_TEMPLATE}'`)
+  } else if (s.image !== PINNED_E2B_TEMPLATE) {
+    errors.push(
+      `image '${s.image}' is not supported. Must be '${PINNED_E2B_TEMPLATE}'`,
+    )
   }
 
   return {
