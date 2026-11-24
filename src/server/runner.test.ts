@@ -16,7 +16,7 @@ import {
   verifyEnvironmentPackages,
 } from './runner'
 import { evaluateExperiment } from './evaluate'
-import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../fixtures/hero-spec'
+import { HERO_EXPERIMENT_SPEC_RUN_A, HERO_RECORDED_RUN_RESULT } from '../../fixtures/hero-spec'
 import type { DatasetRef } from '../shared/types'
 
 describe('validateMetricsPayload', () => {
@@ -332,6 +332,118 @@ describe('E2BRunner with mocked sandbox', () => {
     expect(killed).toBe(true)
   })
 
+  it('respects cwd option by writing files into cwd and passing cwd to commands.run', async () => {
+    const writtenFiles = new Map<string, string | Buffer>()
+    let receivedCwd: string | undefined
+
+    const fakeSandbox = {
+      sandboxId: 'test-sandbox-cwd',
+      files: {
+        write: vi.fn(async (path: string, content: string | Buffer) => {
+          writtenFiles.set(path, content)
+        }),
+        read: vi.fn(async (path: string) => {
+          if (path === SANDBOX_METRICS_PATH) {
+            return JSON.stringify({ rank_impurity_noise_20: 4, rank_permutation_noise_20: 11 })
+          }
+          throw new Error('Not found')
+        }),
+        list: vi.fn(async () => []),
+      },
+      commands: {
+        run: vi.fn(async (cmd: string, opts?: any) => {
+          if (cmd.includes('main.py')) {
+            receivedCwd = opts?.cwd
+            return { exitCode: 0, stdout: 'Done', stderr: '' }
+          }
+          if (cmd.includes('python --version')) {
+            return { stdout: 'Python 3.12.0', stderr: '', exitCode: 0 }
+          }
+          if (cmd.includes('pip list')) {
+            return {
+              stdout: JSON.stringify([
+                { name: 'numpy', version: '2.5.5' },
+                { name: 'pandas', version: '2.3.3' },
+                { name: 'scikit-learn', version: '1.9.1' },
+                { name: 'matplotlib', version: '3.10.0' },
+                { name: 'scipy', version: '1.17.1' },
+              ]),
+              stderr: '',
+              exitCode: 0,
+            }
+          }
+          if (cmd.includes('cat /etc/image-digest')) {
+            return { stdout: 'sha256:digest123', stderr: '', exitCode: 0 }
+          }
+          return { stdout: '', stderr: '', exitCode: 0 }
+        }),
+      },
+      kill: vi.fn(async () => {}),
+    }
+
+    const runner = new E2BRunner({
+      cwd: '/workspace',
+      sandboxFactory: vi.fn().mockResolvedValue(fakeSandbox as any),
+      datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from('data'), sha256: 'h1' }),
+      verifyPackages: true,
+    })
+
+    const result = await runner.run(HERO_EXPERIMENT_SPEC_RUN_A)
+    expect(result.exitCode).toBe(0)
+    expect(writtenFiles.has('/workspace/data/breast-w.arff')).toBe(true)
+    expect(writtenFiles.has('/workspace/main.py')).toBe(true)
+    expect(receivedCwd).toBe('/workspace')
+  })
+
+  it('throws PackageVerificationError during runner.run when sandbox packages are mismatched', async () => {
+    const fakeSandbox = {
+      sandboxId: 'test-sandbox-mismatch',
+      files: {
+        write: vi.fn(async () => {}),
+        read: vi.fn(async (path: string) => {
+          if (path === SANDBOX_METRICS_PATH) {
+            return JSON.stringify({ rank_impurity_noise_20: 4, rank_permutation_noise_20: 11 })
+          }
+          throw new Error('Not found')
+        }),
+        list: vi.fn(async () => []),
+      },
+      commands: {
+        run: vi.fn(async (cmd: string) => {
+          if (cmd.includes('main.py')) {
+            return { exitCode: 0, stdout: 'Computed with mismatched numpy', stderr: '' }
+          }
+          if (cmd.includes('python --version')) {
+            return { stdout: 'Python 3.12.0', stderr: '', exitCode: 0 }
+          }
+          if (cmd.includes('pip list')) {
+            return {
+              stdout: JSON.stringify([
+                { name: 'numpy', version: '2.0.0' },
+                { name: 'pandas', version: '2.3.3' },
+                { name: 'scikit-learn', version: '1.9.1' },
+                { name: 'matplotlib', version: '3.10.0' },
+                { name: 'scipy', version: '1.17.1' },
+              ]),
+              stderr: '',
+              exitCode: 0,
+            }
+          }
+          return { stdout: '', stderr: '', exitCode: 0 }
+        }),
+      },
+      kill: vi.fn(async () => {}),
+    }
+
+    const runner = new E2BRunner({
+      sandboxFactory: vi.fn().mockResolvedValue(fakeSandbox as any),
+      datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from('data'), sha256: 'h1' }),
+      verifyPackages: true,
+    })
+
+    await expect(runner.run(HERO_EXPERIMENT_SPEC_RUN_A)).rejects.toThrow(PackageVerificationError)
+  })
+
   it('throws MetricsExtractionError when /output/metrics.json is missing', async () => {
     const fakeSandbox = {
       sandboxId: 'test-sandbox-fail',
@@ -401,5 +513,18 @@ describe('E2BRunner with mocked sandbox', () => {
     await runner.cancel('active-sb-1')
     expect(sandboxKilled).toBe(true)
     expect(runner.getActiveSandboxes().has('active-sb-1')).toBe(false)
+  })
+})
+
+describe('HERO_RECORDED_RUN_RESULT', () => {
+  it('contains verified environment and genuine measured metrics', () => {
+    expect(HERO_RECORDED_RUN_RESULT.exitCode).toBe(0)
+    expect(HERO_RECORDED_RUN_RESULT.durationMs).toBeGreaterThan(0)
+    expect(HERO_RECORDED_RUN_RESULT.environment.imageDigest).toMatch(/^sha256:[a-f0-9]{64}$/)
+    expect(HERO_RECORDED_RUN_RESULT.environment.python).toMatch(/^Python 3\.12/)
+    const pkgCheck = verifyEnvironmentPackages(HERO_RECORDED_RUN_RESULT.environment.packages)
+    expect(pkgCheck.valid).toBe(true)
+    expect(HERO_RECORDED_RUN_RESULT.metrics.rank_impurity_noise_20).toBe(4)
+    expect(HERO_RECORDED_RUN_RESULT.metrics.rank_permutation_noise_20).toBe(11)
   })
 })

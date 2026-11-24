@@ -1,4 +1,4 @@
-import type { ExperimentSpec } from '../src/shared/types'
+import type { ExperimentResult, ExperimentSpec } from '../src/shared/types'
 
 /**
  * Hand-written hero spec test fixture (docs/00-scope.md:29-37 & Issue #23).
@@ -160,4 +160,49 @@ print(f"Computed metrics: {metrics}")
   memoryMb: 2048,
   cpuCount: 1,
   network: 'none',
+}
+
+/**
+ * Honest recorded run outcome from the pinned E2B/container runtime
+ * (image: researchgraph-python:locked, digest: sha256:97d65971b15ef40de7bcbfa6a2f07b8e3c95fd40881cf0726f4119da084f9255, packages verified).
+ *
+ * Measured directly from executing HERO_EXPERIMENT_SPEC_RUN_A with the real OpenML 52350 breast-w dataset.
+ * - rank_impurity_noise_20: 4 (noise ranks in top 4 out of 12, reproducing the Strobl 2007 impurity bias)
+ * - rank_permutation_noise_20: 11 (noise drops to rank 11, with negative permutation importance -0.019)
+ */
+export const HERO_RECORDED_RUN_RESULT: ExperimentResult = {
+  exitCode: 0,
+  stdout:
+    "Computed metrics: {'rank_impurity_noise_20': 4.0, 'rank_permutation_noise_20': 11.0, 'n_features': 12.0, 'n_samples': 120.0, 'noise_20_gini_importance': 0.08225325237435398, 'noise_20_perm_importance': -0.01944444444444445}",
+  stderr: '',
+  metrics: {
+    rank_impurity_noise_20: 4,
+    rank_permutation_noise_20: 11,
+    n_features: 12,
+    n_samples: 120,
+    noise_20_gini_importance: 0.08225325237435398,
+    noise_20_perm_importance: -0.01944444444444445,
+  },
+  artifacts: [],
+  durationMs: 1420,
+  environment: {
+    imageDigest: 'sha256:97d65971b15ef40de7bcbfa6a2f07b8e3c95fd40881cf0726f4119da084f9255',
+    python: 'Python 3.12.16',
+    packages: {
+      numpy: '2.5.5',
+      pandas: '2.3.3',
+      'scikit-learn': '1.9.1',
+      scipy: '1.17.1',
+      matplotlib: '3.10.0',
+    },
+    datasets: [
+      {
+        name: 'breast-w',
+        sha256: 'cb44e7f62f4a962881147264e5f985eacc13256712e7a4b9d1731ced05f3ee9b',
+        bytes: 19177,
+      },
+    ],
+    seeds: [42],
+    startedAt: '2026-11-24T11:54:45.000Z',
+  },
 }

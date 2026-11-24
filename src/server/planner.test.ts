@@ -143,6 +143,30 @@ json.dump({}, open("metrics.json", "w"))
     expect(validateScriptMetricsOutput(stringDecoy)).toBe(false)
   })
 
+  it('rejects dead function write when call appearance is inside a string or docstring', () => {
+    const probe = `
+import json
+def w():
+    json.dump({}, open('/output/metrics.json', 'w'))
+
+print("call w() to write metrics")
+json.dump({}, open("metrics.json", "w"))
+`
+    expect(validateScriptMetricsOutput(probe)).toBe(false)
+
+    const docstringProbe = `
+import json
+def w():
+    json.dump({}, open('/output/metrics.json', 'w'))
+
+"""
+To write metrics run w()
+"""
+json.dump({}, open("metrics.json", "w"))
+`
+    expect(validateScriptMetricsOutput(docstringProbe)).toBe(false)
+  })
+
   it('flags pip install via variable indirection or f-strings', () => {
     const varIndirection = `
 cmd = 'pip3 install torch'
@@ -259,6 +283,40 @@ describe('validateExperimentSpec', () => {
     const result = validateExperimentSpec(spec)
     expect(result.valid).toBe(false)
     expect(result.errors.some((e) => e.includes('http or https'))).toBe(true)
+  })
+
+  it('rejects disallowed dataset domains and SSRF addresses in spec', () => {
+    const specUntrusted: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      datasets: [
+        {
+          name: 'untrusted',
+          url: 'http://untrusted-attacker.com/data.csv',
+          path: 'data/untrusted.csv',
+          sha256: null,
+          bytes: null,
+        },
+      ],
+    }
+    const resUntrusted = validateExperimentSpec(specUntrusted)
+    expect(resUntrusted.valid).toBe(false)
+    expect(resUntrusted.errors.some((e) => e.includes('allowed dataset domains'))).toBe(true)
+
+    const specSSRF: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      datasets: [
+        {
+          name: 'ssrf',
+          url: 'http://169.254.169.254/latest/meta-data',
+          path: 'data/meta.csv',
+          sha256: null,
+          bytes: null,
+        },
+      ],
+    }
+    const resSSRF = validateExperimentSpec(specSSRF)
+    expect(resSSRF.valid).toBe(false)
+    expect(resSSRF.errors.some((e) => e.includes('SSRF protection'))).toBe(true)
   })
 
   it('checks metrics on unnormalized file keys like ./main.py', () => {

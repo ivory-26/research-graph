@@ -1,6 +1,6 @@
 import { posix } from 'node:path'
 import type { ExperimentSpec } from '../shared/types'
-import { PINNED_E2B_TEMPLATE } from './runner'
+import { PINNED_E2B_TEMPLATE, validateDatasetUrl } from './runner'
 
 /**
  * Hard rules that an ExperimentSpec must satisfy, as specified in docs/03-agent-pipeline.md
@@ -634,7 +634,8 @@ export function validateScriptMetricsOutput(source: string): boolean {
 
   // 5. Inspect all json.dump calls in executable code and check reachability
   const literalMask = getStringLiteralMask(codeWithoutComments)
-  const reachableFunctions = getReachablePythonFunctions(codeWithoutComments)
+  const codeWithoutLiteralsOrComments = stripPythonLiteralsAndComments(source)
+  const reachableFunctions = getReachablePythonFunctions(codeWithoutLiteralsOrComments)
   const dumpCallRegex = /\bjson\.dump\s*\(/g
   let reachableValidMetricsDumps = 0
   let match: RegExpExecArray | null
@@ -856,12 +857,11 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
         errors.push(`dataset[${i}].url must be a resolvable string`)
       } else {
         try {
-          const parsed = new URL(d.url)
-          if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            errors.push(`dataset[${i}].url must use http or https protocol`)
-          }
-        } catch {
-          errors.push(`dataset[${i}].url '${d.url}' is not a valid URL`)
+          validateDatasetUrl(d.url)
+        } catch (err) {
+          errors.push(
+            `dataset[${i}].url '${d.url}' is invalid: ${err instanceof Error ? err.message : String(err)}`,
+          )
         }
       }
     }

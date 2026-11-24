@@ -479,7 +479,7 @@ export async function defaultReadEnvironment(
   startedAt: string,
 ): Promise<RunEnvironment> {
   let python = 'unknown'
-  let imageDigest = 'sha256:unknown'
+  let imageDigest = 'unknown'
   const packages: Record<string, string> = {}
 
   try {
@@ -550,6 +550,7 @@ export interface E2BRunnerOptions {
   collectArtifacts?: SandboxFileCollector
   readEnvironment?: EnvironmentReader
   verifyPackages?: boolean
+  cwd?: string
 }
 
 export class E2BRunner implements ExperimentRunner {
@@ -622,13 +623,21 @@ export class E2BRunner implements ExperimentRunner {
       // 1. Upload pre-fetched datasets (normalized posix destination path)
       for (const { ref, bytes } of resolvedDatasets) {
         const destPath = sanitizeSandboxPath(ref.path)
-        await sandbox.files.write(destPath, bytes)
+        const targetPath =
+          this.options.cwd && !posix.isAbsolute(destPath)
+            ? posix.join(this.options.cwd, destPath)
+            : destPath
+        await sandbox.files.write(targetPath, bytes)
       }
 
       // 2. Upload source files (normalized posix destination path)
       for (const [filePath, source] of Object.entries(updatedSpec.files)) {
         const destPath = sanitizeSandboxPath(filePath)
-        await sandbox.files.write(destPath, source)
+        const targetPath =
+          this.options.cwd && !posix.isAbsolute(destPath)
+            ? posix.join(this.options.cwd, destPath)
+            : destPath
+        await sandbox.files.write(targetPath, source)
       }
 
       // 3. Run execution
@@ -637,6 +646,7 @@ export class E2BRunner implements ExperimentRunner {
         proc = await sandbox.commands.run(updatedSpec.entrypoint, {
           timeoutMs: updatedSpec.timeoutSeconds * 1000,
           onStdout,
+          ...(this.options.cwd ? { cwd: this.options.cwd } : {}),
         })
       } catch (err) {
         if (err instanceof CommandExitError) {

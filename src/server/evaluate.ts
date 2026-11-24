@@ -77,10 +77,13 @@ function createVerdictCheck(
   }
 }
 
-export interface EvaluationOutcome {
+export interface EvaluatedVerdict {
   verdict: Verdict
   detail: VerdictDetail
 }
+
+export type VerdictOutcome = EvaluatedVerdict
+export type EvaluationOutcome = EvaluatedVerdict
 
 /**
  * Pure deterministic arithmetic evaluation of the experiment criteria.

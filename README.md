@@ -32,6 +32,10 @@ Pre-build. The architecture is decided; nothing is implemented. Start with [docs
 
 TanStack Start · React · TypeScript · Neon Postgres (pgvector) · Drizzle · Vercel AI SDK 7 · Google Gemini · E2B · Firecrawl · `@xyflow/react`
 
+## Experiment runtime
+
+Generated Python experiments execute in an isolated E2B sandbox (`researchgraph-python:locked`, 1 vCPU, 2048 MB RAM, networking disabled at run time). Local container execution is verified using Docker (`docker run --rm --network none ...`), confirming the pinned environment (`numpy==2.5.5`, `pandas==2.3.3`, `scikit-learn==1.9.1`, `scipy==1.17.1`, `matplotlib==3.10.0`) on a laptop CPU per [docs/04-experiment-runtime.md](./docs/04-experiment-runtime.md).
+
 ## Credit
 
 The node/edge vocabulary and the `command_receipts` idea are borrowed from [FOREST](https://github.com/mikamikasuki/FOREST) (Apache-2.0). No code is copied.
