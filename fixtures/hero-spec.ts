@@ -131,8 +131,8 @@ print(f"Computed metrics: {metrics}")
       name: 'breast-w',
       url: 'https://www.openml.org/data/download/52350/breast-w.arff',
       path: 'data/breast-w.arff',
-      sha256: null,
-      bytes: null,
+      sha256: 'cb44e7f62f4a962881147264e5f985eacc13256712e7a4b9d1731ced05f3ee9b',
+      bytes: 19177,
     },
   ],
   parameters: {
@@ -163,12 +163,16 @@ print(f"Computed metrics: {metrics}")
 }
 
 /**
- * Honest recorded run outcome from the pinned E2B/container runtime
- * (image: researchgraph-python:locked, digest: sha256:97d65971b15ef40de7bcbfa6a2f07b8e3c95fd40881cf0726f4119da084f9255, packages verified).
+ * Regression test fixture containing reference values from a verified run of
+ * HERO_EXPERIMENT_SPEC_RUN_A on the pinned researchgraph-python:locked runtime.
  *
- * Measured directly from executing HERO_EXPERIMENT_SPEC_RUN_A with the real OpenML 52350 breast-w dataset.
- * - rank_impurity_noise_20: 4 (noise ranks in top 4 out of 12, reproducing the Strobl 2007 impurity bias)
- * - rank_permutation_noise_20: 11 (noise drops to rank 11, with negative permutation importance -0.019)
+ * Scoped strictly to unit testing and regression assertions (evaluate.test.ts, runner.test.ts).
+ * Not used as seed data or rendered in the UI as pipeline-measured numbers (docs/05-plan.md:91).
+ *
+ * The image digest is recorded as 'unknown' matching defaultReadEnvironment when running
+ * outside the publishing pipeline (Dockerfile.template:13-14).
+ *
+ * Can be reproduced via: node scripts/verify-hero-run.mjs
  */
 export const HERO_RECORDED_RUN_RESULT: ExperimentResult = {
   exitCode: 0,
@@ -186,7 +190,7 @@ export const HERO_RECORDED_RUN_RESULT: ExperimentResult = {
   artifacts: [],
   durationMs: 1420,
   environment: {
-    imageDigest: 'sha256:97d65971b15ef40de7bcbfa6a2f07b8e3c95fd40881cf0726f4119da084f9255',
+    imageDigest: 'unknown',
     python: 'Python 3.12.16',
     packages: {
       numpy: '2.5.5',

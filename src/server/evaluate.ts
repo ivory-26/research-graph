@@ -82,9 +82,6 @@ export interface EvaluatedVerdict {
   detail: VerdictDetail
 }
 
-export type VerdictOutcome = EvaluatedVerdict
-export type EvaluationOutcome = EvaluatedVerdict
-
 /**
  * Pure deterministic arithmetic evaluation of the experiment criteria.
  * Does not perform any LLM model calls.
@@ -92,7 +89,7 @@ export type EvaluationOutcome = EvaluatedVerdict
 export function evaluateExperiment(
   spec: ExperimentSpec,
   result: ExperimentResult,
-): EvaluationOutcome {
+): EvaluatedVerdict {
   // Defensive: empty criteria checks cannot evaluate to match or mismatch
   if (!spec.criteria?.checks || spec.criteria.checks.length === 0) {
     return {
@@ -208,7 +205,7 @@ export async function evaluateAndExplainExperiment(
   result: ExperimentResult,
   ctx: CallModelContext,
   options: ExplainGapOptions = {},
-): Promise<EvaluationOutcome> {
+): Promise<EvaluatedVerdict> {
   // Step 1: Deterministic verdict
   const outcome = evaluateExperiment(spec, result)
   const call = options.callModelFn ?? callModel

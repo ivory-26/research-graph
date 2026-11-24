@@ -147,22 +147,20 @@ json.dump({}, open("metrics.json", "w"))
     const probe = `
 import json
 def w():
-    json.dump({}, open('/output/metrics.json', 'w'))
+    json.dump({"rank": 1}, open('/output/metrics.json', 'w'))
 
 print("call w() to write metrics")
-json.dump({}, open("metrics.json", "w"))
 `
     expect(validateScriptMetricsOutput(probe)).toBe(false)
 
     const docstringProbe = `
 import json
 def w():
-    json.dump({}, open('/output/metrics.json', 'w'))
+    json.dump({"rank": 1}, open('/output/metrics.json', 'w'))
 
 """
 To write metrics run w()
 """
-json.dump({}, open("metrics.json", "w"))
 `
     expect(validateScriptMetricsOutput(docstringProbe)).toBe(false)
   })

@@ -623,20 +623,14 @@ export class E2BRunner implements ExperimentRunner {
       // 1. Upload pre-fetched datasets (normalized posix destination path)
       for (const { ref, bytes } of resolvedDatasets) {
         const destPath = sanitizeSandboxPath(ref.path)
-        const targetPath =
-          this.options.cwd && !posix.isAbsolute(destPath)
-            ? posix.join(this.options.cwd, destPath)
-            : destPath
+        const targetPath = this.options.cwd ? posix.join(this.options.cwd, destPath) : destPath
         await sandbox.files.write(targetPath, bytes)
       }
 
       // 2. Upload source files (normalized posix destination path)
       for (const [filePath, source] of Object.entries(updatedSpec.files)) {
         const destPath = sanitizeSandboxPath(filePath)
-        const targetPath =
-          this.options.cwd && !posix.isAbsolute(destPath)
-            ? posix.join(this.options.cwd, destPath)
-            : destPath
+        const targetPath = this.options.cwd ? posix.join(this.options.cwd, destPath) : destPath
         await sandbox.files.write(targetPath, source)
       }
 

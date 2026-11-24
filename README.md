@@ -34,7 +34,7 @@ TanStack Start · React · TypeScript · Neon Postgres (pgvector) · Drizzle · 
 
 ## Experiment runtime
 
-Generated Python experiments execute in an isolated E2B sandbox (`researchgraph-python:locked`, 1 vCPU, 2048 MB RAM, networking disabled at run time). Local container execution is verified using Docker (`docker run --rm --network none ...`), confirming the pinned environment (`numpy==2.5.5`, `pandas==2.3.3`, `scikit-learn==1.9.1`, `scipy==1.17.1`, `matplotlib==3.10.0`) on a laptop CPU per [docs/04-experiment-runtime.md](./docs/04-experiment-runtime.md).
+Generated Python experiments execute in an isolated E2B sandbox (`researchgraph-python:locked`, 1 vCPU, 2048 MB RAM, networking disabled at run time). The container environment (`numpy==2.5.5`, `pandas==2.3.3`, `scikit-learn==1.9.1`, `scipy==1.17.1`, `matplotlib==3.10.0`) was verified once, on the author's machine, satisfying the laptop CPU requirement per [docs/04-experiment-runtime.md](./docs/04-experiment-runtime.md) and [ADR 0005](./docs/adr/0005-e2b-over-local-docker.md); the demo itself used E2B.
 
 ## Credit
 
