@@ -1,0 +1,148 @@
+/**
+ * TEST-ONLY stage provider.
+ *
+ * This is intentionally not production code and is never exported from the
+ * delivery module. The real stage provider (`#23` planner, `#24` runner,
+ * `#25` evaluator, `#7` integration seam) does not exist on main. These tests
+ * exercise the transport, claim, gate, replay and terminal semantics against
+ * a real Postgres database while supplying deterministic stage events through
+ * the same `PipelineStages` port the real provider will implement.
+ *
+ * It writes no `runs`, `nodes` or `edges` rows. Those belong to the runtime
+ * and to `#7`.
+ */
+import type { ExperimentResult, ExperimentSpec } from '../../../shared/types'
+import type {
+  PipelineStageContext,
+  PipelineStages,
+} from '../stages'
+
+export type FixtureStageOptions = {
+  spec: ExperimentSpec
+  runId?: string
+  result?: ExperimentResult
+  /** Hook after `run.started`, before the result. Used to test aborts. */
+  duringExecute?: (context: PipelineStageContext) => Promise<void>
+}
+
+export type FixtureStages = {
+  stages: PipelineStages
+  readonly planCalls: number
+  readonly executeCalls: number
+}
+
+export function createFixtureStages(
+  options: FixtureStageOptions,
+): FixtureStages {
+  const runId = options.runId ?? 'run-fixture-1'
+  const result = options.result ?? fixtureResult()
+
+  let planCalls = 0
+  let executeCalls = 0
+
+  const throwIfAborted = (context: PipelineStageContext): void => {
+    if (context.signal.aborted) throw context.signal.reason
+  }
+
+  const stages: PipelineStages = {
+    async plan(context) {
+      planCalls += 1
+
+      await context.emit({ type: 'stage.started', stage: 'INGEST_SOURCE' })
+      throwIfAborted(context)
+      await context.emit({
+        type: 'stage.finished',
+        stage: 'INGEST_SOURCE',
+        status: 'succeeded',
+        taskId: null,
+        error: null,
+      })
+
+      await context.emit({
+        type: 'stage.started',
+        stage: 'PLAN_EXPERIMENT',
+      })
+      throwIfAborted(context)
+      await context.emit({
+        type: 'stage.finished',
+        stage: 'PLAN_EXPERIMENT',
+        status: 'succeeded',
+        taskId: null,
+        error: null,
+      })
+
+      return { spec: options.spec }
+    },
+
+    async execute(context) {
+      executeCalls += 1
+
+      await context.emit({ type: 'stage.started', stage: 'EXECUTE' })
+      await context.emit({
+        type: 'run.started',
+        runId,
+        attempt: 1,
+        sandboxId: null,
+      })
+
+      await options.duringExecute?.(context)
+      throwIfAborted(context)
+
+      await context.emit({ type: 'run.succeeded', runId, result })
+      await context.emit({
+        type: 'stage.finished',
+        stage: 'EXECUTE',
+        status: 'succeeded',
+        taskId: null,
+        error: null,
+      })
+
+      await context.emit({ type: 'stage.started', stage: 'EVALUATE' })
+      throwIfAborted(context)
+      await context.emit({
+        type: 'verdict.computed',
+        runId,
+        verdict: 'match',
+        detail: { checks: [], explanation: null },
+      })
+      await context.emit({
+        type: 'stage.finished',
+        stage: 'EVALUATE',
+        status: 'succeeded',
+        taskId: null,
+        error: null,
+      })
+
+      return { runId }
+    },
+  }
+
+  return {
+    stages,
+    get planCalls() {
+      return planCalls
+    },
+    get executeCalls() {
+      return executeCalls
+    },
+  }
+}
+
+export function fixtureResult(): ExperimentResult {
+  return {
+    exitCode: 0,
+    stdout: 'fixture\n',
+    stderr: '',
+    metrics: { score: 0.9 },
+    artifacts: [],
+    durationMs: 12,
+    environment: {
+      imageDigest: 'sha256:fixture',
+      python: '3.12',
+      packages: {},
+      datasets: [],
+      seeds: [42],
+      startedAt: new Date(0).toISOString(),
+    },
+  }
+}

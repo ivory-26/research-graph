@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiPipelineExperimentIdApproveRouteImport } from './routes/api/pipeline/$experimentId/approve'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +23,41 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPipelineExperimentIdApproveRoute =
+  ApiPipelineExperimentIdApproveRouteImport.update({
+    id: '/api/pipeline/$experimentId/approve',
+    path: '/api/pipeline/$experimentId/approve',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/pipeline/$experimentId/approve': typeof ApiPipelineExperimentIdApproveRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/pipeline/$experimentId/approve': typeof ApiPipelineExperimentIdApproveRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/pipeline/$experimentId/approve': typeof ApiPipelineExperimentIdApproveRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/auth/$'
+  fullPaths: '/' | '/api/auth/$' | '/api/pipeline/$experimentId/approve'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/auth/$'
-  id: '__root__' | '/' | '/api/auth/$'
+  to: '/' | '/api/auth/$' | '/api/pipeline/$experimentId/approve'
+  id: '__root__' | '/' | '/api/auth/$' | '/api/pipeline/$experimentId/approve'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiPipelineExperimentIdApproveRoute: typeof ApiPipelineExperimentIdApproveRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +76,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/pipeline/$experimentId/approve': {
+      id: '/api/pipeline/$experimentId/approve'
+      path: '/api/pipeline/$experimentId/approve'
+      fullPath: '/api/pipeline/$experimentId/approve'
+      preLoaderRoute: typeof ApiPipelineExperimentIdApproveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiPipelineExperimentIdApproveRoute: ApiPipelineExperimentIdApproveRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
