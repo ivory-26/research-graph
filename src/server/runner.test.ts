@@ -327,8 +327,8 @@ describe('E2BRunner with mocked sandbox', () => {
     expect(result.environment.packages['scikit-learn']).toBe('1.9.1')
     expect(result.environment.packages['matplotlib']).toBe('3.10.0')
     expect(result.environment.imageDigest).toBe('sha256:a1b2c3d4e5f6')
-    expect(writtenFiles.has('data/breast-w.arff')).toBe(true)
-    expect(writtenFiles.has('main.py')).toBe(true)
+    expect(writtenFiles.has('/workspace/data/breast-w.arff')).toBe(true)
+    expect(writtenFiles.has('/workspace/main.py')).toBe(true)
     expect(killed).toBe(true)
   })
 
@@ -551,5 +551,12 @@ describe('HERO_RECORDED_RUN_RESULT', () => {
       HERO_RECORDED_RUN_RESULT,
     )
     expect(verdict.verdict).toBe('match')
+  })
+
+  it('guarantees verification reproducer script is loadable by Node ESM without rot', async () => {
+    const reproducerModule = (await import(
+      '../../scripts/verify-hero-run.mjs' as unknown as string
+    )) as { runHeroVerification: () => Promise<unknown> }
+    expect(typeof reproducerModule.runHeroVerification).toBe('function')
   })
 })

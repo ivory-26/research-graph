@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import { HERO_EXPERIMENT_SPEC_RUN_A, HERO_RECORDED_RUN_RESULT } from '../fixtures/hero-spec.ts'
-import { evaluateExperiment } from '../src/server/evaluate.ts'
+import { evaluateExperiment } from '../src/server/evaluate-verdict.ts'
 
 const DATASET_URL = HERO_EXPERIMENT_SPEC_RUN_A.datasets[0].url
 const EXPECTED_DATASET_SHA256 = HERO_EXPERIMENT_SPEC_RUN_A.datasets[0].sha256
