@@ -1,0 +1,59 @@
+{
+  "_comment": "Hand-authored fixture of verified model output schema across three demo papers for CI execution without live model API key",
+  "edges": [
+    {
+      "fromNodeId": "11111111-0001-4000-8000-000000000001",
+      "toNodeId": "11111111-0002-4000-8000-000000000002",
+      "relation": "tests",
+      "confidence": 0.9,
+      "evidenceChunkId": "11111111-1111-4111-8111-111111111111",
+      "quote": "random forest variable importance measures are a sensible means for variable selection in many applications, but are not reliable in situations where potential predictor variables vary in their scale of measurement or their number of categories.",
+      "rationale": "Evaluates reliability of variable selection measures under varied predictor scales"
+    },
+    {
+      "fromNodeId": "11111111-0002-4000-8000-000000000002",
+      "toNodeId": "11111111-0001-4000-8000-000000000001",
+      "relation": "supports",
+      "confidence": 0.85,
+      "evidenceChunkId": "11111111-1111-4111-8111-111111111112",
+      "quote": "The random forest approach was shown to outperform six other methods in the prediction of protein interactions based on various biological features such as gene expression, gene ontology (GO) features and sequence data [12].",
+      "rationale": "Benchmarks random forest performance against classical tree methods"
+    },
+    {
+      "fromNodeId": "22222222-0001-4000-8000-000000000001",
+      "toNodeId": "11111111-0002-4000-8000-000000000002",
+      "relation": "derived_from",
+      "confidence": 0.95,
+      "evidenceChunkId": "22222222-2222-4222-8222-222222222221",
+      "quote": "Based on these considerations we develop a new, conditional permutation scheme for the computation of the variable importance measure.",
+      "rationale": "Develops conditional permutation scheme directly extending the random forest variable importance measure"
+    },
+    {
+      "fromNodeId": "22222222-0002-4000-8000-000000000002",
+      "toNodeId": "11111111-0001-4000-8000-000000000001",
+      "relation": "supports",
+      "confidence": 0.88,
+      "evidenceChunkId": "22222222-2222-4222-8222-222222222222",
+      "quote": "Lunetta et al. [2] find that genetic markers relevant in interactions with other markers or environmental variables can be detected more efficiently by means of random forests",
+      "rationale": "Confirms the utility of tree-based ensembles for uncovering interactions in high-dimensional domains"
+    },
+    {
+      "fromNodeId": "33333333-0001-4000-8000-000000000001",
+      "toNodeId": "11111111-0002-4000-8000-000000000002",
+      "relation": "derived_from",
+      "confidence": 0.92,
+      "evidenceChunkId": "33333333-3333-4333-8333-333333333331",
+      "quote": "The algorithm uses a wrapper approach built around a random forest (Breiman 2001) classifier (Boruta is a god of the forest in the Slavic mythology).",
+      "rationale": "Boruta feature selection wrapper algorithm is built around Random Forest classification"
+    },
+    {
+      "fromNodeId": "33333333-0002-4000-8000-000000000002",
+      "toNodeId": "33333333-0001-4000-8000-000000000001",
+      "relation": "tests",
+      "confidence": 0.89,
+      "evidenceChunkId": "33333333-3333-4333-8333-333333333332",
+      "quote": "This article describes a R package Boruta, implementing a novel feature selection algorithm for finding all relevant variables.",
+      "rationale": "Introduces and evaluates the Boruta package implementing the all-relevant feature selection method"
+    }
+  ]
+}
