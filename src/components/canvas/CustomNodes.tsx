@@ -259,7 +259,7 @@ export const MethodNode: React.FC<NodeProps> = ({ data, selected }) => {
           position={Position.Top}
           className="flex items-center gap-1 border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
         >
-          <span className="font-mono text-[9px] text-[var(--text-primary)]">scikit-learn 1.9.1</span>
+          <span className="font-mono text-[9px] text-[var(--text-primary)]">{(data.library as string) || 'scikit-learn 1.9.1'}</span>
         </NodeToolbar>
 
         <Handle
@@ -290,7 +290,7 @@ export const MethodNode: React.FC<NodeProps> = ({ data, selected }) => {
             {data.title as string}
           </div>
           <div className="text-[9px] font-mono text-[var(--text-dim)]">
-            RandomForest · 100 trees
+            {(data.parameters as string) || (data.library as string) || 'RandomForest · 100 trees'}
           </div>
         </div>
       </div>
@@ -313,7 +313,7 @@ export const MethodNode: React.FC<NodeProps> = ({ data, selected }) => {
         position={Position.Top}
         className="flex items-center gap-1 rounded-none border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2 py-1 shadow-2xl backdrop-blur-md mb-1"
       >
-        <span className="font-mono text-[9px] text-[var(--text-primary)]">scikit-learn 1.9.1</span>
+        <span className="font-mono text-[9px] text-[var(--text-primary)]">{(data.library as string) || 'scikit-learn 1.9.1'}</span>
       </NodeToolbar>
 
       <Handle
@@ -340,7 +340,7 @@ export const MethodNode: React.FC<NodeProps> = ({ data, selected }) => {
       </div>
 
       <div className="mt-1 text-[10px] text-[var(--text-dim)] font-mono">
-        RandomForest · 100 trees
+        {(data.parameters as string) || (data.library as string) || 'RandomForest · 100 trees'}
       </div>
     </div>
   );
@@ -447,8 +447,8 @@ export const DatasetNode: React.FC<NodeProps> = ({ data, selected }) => {
       </div>
 
       <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--text-dim)] font-mono">
-        <span>{(data.rows as number) ? `${data.rows} rows` : '569 rows'}</span>
-        <span className="text-[var(--text-muted)]">+3 noise cols</span>
+        <span>{(data.rows as number) ? `${data.rows} rows` : (data.sublabel as string) || 'dataset'}</span>
+        <span className="text-[var(--text-muted)]">{(data.noiseColumns as string) ? `+${data.noiseColumns}` : ''}</span>
       </div>
     </div>
   );
@@ -502,9 +502,11 @@ export const RunNode: React.FC<NodeProps> = ({ data, selected }) => {
             <span className="text-[11px] font-mono font-bold text-[var(--text-primary)]">
               {data.title as string}
             </span>
-            <span className="badge-orange-outline !text-[7px] !px-1 rounded-none uppercase">
-              {data.verdict ? String(data.verdict) : 'spec'}
-            </span>
+            {data.verdict && data.verdict !== 'spec' && data.verdict !== 'preview' ? (
+              <span className="badge-orange-outline !text-[7px] !px-1 rounded-none uppercase">
+                {String(data.verdict)}
+              </span>
+            ) : null}
           </div>
           <div className="text-[9px] font-mono text-[var(--text-dim)]">
             {isWhatIf ? 'RUN B · WHAT-IF' : 'RUN A · ROOT'}{data.durationMs ? ` · ${data.durationMs}ms` : ''}
@@ -564,9 +566,11 @@ export const RunNode: React.FC<NodeProps> = ({ data, selected }) => {
         <span className="text-[12px] font-medium text-[var(--text-primary)] truncate mr-1">
           {data.title as string}
         </span>
-        <span className="badge-orange-outline !text-[8px] !px-1 rounded-none uppercase">
-          {data.verdict ? String(data.verdict) : 'spec'}
-        </span>
+        {data.verdict && data.verdict !== 'spec' && data.verdict !== 'preview' ? (
+          <span className="badge-orange-outline !text-[8px] !px-1 rounded-none uppercase">
+            {String(data.verdict)}
+          </span>
+        ) : null}
       </div>
 
       <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--text-dim)] font-mono">
@@ -609,9 +613,11 @@ export const ResultNode: React.FC<NodeProps> = ({ data, selected }) => {
             <span className="text-[11px] font-mono font-bold text-[var(--text-primary)]">
               {data.title as string}
             </span>
-            <span className="badge-solid-white !text-[7px] !px-1 rounded-none uppercase">
-              {data.verdict ? String(data.verdict) : 'PREVIEW'}
-            </span>
+            {data.verdict && data.verdict !== 'spec' && data.verdict !== 'preview' ? (
+              <span className="badge-solid-white !text-[7px] !px-1 rounded-none uppercase">
+                {String(data.verdict)}
+              </span>
+            ) : null}
           </div>
           <div className="text-[9px] font-mono text-[var(--text-dim)]">
             {data.sublabel ? String(data.sublabel) : 'RESULT · PREVIEW'}
@@ -650,9 +656,11 @@ export const ResultNode: React.FC<NodeProps> = ({ data, selected }) => {
         <span className="text-[12px] font-medium text-[var(--text-primary)] truncate mr-1">
           {data.title as string}
         </span>
-        <span className="badge-solid-white !text-[8px] !px-1 rounded-none uppercase">
-          {data.verdict ? String(data.verdict) : 'preview'}
-        </span>
+        {data.verdict && data.verdict !== 'spec' && data.verdict !== 'preview' ? (
+          <span className="badge-solid-white !text-[8px] !px-1 rounded-none uppercase">
+            {String(data.verdict)}
+          </span>
+        ) : null}
       </div>
 
       <div className="mt-1 text-[10px] text-[var(--text-dim)] font-mono truncate">

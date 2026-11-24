@@ -214,7 +214,7 @@
         "type": "run",
         "sublabel": "RUN A · ROOT",
         "title": "Impurity · adapted",
-        "verdict": "match",
+        "verdict": "spec",
         "mode": "adapted",
         "runId": "run-1",
         "network": "none",
@@ -230,7 +230,7 @@
         "type": "run",
         "sublabel": "RUN B · WHAT-IF",
         "title": "Permutation",
-        "verdict": "match",
+        "verdict": "spec",
         "mode": "adapted",
         "runId": "run-2",
         "parentRunId": "run-1",
@@ -248,7 +248,7 @@
         "type": "result",
         "sublabel": "RESULT · PREVIEW",
         "title": "Result A",
-        "verdict": "match",
+        "verdict": "preview",
         "metrics": {
           "rank_impurity_noise_20": 2,
           "rank_permutation_noise_20": 29
@@ -269,7 +269,7 @@
         "type": "result",
         "sublabel": "RESULT · PREVIEW",
         "title": "Result B",
-        "verdict": "match",
+        "verdict": "preview",
         "metrics": {
           "rank_impurity_noise_20": 2,
           "rank_permutation_noise_20": 29
@@ -392,7 +392,7 @@
       "relation": "produced",
       "status": "accepted",
       "confidence": 1.0,
-      "evidenceRunId": "run-a",
+      "evidenceRunId": "run-1",
       "rationale": "Run A executes standard Gini impurity MDI."
     },
     {
@@ -402,7 +402,7 @@
       "relation": "produced",
       "status": "accepted",
       "confidence": 1.0,
-      "evidenceRunId": "run-b",
+      "evidenceRunId": "run-2",
       "rationale": "Run B executes permutation importance on identical fold splits."
     },
     {
@@ -412,7 +412,7 @@
       "relation": "uses_dataset",
       "status": "accepted",
       "confidence": 1.0,
-      "evidenceRunId": "run-a",
+      "evidenceRunId": "run-1",
       "rationale": "Run A trained on OpenML 52350."
     },
     {
@@ -422,7 +422,7 @@
       "relation": "uses_dataset",
       "status": "accepted",
       "confidence": 1.0,
-      "evidenceRunId": "run-b",
+      "evidenceRunId": "run-2",
       "rationale": "Run B trained on OpenML 52350."
     },
     {
@@ -432,7 +432,7 @@
       "relation": "produced",
       "status": "accepted",
       "confidence": 1.0,
-      "evidenceRunId": "run-a",
+      "evidenceRunId": "run-1",
       "rationale": "Impurity test specification with target rank #2 for noise_20."
     },
     {
@@ -442,7 +442,7 @@
       "relation": "produced",
       "status": "accepted",
       "confidence": 1.0,
-      "evidenceRunId": "run-b",
+      "evidenceRunId": "run-2",
       "rationale": "Permutation test specification with target rank #29 for noise_20."
     },
     {
@@ -452,7 +452,7 @@
       "relation": "derived_from",
       "status": "accepted",
       "confidence": 1.0,
-      "evidenceRunId": "run-b",
+      "evidenceRunId": "run-2",
       "rationale": "What-If intervention branch: only importance_method is altered."
     }
   ],

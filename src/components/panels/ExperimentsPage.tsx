@@ -1,5 +1,6 @@
 import React from 'react';
 import { Plus } from 'lucide-react';
+import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../server/planner';
 
 interface ExperimentsPageProps {
   onOpenApproval: () => void;
@@ -45,11 +46,15 @@ export const ExperimentsPage: React.FC<ExperimentsPageProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-[var(--text-dim)]">Estimator:</span>
-                <strong className="text-[var(--text-primary)]">RandomForest · 100 trees</strong>
+                <strong className="text-[var(--text-primary)]">
+                  RandomForest · {Number(HERO_EXPERIMENT_SPEC_RUN_A.parameters.n_estimators || 100)} trees
+                </strong>
               </div>
               <div className="flex justify-between">
                 <span className="text-[var(--text-dim)]">Reproduction mode:</span>
-                <span className="badge-orange-outline !text-[8px] rounded-none">ADAPTED</span>
+                <span className="badge-orange-outline !text-[8px] rounded-none uppercase">
+                  {HERO_EXPERIMENT_SPEC_RUN_A.mode}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-[var(--text-dim)]">Execution target:</span>
@@ -75,19 +80,23 @@ export const ExperimentsPage: React.FC<ExperimentsPageProps> = ({
           <div className="space-y-2.5 text-xs pt-1">
             <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-2">
               <span className="text-[var(--text-dim)]">Network access:</span>
-              <span className="badge-solid-white !text-[8px] rounded-none">DISABLED</span>
+              <span className="badge-solid-white !text-[8px] rounded-none uppercase">
+                {HERO_EXPERIMENT_SPEC_RUN_A.network === 'none' ? 'DISABLED' : HERO_EXPERIMENT_SPEC_RUN_A.network}
+              </span>
             </div>
             <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-2">
               <span className="text-[var(--text-dim)]">Memory limit:</span>
-              <strong className="text-[var(--text-primary)]">2048 MB</strong>
+              <strong className="text-[var(--text-primary)]">{HERO_EXPERIMENT_SPEC_RUN_A.memoryMb} MB</strong>
             </div>
             <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-2">
               <span className="text-[var(--text-dim)]">Timeout:</span>
-              <strong className="text-[var(--text-primary)]">300 seconds</strong>
+              <strong className="text-[var(--text-primary)]">{HERO_EXPERIMENT_SPEC_RUN_A.timeoutSeconds} seconds</strong>
             </div>
             <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-2">
               <span className="text-[var(--text-dim)]">Dataset:</span>
-              <strong className="text-[var(--text-primary)] font-mono">OpenML 52350 (adapted)</strong>
+              <strong className="text-[var(--text-primary)] font-mono">
+                {HERO_EXPERIMENT_SPEC_RUN_A.datasets[0]?.name || 'breast-w'} ({HERO_EXPERIMENT_SPEC_RUN_A.mode})
+              </strong>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-[var(--text-dim)]">Human approval:</span>

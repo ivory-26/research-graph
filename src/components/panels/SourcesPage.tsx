@@ -22,7 +22,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
       venue: 'BMC Bioinformatics',
       pages: 14,
       size: '411 KB',
-      status: 'READY',
+      status: 'SEEDED',
       doi: '10.1186/1471-2105-8-25',
     },
     {
@@ -31,7 +31,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
       venue: 'BMC Bioinformatics',
       pages: 12,
       size: '500 KB',
-      status: 'READY',
+      status: 'SEEDED',
       doi: '10.1186/1471-2105-9-307',
     },
     {
@@ -40,7 +40,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
       venue: 'Journal of Statistical Software',
       pages: 13,
       size: '378 KB',
-      status: 'READY',
+      status: 'SEEDED',
       doi: '10.18637/jss.v036.i11',
     },
   ]);
@@ -176,11 +176,11 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
                 {isIngestingWeb ? (
                   <>
                     <span className="inline-block h-3 w-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
-                    <span>Scraping with Firecrawl & Extracting Claims...</span>
+                    <span>Queueing Firecrawl Ingestion...</span>
                   </>
                 ) : (
                   <>
-                    <span>Ingest with Firecrawl &amp; Add to Graph</span>
+                    <span>Queue Firecrawl Ingestion</span>
                     <ArrowRight className="h-3.5 w-3.5" />
                   </>
                 )}
@@ -241,7 +241,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
                   </div>
                 </div>
               </div>
-              <span className="badge-solid-white !text-[8px] rounded-none">ACTIVE</span>
+              <span className="badge-solid-white !text-[8px] rounded-none">STANDBY</span>
             </div>
 
             <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
@@ -256,7 +256,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
                   </div>
                 </div>
               </div>
-              <span className="badge-solid-white !text-[8px] rounded-none">ACTIVE</span>
+              <span className="badge-solid-white !text-[8px] rounded-none">STANDBY</span>
             </div>
 
             <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
@@ -271,7 +271,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
                   </div>
                 </div>
               </div>
-              <span className="badge-solid-white !text-[8px] rounded-none">ACTIVE</span>
+              <span className="badge-solid-white !text-[8px] rounded-none">STANDBY</span>
             </div>
 
             <div className="flex items-center justify-between">
@@ -286,7 +286,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
                   </div>
                 </div>
               </div>
-              <span className="badge-solid-white !text-[8px] rounded-none">ACTIVE</span>
+              <span className="badge-solid-white !text-[8px] rounded-none">STANDBY</span>
             </div>
           </div>
         </div>

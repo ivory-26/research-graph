@@ -68,7 +68,7 @@ export const AgentMonitorPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <span className="badge-solid-white !text-[8px] rounded-none">READY</span>
+              <span className="badge-solid-white !text-[8px] rounded-none">STANDBY</span>
             </div>
 
             <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
@@ -83,7 +83,7 @@ export const AgentMonitorPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <span className="badge-solid-white !text-[8px] rounded-none">READY</span>
+              <span className="badge-solid-white !text-[8px] rounded-none">STANDBY</span>
             </div>
 
             <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
@@ -98,7 +98,7 @@ export const AgentMonitorPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <span className="badge-solid-white !text-[8px] rounded-none">READY</span>
+              <span className="badge-solid-white !text-[8px] rounded-none">STANDBY</span>
             </div>
 
             <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
@@ -146,7 +146,7 @@ export const AgentMonitorPage: React.FC = () => {
             <pre className="p-3 bg-[var(--bg-surface)] border border-[var(--border-primary)] text-[11px] text-[var(--text-secondary)] font-mono overflow-x-auto leading-relaxed">
 {`source_ids: ["src-1"]
 strategy: "sectioned"
-model: "Gemini 2.0 Flash"
+model: "gemini-3.8-flash"
 max_attempts: 2`}
             </pre>
           </div>
@@ -161,7 +161,7 @@ max_attempts: 2`}
           <div className="pt-2 border-t border-[var(--border-primary)] space-y-2 text-xs">
             <div className="flex justify-between">
               <span className="text-[var(--text-dim)]">Status:</span>
-              <span className="badge-solid-white !text-[8px] rounded-none">READY</span>
+              <span className="badge-solid-white !text-[8px] rounded-none">STANDBY</span>
             </div>
             <div className="flex justify-between">
               <span className="text-[var(--text-dim)]">Reproduction Mode:</span>

@@ -251,9 +251,7 @@ if df is not None:
     X = df.iloc[:, :-1].select_dtypes(include=[np.number]).values
     y = df.iloc[:, -1].astype('category').cat.codes.values
 else:
-    # Synthetic fallback with 569 rows and 30 features matching breast-w dimensions
-    X = np.random.randn(569, 30)
-    y = (X[:, 0] + X[:, 1] > 0).astype(int)
+    raise FileNotFoundError("Pinned breast-w dataset not found in expected locations.")
 
 n_samples = X.shape[0]
 
@@ -298,7 +296,7 @@ print(f"Computed metrics written to {metrics_file}: {metrics}")
       url: 'https://raw.githubusercontent.com/datasets/breast-cancer/master/data/data.csv',
       path: 'data/breast-w.csv',
       sha256: null,
-      bytes: null,
+      bytes: 52350,
     },
   ],
   parameters: {

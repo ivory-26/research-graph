@@ -163,7 +163,7 @@ export const AskResearchPage: React.FC = () => {
           </div>
         </div>
         <span className="badge-solid-white !text-[9px] rounded-none">
-          3 SOURCES INDEXED
+          3 DEMO SOURCES AVAILABLE
         </span>
       </div>
 
@@ -253,7 +253,7 @@ export const AskResearchPage: React.FC = () => {
         {isSearching && (
           <div className="max-w-[75%] p-4 border border-[var(--border-primary)] bg-[var(--card-bg)] text-xs text-[var(--text-dim)] flex items-center gap-2">
             <span className="inline-block h-2 w-2 rounded-full bg-[#f97316] animate-pulse" />
-            <span>Searching 768-dim embeddings and verifying verbatim quotes...</span>
+            <span>Retrieving sample citations for query...</span>
           </div>
         )}
       </div>
@@ -265,7 +265,7 @@ export const AskResearchPage: React.FC = () => {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-          placeholder="Ask a question across the indexed papers (e.g. Why does Gini importance favor noise?)..."
+          placeholder="Ask a question across workspace papers (e.g. Why does Gini importance favor noise?)..."
           className="flex-1 bg-transparent text-xs text-[var(--text-primary)] placeholder-[var(--text-dim)] outline-none font-mono"
         />
         <button

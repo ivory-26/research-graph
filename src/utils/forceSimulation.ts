@@ -3,7 +3,7 @@
  *
  * Implements an organic, collision-aware knowledge layout:
  * - Geometric collision prevention accounting for node dimensions and label footprints
- * - Controlled node sizing (36–48px normal, 48–54px central hubs)
+ * - Controlled node sizing (38–54px diameter)
  * - Distinct cluster separation (Sources, Claims, Methods, Datasets, Runs, Results)
  * - Hooke's spring attraction with generous rest lengths (180–220px)
  * - Multi-pass relaxation with strict non-overlap post-processing
@@ -299,7 +299,7 @@ export function computeForceLayout(
     }
   }
 
-  // 4. Final Post-Processing Collision Relaxation (30 strict geometric passes)
+  // 4. Final Post-Processing Collision Relaxation (35 strict geometric passes)
   // Guarantees zero overlaps regardless of edge tension
   for (let pass = 0; pass < 35; pass++) {
     for (let i = 0; i < simNodes.length; i++) {

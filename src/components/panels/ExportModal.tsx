@@ -1,35 +1,104 @@
 import React from 'react';
 import { X, Download } from 'lucide-react';
 import rawWorkspace from '../../../fixtures/workspace.json';
+import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../server/planner';
 
-const DEFAULT_NOTEBOOK = JSON.stringify({
-  cells: [
+function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
+  const scriptCode = spec.files['main.py'] || '';
+  const dataset = spec.datasets[0];
+  const checks = spec.criteria.checks;
+
+  return JSON.stringify(
     {
-      cell_type: 'markdown',
-      metadata: {},
-      source: [
-        '# Strobl et al. 2007 - Reproducibility Audit\n',
-        'Comparing Gini impurity vs Permutation Importance on OpenML:52350 (breast-w + 3 synthetic noise columns).'
-      ]
+      cells: [
+        {
+          cell_type: 'markdown',
+          metadata: {},
+          source: [
+            '# Reproducibility Record: Strobl et al. (2007)\n',
+            '**Paper:** Strobl et al. (2007) *Bias in random forest variable importance measures: Illustrations, sources and a solution*\n',
+            '**DOI:** `10.1186/1471-2105-8-25`\n',
+            '**Claim (Verbatim):** "the variable importance measure of the original random forest method ... is artificially preferred for variables with many categories"\n',
+            `**Mode:** ${spec.mode}\n`,
+            '**Verdict Status:** Specification Preview\n',
+          ],
+        },
+        {
+          cell_type: 'code',
+          execution_count: null,
+          metadata: {},
+          outputs: [],
+          source: [
+            '# 1. Pinned dependencies install\n',
+            '!pip install -q "scikit-learn==1.9.1" "pandas==2.2.0" "numpy==1.26.4"\n',
+          ],
+        },
+        {
+          cell_type: 'code',
+          execution_count: null,
+          metadata: {},
+          outputs: [],
+          source: [
+            '# 2. Dataset retrieval and verification\n',
+            'import pathlib, urllib.request, hashlib\n',
+            'data_dir = pathlib.Path("data")\n',
+            'data_dir.mkdir(exist_ok=True)\n',
+            `data_url = "${dataset?.url || 'https://raw.githubusercontent.com/datasets/breast-cancer/master/data/data.csv'}"\n`,
+            `dest_path = data_dir / "${dataset?.name || 'breast-w'}.csv"\n`,
+            'if not dest_path.exists():\n',
+            '    urllib.request.urlretrieve(data_url, dest_path)\n',
+            'data_bytes = dest_path.read_bytes()\n',
+            'print(f"Cached {dest_path}: {len(data_bytes)} bytes, sha256={hashlib.sha256(data_bytes).hexdigest()[:16]}...")\n',
+          ],
+        },
+        {
+          cell_type: 'code',
+          execution_count: null,
+          metadata: {},
+          outputs: [],
+          source: scriptCode.split('\n').map((line) => line + '\n'),
+        },
+        {
+          cell_type: 'code',
+          execution_count: null,
+          metadata: {},
+          outputs: [],
+          source: [
+            '# 4. Display generated metrics\n',
+            'import json, pathlib\n',
+            'metrics_path = pathlib.Path("/output/metrics.json")\n',
+            'if not metrics_path.exists():\n',
+            '    metrics_path = pathlib.Path("metrics.json")\n',
+            'if metrics_path.exists():\n',
+            '    with open(metrics_path) as f:\n',
+            '        metrics = json.load(f)\n',
+            '    print(json.dumps(metrics, indent=2))\n',
+            'else:\n',
+            '    print("metrics.json not found")\n',
+          ],
+        },
+        {
+          cell_type: 'markdown',
+          metadata: {},
+          source: [
+            '### Evaluation Criteria\n',
+            ...checks.map(
+              (c) =>
+                `- Target check: \`${c.metric}\` ${c.op === 'lte' ? '<=' : c.op} ${c.value} -> evaluates whether high-cardinality noise is ranked among top predictors.\n`
+            ),
+          ],
+        },
+      ],
+      metadata: {
+        language_info: { name: 'python' },
+      },
+      nbformat: 4,
+      nbformat_minor: 2,
     },
-    {
-      cell_type: 'code',
-      execution_count: null,
-      metadata: {},
-      outputs: [],
-      source: [
-        'from sklearn.ensemble import RandomForestClassifier\n',
-        'from sklearn.inspection import permutation_importance\n',
-        'print("Running replication...")\n'
-      ]
-    }
-  ],
-  metadata: {
-    language_info: { name: 'python' }
-  },
-  nbformat: 4,
-  nbformat_minor: 2
-}, null, 2);
+    null,
+    2
+  );
+}
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -61,7 +130,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   const handleDownloadNotebook = () => {
-    const blob = new Blob([DEFAULT_NOTEBOOK], { type: 'application/x-ipynb+json' });
+    const notebookContent = buildReproducibleNotebook();
+    const blob = new Blob([notebookContent], { type: 'application/x-ipynb+json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -139,7 +209,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               className="px-3 py-1.5 border border-[var(--border-primary)] bg-[var(--bg-surface)] hover:text-[#f97316] transition text-xs font-mono flex items-center gap-1"
             >
               <Download className="h-3 w-3" />
-              <span>Download</span>
+              <span>Export</span>
             </button>
           </div>
         </div>

@@ -118,13 +118,13 @@ function WorkspacePage() {
   const handleApproveExperiment = () => {
     setIsApprovalOpen(false);
     setIsConsoleOpen(true);
-    showToast('Plan approved. Validating spec against schema...');
+    showToast('Plan specification confirmed.');
 
     setExecutionLogs((prev) => [
       ...prev,
-      `[${new Date().toLocaleTimeString()}] plan approved by researcher`,
-      `[${new Date().toLocaleTimeString()}] approval_state set to 'approved'`,
-      `[${new Date().toLocaleTimeString()}] awaiting pipeline execution dispatch`,
+      `[${new Date().toLocaleTimeString()}] plan specification reviewed and confirmed`,
+      `[${new Date().toLocaleTimeString()}] execution sandbox profile: network=none, memory=2048MB, timeout=60s`,
+      `[${new Date().toLocaleTimeString()}] workstation standing by for live execution dispatch`,
     ]);
   };
 

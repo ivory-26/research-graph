@@ -23,7 +23,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
             {sourceCount}
           </div>
           <div className="text-[11px] text-[var(--text-dim)]">
-            All indexed in this workspace
+            Configured in workspace
           </div>
         </div>
 
@@ -94,14 +94,14 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
               <span className="w-2.5 h-2.5 rounded-full bg-[#f97316] mt-1" />
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-[var(--text-primary)] font-semibold">
-                  Three sources indexed
+                  Three sources configured
                 </div>
                 <div className="text-[11px] text-[var(--text-dim)]">
-                  PDF extraction and chunking completed
+                  PDF extraction and chunking specification
                 </div>
               </div>
               <span className="badge-solid-white !text-[8px] rounded-none">
-                READY
+                SEEDED
               </span>
             </div>
           </div>
@@ -168,7 +168,7 @@ export const OverviewPage: React.FC<OverviewPageProps> = ({ onOpenGraph }) => {
                 <td className="py-3 text-[var(--text-muted)]">Claim</td>
                 <td className="py-3">
                   <span className="badge-orange-outline !text-[8px] rounded-none">
-                    AUDITED
+                    PROPOSED
                   </span>
                 </td>
                 <td className="py-3 text-right text-[var(--text-dim)]">Today</td>

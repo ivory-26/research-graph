@@ -41,7 +41,7 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
   }, [isOpen, initialTab, selectedSourceId]);
 
   const handleCrawl = () => {
-    setCrawlStatus('Crawling paper project page via Firecrawl API...');
+    setCrawlStatus('Queueing paper project page via Firecrawl API...');
     setTimeout(() => {
       setCrawlStatus('Source URL queued for pipeline ingestion and chunk extraction.');
     }, 800);
@@ -173,7 +173,7 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
                         </div>
                       </div>
                       <span className="badge-solid-white rounded-none">
-                        INDEXED
+                        {('status' in src && src.status) ? String(src.status) : 'SEEDED'}
                       </span>
                     </div>
                   ))}

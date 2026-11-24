@@ -1,5 +1,5 @@
 import React from 'react';
-import { HERO_PYTHON_SCRIPT } from '../../data/demoWorkspace';
+import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../server/planner';
 import { ShieldCheck, Cpu, HardDrive, WifiOff, X } from 'lucide-react';
 
 interface ApprovalModalProps {
@@ -16,6 +16,12 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
   onReject,
 }) => {
   if (!isOpen) return null;
+
+  const spec = HERO_EXPERIMENT_SPEC_RUN_A;
+  const primaryDataset = spec.datasets[0];
+  const criteriaText = spec.criteria.checks
+    .map((c) => `${c.metric} ${c.op === 'lte' ? '≤' : c.op === 'gt' ? '>' : c.op} ${c.value}`)
+    .join(' & ');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md animate-fade-in">
@@ -36,7 +42,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-[var(--text-dim)] mt-0.5 font-mono">
-                Inspect generated Python script and resource sandbox boundary before dispatching to E2B.
+                Inspect generated Python script and resource sandbox boundary specification.
               </p>
             </div>
           </div>
@@ -59,7 +65,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
                   Network Policy
                 </div>
                 <div className="m text-xs font-bold text-[var(--text-primary)]">
-                  none (isolated)
+                  {spec.network} (isolated)
                 </div>
               </div>
             </div>
@@ -71,7 +77,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
                   Compute Limit
                 </div>
                 <div className="m text-xs font-bold text-[var(--text-primary)]">
-                  1 vCPU · 2GB RAM
+                  {spec.cpuCount} vCPU · {spec.memoryMb}MB RAM
                 </div>
               </div>
             </div>
@@ -83,7 +89,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
                   Dataset Mode
                 </div>
                 <div className="m text-xs font-bold text-[var(--text-primary)]">
-                  Adapted (OpenML)
+                  {spec.mode} (OpenML)
                 </div>
               </div>
             </div>
@@ -93,26 +99,32 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
           <div className="c p-4 bg-[var(--card-bg)] border border-[var(--border-primary)] text-xs space-y-1.5 rounded-none">
             <div className="flex items-center justify-between">
               <span className="l">Dataset Reference:</span>
-              <span className="m text-[var(--text-primary)] font-bold">openml:52350 (breast-w)</span>
+              <span className="m text-[var(--text-primary)] font-bold">
+                {primaryDataset?.name} ({primaryDataset?.path})
+              </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="l">Dataset Mode:</span>
-              <span className="m text-[#f97316]">adapted (OpenML 52350)</span>
+              <span className="l">Dataset Source & Size:</span>
+              <span className="m text-[#f97316] font-mono text-[11px] truncate max-w-[450px]">
+                {primaryDataset?.url} {primaryDataset?.bytes ? `(${primaryDataset.bytes} bytes)` : ''}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="l">Target Assertions:</span>
-              <span className="m text-[var(--text-primary)]">rank_impurity(noise_20) ≤ 5 &amp; rank_permutation(noise_20) &gt; 15</span>
+              <span className="m text-[var(--text-primary)] font-mono">{criteriaText}</span>
             </div>
           </div>
 
           {/* Generated Code Preview with Sharp Corners */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="l">Generated Entrypoint: main.py</span>
-              <span className="font-mono text-[10px] text-[var(--text-dim)]">Deterministic seed = 42</span>
+              <span className="l">Generated Entrypoint: {spec.entrypoint}</span>
+              <span className="font-mono text-[10px] text-[var(--text-dim)]">
+                Timeout = {spec.timeoutSeconds}s
+              </span>
             </div>
             <pre className="max-h-60 overflow-y-auto rounded-none border border-[var(--border-primary)] bg-[var(--card-bg)] p-4 font-mono text-[11px] text-[var(--text-primary)] leading-relaxed">
-              <code>{HERO_PYTHON_SCRIPT}</code>
+              <code>{spec.files['main.py']}</code>
             </pre>
           </div>
         </div>
@@ -129,7 +141,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
             onClick={onApprove}
             className="h-8 px-4 rounded-none bg-[#f97316] text-black font-mono uppercase text-xs font-bold hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)]"
           >
-            Approve &amp; Dispatch to E2B
+            Confirm Plan Specification
           </button>
         </div>
       </div>

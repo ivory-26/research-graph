@@ -76,7 +76,7 @@ export const CustomEvidenceEdge: React.FC<EdgeProps> = ({
 
   let displayLabel = relation.replace('_', ' ');
   if (relation === 'derived_from') displayLabel = 'what-if';
-  if (relation === 'contradicts') displayLabel = 'contradicts?';
+  if (relation === 'contradicts') displayLabel = 'contradicts';
 
   // In Memory Graph mode: only show edge label pill if specifically hovered or individually selected.
   // In Cards mode: show label when lineage active or hovered.

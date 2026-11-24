@@ -98,7 +98,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="absolute left-0 top-10 z-50 w-64 bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] p-2 shadow-2xl backdrop-blur-2xl animate-fade-in text-xs font-mono space-y-1">
                 <div className="px-2 py-1 text-[9px] uppercase tracking-wider text-[var(--text-dim)] border-b border-[var(--border-primary)] flex justify-between items-center">
                   <span>Workspaces</span>
-                  <span className="text-emerald-400">Online</span>
+                  <span className="text-emerald-400">Workspace</span>
                 </div>
                 <div className="p-2 bg-[var(--bg-surface-hover)] text-[var(--text-primary)] border border-[#f97316]/50 flex items-center justify-between">
                   <div>
@@ -106,7 +106,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <span>{currentWorkspace}</span>
                     </div>
                     <div className="text-[10px] text-[var(--text-dim)] mt-0.5">
-                      3 sources · 1 claim · Active
+                      3 sources · 1 claim (demo)
                     </div>
                   </div>
                   <span className="text-[9px] text-[#f97316] uppercase font-bold">Active</span>
@@ -137,10 +137,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* 1. Ready Status */}
           <div
             className="flex items-center gap-1.5 px-2.5 py-1 border border-emerald-500/25 bg-emerald-500/10 text-emerald-400 select-none mr-1 font-mono text-xs"
-            title="Workspace & E2B Execution Status: Ready"
+            title="Workspace Workstation (Canvas)"
           >
             <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" />
-            <span className="font-semibold text-[11px] tracking-wide">Ready</span>
+            <span className="font-semibold text-[11px] tracking-wide">Workstation</span>
           </div>
 
           {/* 2. Plan & Run (Primary Hero Action) */}
