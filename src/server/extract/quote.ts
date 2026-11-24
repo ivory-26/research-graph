@@ -41,6 +41,7 @@ export function verifyVerbatimQuote(quote: string, chunkText: string): boolean {
     return false
   }
 
+  // Exact normalized match only (no fuzzy matching, no case folding per docs/03 & CLAUDE.md)
   return normChunk.includes(normQuote)
 }
 
