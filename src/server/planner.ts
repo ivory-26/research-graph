@@ -22,18 +22,115 @@ export interface SpecValidationResult {
 /**
  * Extracts the normalized file path from an entrypoint command string like "python main.py" or "python3 script.py"
  * Strictly requires python or python3 invocation of a .py file, or a direct .py script.
- * Rejects shell wrappers and non-python entrypoints.
+ * Rejects shell wrappers, shell operators (&&, ;, |, >, <), flags, and non-python entrypoints.
  */
 export function extractEntrypointFile(entrypoint: string): string | null {
-  const parts = entrypoint.trim().split(/\s+/)
-  if (parts.length >= 2 && (parts[0] === 'python' || parts[0] === 'python3')) {
-    const raw = parts[1] ?? null
-    return raw && raw.endsWith('.py') ? posix.normalize(raw.replace(/\\/g, '/')) : null
+  const trimmed = entrypoint.trim()
+  // Reject shell operators, pipes, redirects, subshells, chaining
+  if (/[;&|><\n\r`$()]/.test(trimmed)) {
+    return null
   }
-  if (parts.length === 1 && parts[0]?.endsWith('.py')) {
+  const parts = trimmed.split(/\s+/)
+  if (parts.length === 2 && (parts[0] === 'python' || parts[0] === 'python3')) {
+    const raw = parts[1]
+    if (raw && raw.endsWith('.py') && !raw.startsWith('-')) {
+      return posix.normalize(raw.replace(/\\/g, '/'))
+    }
+    return null
+  }
+  if (parts.length === 1 && parts[0] && parts[0].endsWith('.py') && !parts[0].startsWith('-')) {
     return posix.normalize(parts[0].replace(/\\/g, '/'))
   }
   return null
+}
+
+/**
+ * Strips single-line comments from Python source code, preserving line structure and string literals.
+ */
+export function stripPythonComments(source: string): string {
+  let result = ''
+  let i = 0
+  const n = source.length
+  let inSingle = false
+  let inDouble = false
+  let inTripleSingle = false
+  let inTripleDouble = false
+
+  while (i < n) {
+    if (inTripleDouble) {
+      if (source.slice(i, i + 3) === '"""' && source[i - 1] !== '\\') {
+        inTripleDouble = false
+        result += '"""'
+        i += 3
+        continue
+      }
+      result += source[i]
+      i++
+      continue
+    }
+    if (inTripleSingle) {
+      if (source.slice(i, i + 3) === "'''" && source[i - 1] !== '\\') {
+        inTripleSingle = false
+        result += "'''"
+        i += 3
+        continue
+      }
+      result += source[i]
+      i++
+      continue
+    }
+    if (inDouble) {
+      if (source[i] === '"' && source[i - 1] !== '\\') {
+        inDouble = false
+      }
+      result += source[i]
+      i++
+      continue
+    }
+    if (inSingle) {
+      if (source[i] === "'" && source[i - 1] !== '\\') {
+        inSingle = false
+      }
+      result += source[i]
+      i++
+      continue
+    }
+
+    if (source.slice(i, i + 3) === '"""' && (i === 0 || source[i - 1] !== '\\')) {
+      inTripleDouble = true
+      result += '"""'
+      i += 3
+      continue
+    }
+    if (source.slice(i, i + 3) === "'''" && (i === 0 || source[i - 1] !== '\\')) {
+      inTripleSingle = true
+      result += "'''"
+      i += 3
+      continue
+    }
+    if (source[i] === '"' && (i === 0 || source[i - 1] !== '\\')) {
+      inDouble = true
+      result += '"'
+      i++
+      continue
+    }
+    if (source[i] === "'" && (i === 0 || source[i - 1] !== '\\')) {
+      inSingle = true
+      result += "'"
+      i++
+      continue
+    }
+    if (source[i] === '#') {
+      while (i < n && source[i] !== '\n') {
+        i++
+      }
+      continue
+    }
+
+    result += source[i]
+    i++
+  }
+  return result
 }
 
 /**
@@ -121,7 +218,7 @@ export function hasProhibitedPipInstall(source: string): boolean {
 
 /**
  * Validates that an executable module actually writes metrics to /output/metrics.json via json.dump.
- * Ensures the call is not enclosed inside a string literal, print statement, or docstring.
+ * Ensures the target path is checked inside the json.dump/open call and rejects string/comment occurrences.
  */
 export function validateScriptMetricsOutput(source: string): boolean {
   // 1. Must contain json.dump call in executable code (outside strings and comments)
@@ -131,12 +228,78 @@ export function validateScriptMetricsOutput(source: string): boolean {
     return false
   }
 
-  // 2. Must contain the fixed /output/metrics.json target path in code (or pathlib / os.path construction)
-  const hasMetricsTargetPath =
-    /\/output\/metrics\.json/.test(source) ||
-    (/(['"])\/output\1/.test(source) && /(['"])metrics\.json\1/.test(source))
+  // 2. Strip comments to ensure comments cannot satisfy the target path check
+  const codeWithoutComments = stripPythonComments(source)
 
-  return hasMetricsTargetPath
+  // 3. Check if output dir is declared as /output
+  const hasOutputDirDef =
+    /\b(?:out_dir|output_dir|output_path|out_path)\s*=\s*(?:pathlib\.)?Path\s*\(\s*['"]\/output['"]\s*\)/.test(
+      codeWithoutComments,
+    ) ||
+    /\b(?:out_dir|output_dir|output_path|out_path)\s*=\s*['"]\/output['"]/.test(
+      codeWithoutComments,
+    )
+
+  // 4. Check for direct open expressions targeting /output/metrics.json
+  const hasDirectOpenTarget =
+    /open\s*\(\s*['"]\/output\/metrics\.json['"]/.test(codeWithoutComments) ||
+    /open\s*\(\s*(?:os\.path\.)?join\s*\(\s*['"]\/output['"]\s*,\s*['"]metrics\.json['"]\s*\)/.test(
+      codeWithoutComments,
+    ) ||
+    (hasOutputDirDef &&
+      /open\s*\(\s*(?:out_dir|output_dir|output_path|out_path)\s*\/\s*['"]metrics\.json['"]/.test(
+        codeWithoutComments,
+      )) ||
+    (/\.open\s*\(\s*['"]w['"]\s*\)/.test(codeWithoutComments) &&
+      (codeWithoutComments.includes('/output/metrics.json') ||
+        (hasOutputDirDef && codeWithoutComments.includes('metrics.json'))))
+
+  if (!hasDirectOpenTarget) {
+    return false
+  }
+
+  // 5. Ensure the executable json.dump call actually targets the /output/metrics.json handle
+  const dumpCallRegex = /\bjson\.dump\s*\(\s*[^,]+,\s*([^,)\n]+)/g
+  let match: RegExpExecArray | null
+  let matchedValidTarget = false
+
+  while ((match = dumpCallRegex.exec(codeWithoutComments)) !== null) {
+    const fileArg = match[1]?.trim() ?? ''
+    // Inline open: json.dump(..., open(...))
+    if (fileArg.startsWith('open(')) {
+      if (
+        fileArg.includes('/output/metrics.json') ||
+        (hasOutputDirDef && fileArg.includes('metrics.json'))
+      ) {
+        matchedValidTarget = true
+        break
+      }
+    } else {
+      // fileArg is a variable name, e.g. "f" or "fp"
+      const varName = fileArg
+      if (/^[a-zA-Z_]\w*$/.test(varName)) {
+        const withOpenRegex = new RegExp(
+          `with\\s+(?:open\\s*\\(([^)]+)\\)|([^)]+\\.open\\s*\\([^)]*\\)))\\s+as\\s+${varName}\\b`,
+        )
+        const assignOpenRegex = new RegExp(`\\b${varName}\\s*=\\s*open\\s*\\(([^)]+)\\)`)
+        const withMatch = withOpenRegex.exec(codeWithoutComments)
+        const assignMatch = assignOpenRegex.exec(codeWithoutComments)
+        const openArgs =
+          (withMatch ? withMatch[1] || withMatch[2] : assignMatch ? assignMatch[1] : '') ?? ''
+        if (
+          openArgs.includes('/output/metrics.json') ||
+          (hasOutputDirDef && openArgs.includes('metrics.json')) ||
+          openArgs.includes('join("/output", "metrics.json")') ||
+          openArgs.includes("join('/output', 'metrics.json')")
+        ) {
+          matchedValidTarget = true
+          break
+        }
+      }
+    }
+  }
+
+  return matchedValidTarget
 }
 
 export function validateExperimentSpec(spec: unknown): SpecValidationResult {
@@ -173,8 +336,35 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
   }
 
   // 5. files
+  const normalizedFilesMap = new Map<string, string>()
   if (!s.files || typeof s.files !== 'object' || Array.isArray(s.files)) {
     errors.push('files must be a Record<string, string>')
+  } else {
+    for (const [key, content] of Object.entries(s.files)) {
+      if (typeof content !== 'string') {
+        errors.push(`file '${key}' content must be a string`)
+        continue
+      }
+      // Check for path traversal or absolute paths in file keys
+      const normalizedKey = posix.normalize(key.replace(/\\/g, '/'))
+      if (
+        normalizedKey.startsWith('../') ||
+        normalizedKey === '..' ||
+        posix.isAbsolute(key) ||
+        key.startsWith('/') ||
+        key.startsWith('\\')
+      ) {
+        errors.push(`file '${key}' has invalid path: path traversal or absolute paths are prohibited`)
+        continue
+      }
+      normalizedFilesMap.set(normalizedKey, content)
+
+      if (hasProhibitedPipInstall(content)) {
+        errors.push(
+          `file '${key}' contains prohibited 'pip install' or 'pip3 install'. Base image already includes required libraries.`,
+        )
+      }
+    }
   }
 
   // 6. entrypoint exists in files (normalized via posix)
@@ -182,40 +372,29 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
   if (!s.entrypoint || typeof s.entrypoint !== 'string') {
     errors.push('entrypoint must be a non-empty string')
   } else {
+    if (hasProhibitedPipInstall(s.entrypoint)) {
+      errors.push("entrypoint cannot contain prohibited 'pip install' or 'pip3 install'")
+    }
     entryFile = extractEntrypointFile(s.entrypoint)
     if (!entryFile) {
-      errors.push(`entrypoint '${s.entrypoint}' must invoke python with a .py script`)
-    } else if (s.files && typeof s.files === 'object') {
-      const normalizedFiles = new Set(
-        Object.keys(s.files).map((f) => posix.normalize(f.replace(/\\/g, '/'))),
+      errors.push(
+        `entrypoint '${s.entrypoint}' must invoke python with a .py script (shell wrappers, operators, and additional arguments are prohibited)`,
       )
-      if (!normalizedFiles.has(entryFile)) {
-        errors.push(`entrypoint '${s.entrypoint}' references file '${entryFile}', which does not exist in files`)
-      }
+    } else if (normalizedFilesMap.size > 0 && !normalizedFilesMap.has(entryFile)) {
+      errors.push(`entrypoint '${s.entrypoint}' references file '${entryFile}', which does not exist in files`)
     }
   }
 
-  // 7. No pip/pip3 install in files, and entrypoint file must write to /output/metrics.json via json.dump
-  if (s.files && typeof s.files === 'object') {
-    for (const [filename, source] of Object.entries(s.files)) {
-      if (typeof source !== 'string') {
-        errors.push(`file '${filename}' content must be a string`)
-        continue
-      }
-      if (hasProhibitedPipInstall(source)) {
-        errors.push(`file '${filename}' contains prohibited 'pip install' or 'pip3 install'. Base image already includes required libraries.`)
-      }
+  // 7. Entrypoint file must write to /output/metrics.json via json.dump
+  if (entryFile && normalizedFilesMap.has(entryFile)) {
+    const entrySource = normalizedFilesMap.get(entryFile)!
+    if (!validateScriptMetricsOutput(entrySource)) {
+      errors.push(
+        `Entrypoint file '${entryFile}' must write metrics as json.dump to /output/metrics.json in executable code`,
+      )
     }
-
-    // Require entrypoint file itself to write /output/metrics.json (or call a function that writes it)
-    if (entryFile && s.files[entryFile]) {
-      const entrySource = s.files[entryFile]
-      if (!validateScriptMetricsOutput(entrySource)) {
-        errors.push(`Entrypoint file '${entryFile}' must write metrics as json.dump to /output/metrics.json in executable code`)
-      }
-    } else if (!entryFile) {
-      errors.push('Script must write metrics as json.dump to /output/metrics.json')
-    }
+  } else if (!entryFile && normalizedFilesMap.size > 0) {
+    errors.push('Script must write metrics as json.dump to /output/metrics.json')
   }
 
   // 8. datasets
@@ -233,6 +412,17 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
       }
       if (!d.path || typeof d.path !== 'string') {
         errors.push(`dataset[${i}].path must be a non-empty string`)
+      } else {
+        const normPath = posix.normalize(d.path.replace(/\\/g, '/'))
+        if (
+          normPath.startsWith('../') ||
+          normPath === '..' ||
+          posix.isAbsolute(d.path) ||
+          d.path.startsWith('/') ||
+          d.path.startsWith('\\')
+        ) {
+          errors.push(`dataset[${i}].path '${d.path}' cannot contain path traversal or absolute paths`)
+        }
       }
       if (!d.url || typeof d.url !== 'string') {
         errors.push(`dataset[${i}].url must be a resolvable string`)
@@ -258,9 +448,24 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
     errors.push('timeoutSeconds cannot exceed 120 seconds (docs/04 contract bound)')
   }
 
-  const estimatedRuntime = (s.parameters as Record<string, unknown> | undefined)?.estimatedRuntimeSeconds
-  if (typeof estimatedRuntime === 'number' && estimatedRuntime >= 60) {
-    errors.push('estimatedRuntimeSeconds must be under 60 seconds (docs/03 rule)')
+  const params =
+    s.parameters && typeof s.parameters === 'object' && !Array.isArray(s.parameters)
+      ? (s.parameters as Record<string, unknown>)
+      : null
+
+  const estimatedRuntime = params?.estimatedRuntimeSeconds
+  if (
+    typeof estimatedRuntime !== 'number' ||
+    !Number.isFinite(estimatedRuntime) ||
+    estimatedRuntime <= 0
+  ) {
+    errors.push(
+      'parameters.estimatedRuntimeSeconds must be a positive finite number under 60 seconds (Issue #23 / docs/03 rule)',
+    )
+  } else if (estimatedRuntime >= 60) {
+    errors.push(
+      `parameters.estimatedRuntimeSeconds is ${estimatedRuntime}s, but must be under 60 seconds (Issue #23 / docs/03 rule)`,
+    )
   }
 
   // 10. criteria

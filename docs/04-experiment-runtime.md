@@ -193,8 +193,8 @@ Shipped, documented, never on the demo path:
 
 ```dockerfile
 FROM python:3.12-slim
-RUN pip install --no-cache-dir numpy==2.5.5 pandas==2.3.4 scikit-learn==1.9.1 \
-    scipy matplotlib imbalanced-learn
+RUN pip install --no-cache-dir numpy==2.5.5 pandas==2.3.3 scikit-learn==1.9.1 \
+    scipy==1.17.1 matplotlib==3.10.0
 WORKDIR /workspace
 ```
 

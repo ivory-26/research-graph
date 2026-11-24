@@ -230,8 +230,10 @@ export async function evaluateAndExplainExperiment(
         explanation: response.output.explanation,
       },
     }
-  } catch {
-    // If the explanation model call fails, the deterministic verdict still holds
+  } catch (err) {
+    // If the explanation model call fails, log diagnostic warning and preserve deterministic outcome
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn(`[evaluateAndExplainExperiment] explain_gap model call failed: ${msg}`)
     return outcome
   }
 }

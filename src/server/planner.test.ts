@@ -14,9 +14,16 @@ describe('extractEntrypointFile', () => {
     expect(extractEntrypointFile('python main.py')).toBe('main.py')
     expect(extractEntrypointFile('python3 run_experiment.py')).toBe('run_experiment.py')
     expect(extractEntrypointFile('main.py')).toBe('main.py')
-    // Rejects non-python arbitrary command
+  })
+
+  it('rejects shell wrappers, operators, flags, and non-python entrypoints', () => {
     expect(extractEntrypointFile('sh run.sh')).toBeNull()
     expect(extractEntrypointFile('node app.js')).toBeNull()
+    expect(extractEntrypointFile('python main.py && pip3 install torch')).toBeNull()
+    expect(extractEntrypointFile('python main.py ; echo hello')).toBeNull()
+    expect(extractEntrypointFile('sh -c "python main.py"')).toBeNull()
+    expect(extractEntrypointFile('python -m script')).toBeNull()
+    expect(extractEntrypointFile('python main.py extra_arg')).toBeNull()
   })
 })
 
@@ -52,6 +59,23 @@ describe('validateScriptMetricsOutput & probe regressions', () => {
     const result = validateExperimentSpec(spec)
     expect(result.valid).toBe(false)
     expect(result.errors.some((e) => e.includes("Entrypoint file 'main.py' must write metrics"))).toBe(true)
+  })
+
+  it('rejects script where json.dump writes to wrong file and /output/metrics.json is only in print or comments', () => {
+    // Reviewer blocker: hasMetricsTargetPath checked raw source
+    const wrongTargetPrint = `
+import json
+print("/output/metrics.json")
+json.dump({}, open("metrics.json", "w"))
+`
+    expect(validateScriptMetricsOutput(wrongTargetPrint)).toBe(false)
+
+    const wrongTargetComment = `
+# /output/metrics.json
+import json
+json.dump({}, open("metrics.json", "w"))
+`
+    expect(validateScriptMetricsOutput(wrongTargetComment)).toBe(false)
   })
 
   it('accepts valid executable json.dump into /output/metrics.json', () => {
@@ -151,5 +175,80 @@ describe('validateExperimentSpec', () => {
     const result = validateExperimentSpec(spec)
     expect(result.valid).toBe(false)
     expect(result.errors.some((e) => e.includes('http or https'))).toBe(true)
+  })
+
+  it('checks metrics on unnormalized file keys like ./main.py', () => {
+    // Valid unnormalized key
+    const validSpec: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      entrypoint: 'python main.py',
+      files: {
+        './main.py': HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!,
+      },
+    }
+    const validResult = validateExperimentSpec(validSpec)
+    expect(validResult.valid).toBe(true)
+
+    // Invalid unnormalized key (does not write metrics)
+    const invalidSpec: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      entrypoint: 'python main.py',
+      files: {
+        './main.py': 'print("hello without metrics dump")',
+      },
+    }
+    const invalidResult = validateExperimentSpec(invalidSpec)
+    expect(invalidResult.valid).toBe(false)
+    expect(
+      invalidResult.errors.some((e) => e.includes("Entrypoint file 'main.py' must write metrics")),
+    ).toBe(true)
+  })
+
+  it('rejects shell wrappers and operators in entrypoint', () => {
+    const spec: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      entrypoint: 'python main.py && pip3 install torch',
+    }
+    const result = validateExperimentSpec(spec)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.includes('operators, and additional arguments are prohibited'))).toBe(true)
+  })
+
+  it('rejects specs that omit estimatedRuntimeSeconds', () => {
+    const spec: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      parameters: {
+        n_estimators: 100,
+        // estimatedRuntimeSeconds omitted
+      },
+    }
+    const result = validateExperimentSpec(spec)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.includes('estimatedRuntimeSeconds'))).toBe(true)
+  })
+
+  it('rejects path traversal in file keys and dataset paths', () => {
+    const fileTraversalSpec: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      files: {
+        ...HERO_EXPERIMENT_SPEC_RUN_A.files,
+        '../../escape.py': 'print("escape")',
+      },
+    }
+    expect(validateExperimentSpec(fileTraversalSpec).valid).toBe(false)
+
+    const datasetTraversalSpec: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      datasets: [
+        {
+          name: 'bad',
+          url: 'https://openml.org/data.arff',
+          path: '../../etc/passwd',
+          sha256: null,
+          bytes: null,
+        },
+      ],
+    }
+    expect(validateExperimentSpec(datasetTraversalSpec).valid).toBe(false)
   })
 })

@@ -5,11 +5,15 @@ import {
   PINNED_IMAGE_PACKAGES,
   SANDBOX_METRICS_PATH,
   SandboxTimeoutError,
+  defaultCollectArtifacts,
   fetchDataset,
   runnerErrorToFailedResult,
+  sanitizeSandboxPath,
+  validateDatasetUrl,
   validateMetricsPayload,
   verifyEnvironmentPackages,
 } from './runner'
+import { evaluateExperiment } from './evaluate'
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../fixtures/hero-spec'
 import type { DatasetRef } from '../shared/types'
 
@@ -67,6 +71,10 @@ describe('runnerErrorToFailedResult mapping', () => {
     expect(failedResult.stderr).toContain('metrics.json was missing')
     expect(failedResult.durationMs).toBe(1200)
     expect(failedResult.metrics).toEqual({})
+
+    // Persisted evaluation must return verdict 'failed'
+    const evalOutcome = evaluateExperiment(HERO_EXPERIMENT_SPEC_RUN_A, failedResult)
+    expect(evalOutcome.verdict).toBe('failed')
   })
 
   it('maps SandboxTimeoutError into a failed ExperimentResult with exit code 124', () => {
@@ -76,6 +84,41 @@ describe('runnerErrorToFailedResult mapping', () => {
     expect(failedResult.exitCode).toBe(124) // Standard timeout exit code
     expect(failedResult.stderr).toContain('timed out')
     expect(failedResult.durationMs).toBe(60000)
+
+    // Persisted evaluation must return verdict 'failed'
+    const evalOutcome = evaluateExperiment(HERO_EXPERIMENT_SPEC_RUN_A, failedResult)
+    expect(evalOutcome.verdict).toBe('failed')
+  })
+})
+
+describe('validateDatasetUrl & SSRF protection', () => {
+  it('allows trusted domains', () => {
+    expect(() => validateDatasetUrl('https://www.openml.org/data/download/52350/breast-w.arff')).not.toThrow()
+    expect(() => validateDatasetUrl('https://raw.githubusercontent.com/org/repo/main/data.csv')).not.toThrow()
+    expect(() => validateDatasetUrl('https://archive.ics.uci.edu/dataset.arff')).not.toThrow()
+  })
+
+  it('rejects loopback, internal, private addresses, and untrusted domains', () => {
+    expect(() => validateDatasetUrl('http://localhost/data.csv')).toThrow(/SSRF/)
+    expect(() => validateDatasetUrl('http://127.0.0.1/data.csv')).toThrow(/SSRF/)
+    expect(() => validateDatasetUrl('http://169.254.169.254/latest/meta-data')).toThrow(/SSRF/)
+    expect(() => validateDatasetUrl('http://10.0.0.1/private.csv')).toThrow(/SSRF/)
+    expect(() => validateDatasetUrl('http://192.168.1.1/data.csv')).toThrow(/SSRF/)
+    expect(() => validateDatasetUrl('http://untrusted-attacker.com/data.csv')).toThrow(/allowed dataset domains/)
+    expect(() => validateDatasetUrl('ftp://openml.org/data.csv')).toThrow(/protocol must be http or https/)
+  })
+})
+
+describe('sanitizeSandboxPath', () => {
+  it('allows safe relative paths', () => {
+    expect(sanitizeSandboxPath('data/breast-w.arff')).toBe('data/breast-w.arff')
+    expect(sanitizeSandboxPath('main.py')).toBe('main.py')
+  })
+
+  it('rejects directory traversal and absolute paths', () => {
+    expect(() => sanitizeSandboxPath('../../etc/passwd')).toThrow(/forbidden/)
+    expect(() => sanitizeSandboxPath('../escape.py')).toThrow(/forbidden/)
+    expect(() => sanitizeSandboxPath('/etc/shadow')).toThrow(/forbidden/)
   })
 })
 
@@ -84,12 +127,13 @@ describe('fetchDataset', () => {
     const mockData = 'col1,col2\n1,2\n3,4'
     const fakeFetch = vi.fn().mockResolvedValue({
       ok: true,
+      headers: new Map([['content-length', String(mockData.length)]]),
       arrayBuffer: async () => Buffer.from(mockData),
     })
 
     const ref: DatasetRef = {
       name: 'test',
-      url: 'https://example.com/test.csv',
+      url: 'https://raw.githubusercontent.com/test/data.csv',
       path: 'data/test.csv',
       sha256: null,
       bytes: null,
@@ -103,12 +147,13 @@ describe('fetchDataset', () => {
   it('rejects if dataset sha256 does not match pinned sha256', async () => {
     const fakeFetch = vi.fn().mockResolvedValue({
       ok: true,
+      headers: new Map(),
       arrayBuffer: async () => Buffer.from('different content'),
     })
 
     const ref: DatasetRef = {
       name: 'test',
-      url: 'https://example.com/test.csv',
+      url: 'https://raw.githubusercontent.com/test/data.csv',
       path: 'data/test.csv',
       sha256: 'pinned-hash-12345',
       bytes: 100,
@@ -117,6 +162,49 @@ describe('fetchDataset', () => {
     await expect(fetchDataset(ref, fakeFetch as unknown as typeof fetch)).rejects.toThrow(
       'dataset changed upstream — refusing to run against unpinned bytes',
     )
+  })
+
+  it('rejects datasets exceeding MAX_DATASET_BYTES', async () => {
+    const fakeFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Map([['content-length', String(60 * 1024 * 1024)]]),
+      arrayBuffer: async () => Buffer.alloc(10),
+    })
+
+    const ref: DatasetRef = {
+      name: 'huge',
+      url: 'https://raw.githubusercontent.com/test/huge.csv',
+      path: 'data/huge.csv',
+      sha256: null,
+      bytes: null,
+    }
+
+    await expect(fetchDataset(ref, fakeFetch as unknown as typeof fetch)).rejects.toThrow(
+      'dataset too large',
+    )
+  })
+})
+
+describe('defaultCollectArtifacts with binary content', () => {
+  it('reads binary files as bytes and encodes content as base64', async () => {
+    const fakePng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    const fakeSandbox = {
+      files: {
+        list: vi.fn().mockResolvedValue([{ name: 'plot.png' }, { name: 'metrics.json' }]),
+        read: vi.fn(async (path: string, opts?: any) => {
+          if (opts?.format === 'bytes') {
+            return new Uint8Array(fakePng)
+          }
+          return fakePng.toString()
+        }),
+      },
+    }
+
+    const artifacts = await defaultCollectArtifacts(fakeSandbox as any)
+    expect(artifacts).toHaveLength(1)
+    expect(artifacts[0]!.path).toBe('/output/plot.png')
+    expect(artifacts[0]!.bytes).toBe(fakePng.byteLength)
+    expect(artifacts[0]!.content).toBe(fakePng.toString('base64'))
   })
 })
 

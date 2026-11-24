@@ -159,18 +159,190 @@ export interface FetchedDataset {
  * Fetches dataset bytes outside the sandbox, hashes with sha256, and verifies
  * against ref.sha256 if previously pinned.
  */
+export const ALLOWED_DATASET_DOMAINS = [
+  'openml.org',
+  'www.openml.org',
+  'archive.ics.uci.edu',
+  'github.com',
+  'raw.githubusercontent.com',
+  'gist.githubusercontent.com',
+  'huggingface.co',
+]
+
+/**
+ * Validates a dataset URL to prevent SSRF against loopback, private ranges, link-local,
+ * and untrusted domains.
+ */
+export function validateDatasetUrl(urlStr: string): URL {
+  let parsed: URL
+  try {
+    parsed = new URL(urlStr)
+  } catch {
+    throw new Error(`Invalid dataset URL: ${urlStr}`)
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Dataset URL protocol must be http or https, got '${parsed.protocol}'`)
+  }
+
+  const hostname = parsed.hostname.toLowerCase()
+
+  // Block localhost and internal names
+  if (
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.local') ||
+    hostname.endsWith('.internal')
+  ) {
+    throw new Error(`Dataset URL host '${hostname}' is disallowed (SSRF protection)`)
+  }
+
+  // Block IPv4 private/loopback/link-local ranges
+  const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (ipv4Match) {
+    const [_, a, b, c, d] = ipv4Match.map(Number) as [number, number, number, number, number]
+    if (
+      a === 0 || // 0.0.0.0/8
+      a === 127 || // 127.0.0.0/8 (loopback)
+      a === 10 || // 10.0.0.0/8 (private)
+      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12 (private)
+      (a === 192 && b === 168) || // 192.168.0.0/16 (private)
+      (a === 169 && b === 254) // 169.254.0.0/16 (link-local / cloud metadata)
+    ) {
+      throw new Error(
+        `Dataset URL IP '${hostname}' is a forbidden private/link-local/loopback address (SSRF protection)`,
+      )
+    }
+  }
+
+  // Block IPv6 loopback / unique local / link-local
+  if (
+    hostname === '::1' ||
+    hostname.startsWith('fe80:') ||
+    hostname.startsWith('fc00:') ||
+    hostname.startsWith('fd00:') ||
+    hostname.startsWith('[::1]')
+  ) {
+    throw new Error(`Dataset URL IPv6 '${hostname}' is forbidden (SSRF protection)`)
+  }
+
+  // Allowlist check: Must be in trusted domains
+  const isAllowedHost = ALLOWED_DATASET_DOMAINS.some(
+    (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+  )
+  if (!isAllowedHost) {
+    throw new Error(
+      `Dataset host '${hostname}' is not in the allowed dataset domains list (openml.org, uci.edu, github.com, huggingface.co)`,
+    )
+  }
+
+  return parsed
+}
+
+/**
+ * Sanitizes destination paths inside the sandbox workspace, strictly forbidding
+ * directory traversal ('..') and absolute paths.
+ */
+export function sanitizeSandboxPath(filePath: string): string {
+  const normalized = posix.normalize(filePath.replace(/\\/g, '/')).replace(/^\/+/, '')
+  if (normalized.startsWith('../') || normalized === '..' || posix.isAbsolute(filePath)) {
+    throw new Error(
+      `Invalid sandbox path '${filePath}': path traversal and absolute paths outside workspace are forbidden`,
+    )
+  }
+  return normalized
+}
+
+/**
+ * App-side dataset fetcher as specified in docs/04-experiment-runtime.md.
+ * Fetches dataset bytes outside the sandbox, hashes with sha256, and verifies
+ * against ref.sha256 if previously pinned. Includes SSRF protection, redirect
+ * capping, and body streaming with memory limit cap.
+ */
 export async function fetchDataset(
   ref: DatasetRef,
   fetchFn: typeof fetch = fetch,
+  maxRedirects: number = 3,
 ): Promise<FetchedDataset> {
-  const res = await fetchFn(ref.url, { redirect: 'follow' })
-  if (!res.ok) {
-    throw new Error(`dataset fetch failed: ${res.status}`)
+  let currentUrl = ref.url
+  let redirectsLeft = maxRedirects
+  let res: Response | null = null
+
+  while (redirectsLeft >= 0) {
+    validateDatasetUrl(currentUrl)
+
+    // Manual redirect handling for security & redirect capping
+    res = await fetchFn(currentUrl, { redirect: 'manual' })
+
+    if ([301, 302, 303, 307, 308].includes(res.status)) {
+      const location = res.headers.get('location')
+      if (!location) {
+        throw new Error(`Redirect status ${res.status} with missing Location header`)
+      }
+      currentUrl = new URL(location, currentUrl).href
+      redirectsLeft--
+      if (redirectsLeft < 0) {
+        throw new Error('Too many redirects while fetching dataset')
+      }
+      continue
+    }
+
+    break
   }
-  const bytes = Buffer.from(await res.arrayBuffer())
-  if (bytes.byteLength > MAX_DATASET_BYTES) {
-    throw new Error('dataset too large')
+
+  if (!res || !res.ok) {
+    throw new Error(`dataset fetch failed: ${res?.status ?? 'unknown'}`)
   }
+
+  // Pre-check Content-Length header before buffering
+  const contentLengthHeader = res.headers.get('content-length')
+  if (contentLengthHeader) {
+    const contentLength = parseInt(contentLengthHeader, 10)
+    if (contentLength > MAX_DATASET_BYTES) {
+      throw new Error('dataset too large')
+    }
+  }
+
+  // Stream with strict size cap
+  const chunks: Buffer[] = []
+  let totalBytes = 0
+
+  if (res.body && typeof (res.body as any).getReader === 'function') {
+    const reader = (res.body as any).getReader()
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (value) {
+          const chunkBuf = Buffer.from(value)
+          totalBytes += chunkBuf.byteLength
+          if (totalBytes > MAX_DATASET_BYTES) {
+            await reader.cancel().catch(() => {})
+            throw new Error('dataset too large')
+          }
+          chunks.push(chunkBuf)
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message === 'dataset too large') {
+        throw err
+      }
+      const buf = Buffer.from(await res.arrayBuffer())
+      if (buf.byteLength > MAX_DATASET_BYTES) {
+        throw new Error('dataset too large')
+      }
+      chunks.length = 0
+      chunks.push(buf)
+    }
+  } else {
+    const buf = Buffer.from(await res.arrayBuffer())
+    if (buf.byteLength > MAX_DATASET_BYTES) {
+      throw new Error('dataset too large')
+    }
+    chunks.push(buf)
+  }
+
+  const bytes = Buffer.concat(chunks)
   const sha256 = createHash('sha256').update(bytes).digest('hex')
 
   // First run pins the hash. Every later run must match it.
@@ -200,14 +372,15 @@ export async function defaultCollectArtifacts(
       if (f.name === 'metrics.json') continue
       try {
         const fullPath = posix.join(SANDBOX_OUTPUT_DIR, f.name)
-        const content = await sandbox.files.read(fullPath)
-        const bytes = Buffer.from(content)
-        const sha256 = createHash('sha256').update(bytes).digest('hex')
+        // Read with { format: 'bytes' } so binary files (plots, numpy arrays) are not corrupted by UTF-8 decoding
+        const rawBytes = await sandbox.files.read(fullPath, { format: 'bytes' })
+        const buffer = Buffer.from(rawBytes)
+        const sha256 = createHash('sha256').update(buffer).digest('hex')
         artifacts.push({
           path: fullPath,
           sha256,
-          bytes: bytes.byteLength,
-          content,
+          bytes: buffer.byteLength,
+          content: buffer.toString('base64'),
         })
       } catch {
         // Skip unreadable files
@@ -327,7 +500,12 @@ export async function defaultReadEnvironment(
 export interface E2BRunnerOptions {
   sandboxFactory?: (
     template: string,
-    opts: { timeoutMs: number; metadata: Record<string, string>; allowInternetAccess: boolean },
+    opts: {
+      timeoutMs: number
+      metadata: Record<string, string>
+      allowInternetAccess: boolean
+      cpuCount?: number
+    },
   ) => Promise<Sandbox>
   datasetFetcher?: (ref: DatasetRef) => Promise<FetchedDataset>
   collectArtifacts?: SandboxFileCollector
@@ -379,12 +557,18 @@ export class E2BRunner implements ExperimentRunner {
           timeoutMs: opts.timeoutMs,
           metadata: opts.metadata,
           allowInternetAccess: opts.allowInternetAccess,
+          cpuCount: opts.cpuCount,
         }))
 
     const sandbox = await createSandbox(updatedSpec.image, {
       timeoutMs: updatedSpec.timeoutSeconds * 1000,
-      metadata: { claim: updatedSpec.claimNodeId },
+      metadata: {
+        claim: updatedSpec.claimNodeId,
+        memoryMb: String(updatedSpec.memoryMb),
+        cpuCount: String(updatedSpec.cpuCount),
+      },
       allowInternetAccess: false,
+      cpuCount: updatedSpec.cpuCount,
     })
 
     const sandboxId = sandbox.sandboxId
@@ -395,13 +579,13 @@ export class E2BRunner implements ExperimentRunner {
     try {
       // 1. Upload pre-fetched datasets (normalized posix destination path)
       for (const { ref, bytes } of resolvedDatasets) {
-        const destPath = posix.normalize(ref.path.replace(/\\/g, '/'))
+        const destPath = sanitizeSandboxPath(ref.path)
         await sandbox.files.write(destPath, bytes)
       }
 
       // 2. Upload source files (normalized posix destination path)
       for (const [filePath, source] of Object.entries(updatedSpec.files)) {
-        const destPath = posix.normalize(filePath.replace(/\\/g, '/'))
+        const destPath = sanitizeSandboxPath(filePath)
         await sandbox.files.write(destPath, source)
       }
 
@@ -477,8 +661,9 @@ export class E2BRunner implements ExperimentRunner {
 
       const artifacts = await collector(sandbox)
 
-      // Verify pinned packages if requested or in pinned template mode
-      if (this.options.verifyPackages) {
+      // Verify pinned packages by default or when explicitly enabled
+      const shouldVerify = this.options.verifyPackages ?? true
+      if (shouldVerify) {
         const pkgVerification = verifyEnvironmentPackages(environment.packages)
         if (!pkgVerification.valid) {
           const detail = [...pkgVerification.missing, ...pkgVerification.mismatched].join(', ')
