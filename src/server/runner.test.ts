@@ -16,7 +16,11 @@ import {
   verifyEnvironmentPackages,
 } from './runner'
 import { evaluateExperiment } from './evaluate'
-import { HERO_EXPERIMENT_SPEC_RUN_A, HERO_RECORDED_RUN_RESULT } from '../../fixtures/hero-spec'
+import {
+  HERO_EXPERIMENT_SPEC_RUN_A,
+  HERO_RECORDED_RUN_RESULT,
+  evaluateHeroRunMetrics,
+} from '../../fixtures/hero-spec'
 import type { DatasetRef } from '../shared/types'
 
 describe('validateMetricsPayload', () => {
@@ -517,14 +521,39 @@ describe('E2BRunner with mocked sandbox', () => {
 })
 
 describe('HERO_RECORDED_RUN_RESULT', () => {
-  it('contains verified environment and genuine measured metrics', () => {
+  it('contains verified environment and genuine measured metrics matching criteria and verification script', () => {
     expect(HERO_RECORDED_RUN_RESULT.exitCode).toBe(0)
     expect(HERO_RECORDED_RUN_RESULT.durationMs).toBeGreaterThan(0)
     expect(HERO_RECORDED_RUN_RESULT.environment.imageDigest).toBe('unknown')
     expect(HERO_RECORDED_RUN_RESULT.environment.python).toMatch(/^Python 3\.12/)
     const pkgCheck = verifyEnvironmentPackages(HERO_RECORDED_RUN_RESULT.environment.packages)
     expect(pkgCheck.valid).toBe(true)
-    expect(HERO_RECORDED_RUN_RESULT.metrics.rank_impurity_noise_20).toBe(4)
-    expect(HERO_RECORDED_RUN_RESULT.metrics.rank_permutation_noise_20).toBe(11)
+
+    // Assert every pinned package is matched
+    for (const [pkg, pinnedVersion] of Object.entries(PINNED_IMAGE_PACKAGES)) {
+      expect(HERO_RECORDED_RUN_RESULT.environment.packages[pkg]).toBe(pinnedVersion)
+    }
+
+    // Assert recorded dataset matches pinned DatasetRef
+    expect(HERO_RECORDED_RUN_RESULT.environment.datasets).toEqual([
+      {
+        name: HERO_EXPERIMENT_SPEC_RUN_A.datasets[0].name,
+        sha256: HERO_EXPERIMENT_SPEC_RUN_A.datasets[0].sha256,
+        bytes: HERO_EXPERIMENT_SPEC_RUN_A.datasets[0].bytes,
+      },
+    ])
+
+    // Verify metrics against verification script evaluation contract
+    const evalResult = evaluateHeroRunMetrics(HERO_RECORDED_RUN_RESULT.metrics)
+    expect(evalResult.matchesClaim).toBe(true)
+    expect(evalResult.satisfiesImpurity).toBe(true)
+    expect(evalResult.satisfiesPermutation).toBe(true)
+
+    // Assert against evaluateExperiment contract
+    const verdict = evaluateExperiment(
+      HERO_EXPERIMENT_SPEC_RUN_A,
+      HERO_RECORDED_RUN_RESULT,
+    )
+    expect(verdict.verdict).toBe('match')
   })
 })
