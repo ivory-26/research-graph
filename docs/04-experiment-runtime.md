@@ -16,8 +16,8 @@ export type ExperimentSpec = {
   parameters: Record<string, unknown>;
   criteria: Criteria;
   timeoutSeconds: number;              // ≤ 120
-  memoryMb: number;                    // 2048
-  cpuCount: number;                    // 1
+  memoryMb: number;                    // 2048 (template-defined fixed runtime allocation)
+  cpuCount: number;                    // 1 (up to template max)
   network: 'none';                     // structural, not a setting
 };
 
@@ -93,7 +93,7 @@ out = pathlib.Path("/output"); out.mkdir(parents=True, exist_ok=True)
 json.dump({"rank_impurity_noise_20": 1, "rank_permutation_noise_20": 29}, open(out / "metrics.json", "w"))
 ```
 
-No `pip install`. No `subprocess`. No network calls — they would fail anyway. The script may import only libraries present in the image: numpy, pandas, scikit-learn, scipy, matplotlib, imbalanced-learn.
+No `pip install`. No `subprocess`. No network calls — they would fail anyway. The script may import only libraries present in the image: numpy, pandas, scikit-learn, scipy, matplotlib.
 
 If `metrics.json` is absent or unparseable, the run is `failed` regardless of exit code. A silent success with no metrics is the most dangerous outcome available, so it is treated as a failure.
 
@@ -193,8 +193,8 @@ Shipped, documented, never on the demo path:
 
 ```dockerfile
 FROM python:3.12-slim
-RUN pip install --no-cache-dir numpy==2.5.5 pandas==2.3.4 scikit-learn==1.9.1 \
-    scipy matplotlib imbalanced-learn
+RUN pip install --no-cache-dir numpy==2.5.5 pandas==2.3.3 scikit-learn==1.9.1 \
+    scipy==1.17.1 matplotlib==3.10.0
 WORKDIR /workspace
 ```
 

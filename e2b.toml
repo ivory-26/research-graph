@@ -1,0 +1,9 @@
+# E2B Sandbox Template Configuration
+# Template: researchgraph-python:locked
+# Pinned environment for deterministic experiment execution (docs/04-experiment-runtime.md)
+
+template_id = "researchgraph-python-locked"
+template_name = "researchgraph-python:locked"
+dockerfile = "Dockerfile.template"
+cpu_count = 1
+memory_mb = 2048
