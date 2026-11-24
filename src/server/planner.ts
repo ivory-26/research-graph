@@ -1,5 +1,6 @@
 import { posix } from 'node:path'
 import type { ExperimentSpec } from '../shared/types'
+import { PINNED_E2B_TEMPLATE } from './runner'
 
 /**
  * Hard rules that an ExperimentSpec must satisfy, as specified in docs/03-agent-pipeline.md
@@ -200,25 +201,39 @@ export function stripPythonLiteralsAndComments(source: string): string {
 
 /**
  * Checks whether Python source code contains an executable pip/pip3 install command.
- * Inspects both stripped code (for inline execution) and raw code (for os.system / subprocess calls).
+ * Inspects both stripped code (for inline shell/magic invocation) and string arguments
+ * passed to os.system or subprocess calls.
+ * Ignores comments, docstrings, and non-execution print statements.
  */
 export function hasProhibitedPipInstall(source: string): boolean {
-  // Check for pip / pip3 invocation in executable code or string arguments passed to system/subprocess
+  // 1. Direct executable invocation (e.g. !pip install or direct CLI syntax)
+  const executableCode = stripPythonLiteralsAndComments(source)
   const pipPattern = /\b(pip|pip3)\s+install\b/i
-  const lines = source.split('\n')
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (trimmed.startsWith('#')) continue // Pure comments ignored
-    if (pipPattern.test(line)) {
-      return true
-    }
+  if (pipPattern.test(executableCode)) {
+    return true
   }
+
+  // 2. Prohibited pip invocation passed to os.system or subprocess
+  const codeWithoutComments = stripPythonComments(source)
+  const systemSubprocessPipPattern =
+    /(?:os\.system|subprocess\.(?:run|call|Popen|check_call|check_output))\s*\(\s*(?:\[\s*)?['"][^'"]*\b(pip|pip3)\s+install\b/i
+  const listArgSubprocessPipPattern =
+    /subprocess\.(?:run|call|Popen|check_call|check_output)\s*\(\s*\[[^\]]*['"](?:pip|pip3)['"]\s*,\s*['"]install['"]/i
+
+  if (
+    systemSubprocessPipPattern.test(codeWithoutComments) ||
+    listArgSubprocessPipPattern.test(codeWithoutComments)
+  ) {
+    return true
+  }
+
   return false
 }
 
 /**
  * Validates that an executable module actually writes metrics to /output/metrics.json via json.dump.
- * Ensures the target path is checked inside the json.dump/open call and rejects string/comment occurrences.
+ * Ensures the target path is checked inside the json.dump/open call and rejects string/comment/decoy occurrences.
+ * All json.dump calls in the module must target /output/metrics.json, and at least one must be present.
  */
 export function validateScriptMetricsOutput(source: string): boolean {
   // 1. Must contain json.dump call in executable code (outside strings and comments)
@@ -231,75 +246,223 @@ export function validateScriptMetricsOutput(source: string): boolean {
   // 2. Strip comments to ensure comments cannot satisfy the target path check
   const codeWithoutComments = stripPythonComments(source)
 
-  // 3. Check if output dir is declared as /output
-  const hasOutputDirDef =
-    /\b(?:out_dir|output_dir|output_path|out_path)\s*=\s*(?:pathlib\.)?Path\s*\(\s*['"]\/output['"]\s*\)/.test(
-      codeWithoutComments,
-    ) ||
-    /\b(?:out_dir|output_dir|output_path|out_path)\s*=\s*['"]\/output['"]/.test(
-      codeWithoutComments,
+  // 3. Collect variables representing the output directory (/output)
+  // Matches out = pathlib.Path("/output"), out_dir = Path('/output'), out = "/output", etc.
+  const outDirVars = new Set<string>()
+  const outDirRegex =
+    /\b([a-zA-Z_]\w*)\s*=\s*(?:(?:pathlib\.)?Path\s*\(\s*['"]\/output['"]\s*\)|['"]\/output['"])\s*(?:$|;|\n)/g
+  let dirMatch: RegExpExecArray | null
+  while ((dirMatch = outDirRegex.exec(codeWithoutComments)) !== null) {
+    if (dirMatch[1]) {
+      outDirVars.add(dirMatch[1])
+    }
+  }
+
+  // 4. Collect variables assigned directly to the metrics file path
+  const metricsFileVars = new Set<string>()
+  const metricsFileRegex =
+    /\b([a-zA-Z_]\w*)\s*=\s*(?:(?:pathlib\.)?Path\s*\(\s*['"]\/output\/metrics\.json['"]\s*\)|['"]\/output\/metrics\.json['"]|(?:os\.path\.)?join\s*\(\s*['"]\/output['"]\s*,\s*['"]metrics\.json['"]\s*\))\s*(?:$|;|\n)/g
+  let fileVarMatch: RegExpExecArray | null
+  while ((fileVarMatch = metricsFileRegex.exec(codeWithoutComments)) !== null) {
+    if (fileVarMatch[1]) {
+      metricsFileVars.add(fileVarMatch[1])
+    }
+  }
+  for (const d of outDirVars) {
+    const slashRegex = new RegExp(
+      `\\b([a-zA-Z_]\\w*)\\s*=\\s*${d}\\s*\\/\\s*['"]metrics\\.json['"]\\s*(?:$|;|\\n)`,
+      'g',
     )
+    let sm: RegExpExecArray | null
+    while ((sm = slashRegex.exec(codeWithoutComments)) !== null) {
+      if (sm[1]) {
+        metricsFileVars.add(sm[1])
+      }
+    }
+    const joinRegex = new RegExp(
+      `\\b([a-zA-Z_]\\w*)\\s*=\\s*(?:os\\.path\\.)?join\\s*\\(\\s*${d}\\s*,\\s*['"]metrics\\.json['"]\\s*\\)\\s*(?:$|;|\\n)`,
+      'g',
+    )
+    let jm: RegExpExecArray | null
+    while ((jm = joinRegex.exec(codeWithoutComments)) !== null) {
+      if (jm[1]) {
+        metricsFileVars.add(jm[1])
+      }
+    }
+  }
 
-  // 4. Check for direct open expressions targeting /output/metrics.json
-  const hasDirectOpenTarget =
-    /open\s*\(\s*['"]\/output\/metrics\.json['"]/.test(codeWithoutComments) ||
-    /open\s*\(\s*(?:os\.path\.)?join\s*\(\s*['"]\/output['"]\s*,\s*['"]metrics\.json['"]\s*\)/.test(
-      codeWithoutComments,
-    ) ||
-    (hasOutputDirDef &&
-      /open\s*\(\s*(?:out_dir|output_dir|output_path|out_path)\s*\/\s*['"]metrics\.json['"]/.test(
-        codeWithoutComments,
-      )) ||
-    (/\.open\s*\(\s*['"]w['"]\s*\)/.test(codeWithoutComments) &&
-      (codeWithoutComments.includes('/output/metrics.json') ||
-        (hasOutputDirDef && codeWithoutComments.includes('metrics.json'))))
-
-  if (!hasDirectOpenTarget) {
+  const isValidMetricsTargetPath = (rawExpr: string): boolean => {
+    let expr = rawExpr.trim()
+    while (expr.startsWith('(') && expr.endsWith(')')) {
+      expr = expr.slice(1, -1).trim()
+    }
+    if (
+      /^['"]\/output\/metrics\.json['"]$/.test(expr) ||
+      /^(?:pathlib\.)?Path\s*\(\s*['"]\/output\/metrics\.json['"]\s*\)$/.test(expr) ||
+      /^(?:os\.path\.)?join\s*\(\s*['"]\/output['"]\s*,\s*['"]metrics\.json['"]\s*\)$/.test(expr)
+    ) {
+      return true
+    }
+    if (metricsFileVars.has(expr)) {
+      return true
+    }
+    for (const d of outDirVars) {
+      if (
+        new RegExp(`^${d}\\s*\\/\\s*['"]metrics\\.json['"]$`).test(expr) ||
+        new RegExp(`^(?:os\\.path\\.)?join\\s*\\(\\s*${d}\\s*,\\s*['"]metrics\\.json['"]\\s*\\)$`).test(expr)
+      ) {
+        return true
+      }
+    }
     return false
   }
 
-  // 5. Ensure the executable json.dump call actually targets the /output/metrics.json handle
-  const dumpCallRegex = /\bjson\.dump\s*\(\s*[^,]+,\s*([^,)\n]+)/g
+  const isValidFileHandle = (fileArg: string): boolean => {
+    const trimmed = fileArg.trim()
+    // Pattern 1: Inline open(...)
+    const openMatch = /^open\s*\((.*)\)$/s.exec(trimmed)
+    if (openMatch && openMatch[1]) {
+      const inside = openMatch[1].trim()
+      const firstArg = inside.split(',')[0]?.trim() ?? ''
+      return isValidMetricsTargetPath(firstArg)
+    }
+
+    // Pattern 2: Inline (...).open(...)
+    const dotOpenMatch = /^(.*)\.open\s*\([^)]*\)$/s.exec(trimmed)
+    if (dotOpenMatch && dotOpenMatch[1]) {
+      return isValidMetricsTargetPath(dotOpenMatch[1])
+    }
+
+    // Pattern 3: Variable handle like f or fp
+    if (/^[a-zA-Z_]\w*$/.test(trimmed)) {
+      const varName = trimmed
+      const withFullRegex = new RegExp(
+        `with\\s+open\\s*\\(([^,)]+)[^)]*\\)\\s+as\\s+${varName}\\b`,
+        'g',
+      )
+      let wm: RegExpExecArray | null
+      while ((wm = withFullRegex.exec(codeWithoutComments)) !== null) {
+        if (wm[1] && isValidMetricsTargetPath(wm[1])) {
+          return true
+        }
+      }
+
+      const withDotOpenRegex = new RegExp(
+        `with\\s+([^\\s]+)\\.open\\s*\\([^)]*\\)\\s+as\\s+${varName}\\b`,
+        'g',
+      )
+      let wdm: RegExpExecArray | null
+      while ((wdm = withDotOpenRegex.exec(codeWithoutComments)) !== null) {
+        if (wdm[1] && isValidMetricsTargetPath(wdm[1])) {
+          return true
+        }
+      }
+
+      const assignOpenRegex = new RegExp(
+        `\\b${varName}\\s*=\\s*open\\s*\\(([^,)]+)`,
+        'g',
+      )
+      let am: RegExpExecArray | null
+      while ((am = assignOpenRegex.exec(codeWithoutComments)) !== null) {
+        if (am[1] && isValidMetricsTargetPath(am[1])) {
+          return true
+        }
+      }
+
+      const assignDotOpenRegex = new RegExp(
+        `\\b${varName}\\s*=\\s*([^\\s]+)\\.open\\s*\\(`,
+        'g',
+      )
+      let adm: RegExpExecArray | null
+      while ((adm = assignDotOpenRegex.exec(codeWithoutComments)) !== null) {
+        if (adm[1] && isValidMetricsTargetPath(adm[1])) {
+          return true
+        }
+      }
+    }
+
+    return false
+  }
+
+  // 5. Inspect all json.dump calls in executable code
+  const dumpCallRegex = /\bjson\.dump\s*\(/g
+  let totalDumps = 0
+  let validDumps = 0
   let match: RegExpExecArray | null
-  let matchedValidTarget = false
 
   while ((match = dumpCallRegex.exec(codeWithoutComments)) !== null) {
-    const fileArg = match[1]?.trim() ?? ''
-    // Inline open: json.dump(..., open(...))
-    if (fileArg.startsWith('open(')) {
-      if (
-        fileArg.includes('/output/metrics.json') ||
-        (hasOutputDirDef && fileArg.includes('metrics.json'))
-      ) {
-        matchedValidTarget = true
-        break
+    totalDumps++
+    const startIdx = match.index + match[0].length
+    let parenDepth = 1
+    let endIdx = startIdx
+    let inString: string | null = null
+
+    while (endIdx < codeWithoutComments.length && parenDepth > 0) {
+      const char = codeWithoutComments[endIdx]
+      if (inString) {
+        if (char === inString && codeWithoutComments[endIdx - 1] !== '\\') {
+          inString = null
+        }
+      } else if (char === '"' || char === "'") {
+        inString = char
+      } else if (char === '(' || char === '[' || char === '{') {
+        parenDepth++
+      } else if (char === ')' || char === ']' || char === '}') {
+        parenDepth--
       }
-    } else {
-      // fileArg is a variable name, e.g. "f" or "fp"
-      const varName = fileArg
-      if (/^[a-zA-Z_]\w*$/.test(varName)) {
-        const withOpenRegex = new RegExp(
-          `with\\s+(?:open\\s*\\(([^)]+)\\)|([^)]+\\.open\\s*\\([^)]*\\)))\\s+as\\s+${varName}\\b`,
-        )
-        const assignOpenRegex = new RegExp(`\\b${varName}\\s*=\\s*open\\s*\\(([^)]+)\\)`)
-        const withMatch = withOpenRegex.exec(codeWithoutComments)
-        const assignMatch = assignOpenRegex.exec(codeWithoutComments)
-        const openArgs =
-          (withMatch ? withMatch[1] || withMatch[2] : assignMatch ? assignMatch[1] : '') ?? ''
-        if (
-          openArgs.includes('/output/metrics.json') ||
-          (hasOutputDirDef && openArgs.includes('metrics.json')) ||
-          openArgs.includes('join("/output", "metrics.json")') ||
-          openArgs.includes("join('/output', 'metrics.json')")
-        ) {
-          matchedValidTarget = true
+      endIdx++
+    }
+
+    if (parenDepth === 0) {
+      const argsStr = codeWithoutComments.slice(startIdx, endIdx - 1).trim()
+      let depth = 0
+      let splitIdx = -1
+      let strChar: string | null = null
+      for (let k = 0; k < argsStr.length; k++) {
+        const c = argsStr[k]
+        if (strChar) {
+          if (c === strChar && argsStr[k - 1] !== '\\') strChar = null
+        } else if (c === '"' || c === "'") {
+          strChar = c
+        } else if (c === '(' || c === '[' || c === '{') {
+          depth++
+        } else if (c === ')' || c === ']' || c === '}') {
+          depth--
+        } else if (c === ',' && depth === 0) {
+          splitIdx = k
           break
+        }
+      }
+
+      if (splitIdx !== -1) {
+        const remainder = argsStr.slice(splitIdx + 1).trim()
+        let fpDepth = 0
+        let fpEnd = remainder.length
+        let fpStrChar: string | null = null
+        for (let k = 0; k < remainder.length; k++) {
+          const c = remainder[k]
+          if (fpStrChar) {
+            if (c === fpStrChar && remainder[k - 1] !== '\\') fpStrChar = null
+          } else if (c === '"' || c === "'") {
+            fpStrChar = c
+          } else if (c === '(' || c === '[' || c === '{') {
+            fpDepth++
+          } else if (c === ')' || c === ']' || c === '}') {
+            fpDepth--
+          } else if (c === ',' && fpDepth === 0) {
+            fpEnd = k
+            break
+          }
+        }
+        const fileArg = remainder.slice(0, fpEnd).trim()
+        if (isValidFileHandle(fileArg)) {
+          validDumps++
         }
       }
     }
   }
 
-  return matchedValidTarget
+  return totalDumps > 0 && validDumps === totalDumps
 }
 
 export function validateExperimentSpec(spec: unknown): SpecValidationResult {
@@ -339,6 +502,8 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
   const normalizedFilesMap = new Map<string, string>()
   if (!s.files || typeof s.files !== 'object' || Array.isArray(s.files)) {
     errors.push('files must be a Record<string, string>')
+  } else if (Object.keys(s.files).length === 0) {
+    errors.push('files cannot be empty: must provide at least the entrypoint script')
   } else {
     for (const [key, content] of Object.entries(s.files)) {
       if (typeof content !== 'string') {
@@ -380,7 +545,7 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
       errors.push(
         `entrypoint '${s.entrypoint}' must invoke python with a .py script (shell wrappers, operators, and additional arguments are prohibited)`,
       )
-    } else if (normalizedFilesMap.size > 0 && !normalizedFilesMap.has(entryFile)) {
+    } else if (!normalizedFilesMap.has(entryFile)) {
       errors.push(`entrypoint '${s.entrypoint}' references file '${entryFile}', which does not exist in files`)
     }
   }
@@ -393,7 +558,7 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
         `Entrypoint file '${entryFile}' must write metrics as json.dump to /output/metrics.json in executable code`,
       )
     }
-  } else if (!entryFile && normalizedFilesMap.size > 0) {
+  } else if (!entryFile) {
     errors.push('Script must write metrics as json.dump to /output/metrics.json')
   }
 
@@ -498,6 +663,17 @@ export function validateExperimentSpec(spec: unknown): SpecValidationResult {
           errors.push(`criteria.checks[${i}] uses 'within' op but has no numeric tolerance`)
         }
       }
+    }
+  }
+
+  // 11. image
+  if (s.image !== undefined) {
+    if (typeof s.image !== 'string' || s.image.trim() === '') {
+      errors.push('image must be a non-empty string')
+    } else if (s.image !== PINNED_E2B_TEMPLATE && s.image !== 'default') {
+      errors.push(
+        `image '${s.image}' is not supported. Must be '${PINNED_E2B_TEMPLATE}' or 'default'`,
+      )
     }
   }
 

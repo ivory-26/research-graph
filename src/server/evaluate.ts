@@ -90,6 +90,17 @@ export function evaluateExperiment(
   spec: ExperimentSpec,
   result: ExperimentResult,
 ): EvaluationOutcome {
+  // Defensive: empty criteria checks cannot evaluate to match or mismatch
+  if (!spec.criteria?.checks || spec.criteria.checks.length === 0) {
+    return {
+      verdict: 'inconclusive',
+      detail: {
+        checks: [],
+        explanation: null,
+      },
+    }
+  }
+
   // 1. Script failed to execute or crashed (non-zero exit code)
   if (result.exitCode !== 0) {
     const checks: VerdictCheck[] = spec.criteria.checks.map((check) =>
@@ -177,7 +188,7 @@ export function evaluateExperiment(
 }
 
 const ExplainGapSchema = z.object({
-  explanation: z.string().max(500),
+  explanation: z.string().max(2000),
 })
 
 export interface ExplainGapOptions {
@@ -214,7 +225,7 @@ export async function evaluateAndExplainExperiment(
     `Verdict: ${outcome.verdict}`,
     `Criteria Checks:`,
     checksSummary,
-    `Write exactly two concise sentences explaining the gap between the measured results and the expected criteria.`,
+    `Write exactly two concise sentences explaining the gap between the measured results and the expected criteria (under 400 characters total).`,
   ].join('\n')
 
   try {

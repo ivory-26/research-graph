@@ -82,6 +82,35 @@ json.dump({}, open("metrics.json", "w"))
     const valid = 'import json\nwith open("/output/metrics.json", "w") as f:\n    json.dump({"a": 1}, f)'
     expect(validateScriptMetricsOutput(valid)).toBe(true)
   })
+
+  it('accepts docs/04 canonical pattern out = pathlib.Path("/output") with json.dump', () => {
+    const docsExample = `
+import json, pathlib
+out = pathlib.Path("/output"); out.mkdir(parents=True, exist_ok=True)
+json.dump({"rank_impurity_noise_20": 1, "rank_permutation_noise_20": 29}, open(out / "metrics.json", "w"))
+`
+    expect(validateScriptMetricsOutput(docsExample)).toBe(true)
+  })
+
+  it('rejects decoy script where dead function dumps to output but active dump goes elsewhere', () => {
+    const decoy = `
+import json, pathlib
+out_path = pathlib.Path("/output")
+def w():
+    json.dump({}, open(out_path / "metrics.json", "w"))
+
+json.dump({}, open("metrics.json", "w"))
+`
+    expect(validateScriptMetricsOutput(decoy)).toBe(false)
+  })
+
+  it('does not flag pip install in print statements or docstrings', () => {
+    const printCode = 'print("Running pip install is forbidden")'
+    expect(hasProhibitedPipInstall(printCode)).toBe(false)
+
+    const docstringCode = '"""\nInstructions:\npip install numpy\n"""\nprint("hello")'
+    expect(hasProhibitedPipInstall(docstringCode)).toBe(false)
+  })
 })
 
 describe('validateExperimentSpec', () => {
@@ -250,5 +279,37 @@ describe('validateExperimentSpec', () => {
       ],
     }
     expect(validateExperimentSpec(datasetTraversalSpec).valid).toBe(false)
+  })
+
+  it('rejects empty files map (Blocker 2)', () => {
+    const emptyFilesSpec: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      files: {},
+    }
+    const result = validateExperimentSpec(emptyFilesSpec)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.includes('files cannot be empty'))).toBe(true)
+  })
+
+  it('validates spec.image against PINNED_E2B_TEMPLATE and default', () => {
+    const validPinned = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      image: 'researchgraph-python:locked',
+    }
+    expect(validateExperimentSpec(validPinned).valid).toBe(true)
+
+    const validDefault = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      image: 'default',
+    }
+    expect(validateExperimentSpec(validDefault).valid).toBe(true)
+
+    const invalidImage = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      image: 'unsupported-image:latest',
+    }
+    const result = validateExperimentSpec(invalidImage)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some((e) => e.includes("image 'unsupported-image:latest' is not supported"))).toBe(true)
   })
 })

@@ -9,8 +9,8 @@ RUN pip install --no-cache-dir \
     scipy==1.17.1 \
     matplotlib==3.10.0
 
-# Pre-create output directory and store verified image digest
-RUN mkdir -p /output && \
-    echo "sha256:7f4a9b6348c59918bc25de02e5b7cd0f898a3b839849202029c71a39c09bf87e" > /etc/image-digest
+# Pre-create output directory
+# /etc/image-digest is populated by the build pipeline when the pinned template is published
+RUN mkdir -p /output
 
 WORKDIR /workspace

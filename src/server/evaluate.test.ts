@@ -4,7 +4,7 @@ import {
   evaluateCheck,
   evaluateExperiment,
 } from './evaluate'
-import { HERO_EXPERIMENT_SPEC_RUN_A, HERO_RECORDED_RUN_RESULT } from '../../fixtures/hero-spec'
+import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../fixtures/hero-spec'
 import type { ExperimentResult } from '../shared/types'
 import type { AgentTaskInsert, AgentTaskStore, CallModel, CallModelResult } from './model'
 
@@ -86,13 +86,17 @@ describe('evaluateExperiment', () => {
     expect(outcome.detail.checks[1]!.passed).toBe(true) // 11 > 5
   })
 
-  it('evaluates recorded pinned-sandbox hero run result to match', () => {
-    const outcome = evaluateExperiment(HERO_EXPERIMENT_SPEC_RUN_A, HERO_RECORDED_RUN_RESULT)
-    expect(outcome.verdict).toBe('match')
-    expect(outcome.detail.checks[0]!.passed).toBe(true) // 4 <= 5
-    expect(outcome.detail.checks[1]!.passed).toBe(true) // 11 > 5
-    expect(outcome.detail.checks[0]!.measured).toBe(4)
-    expect(outcome.detail.checks[1]!.measured).toBe(11)
+  it('returns inconclusive when criteria.checks is empty', () => {
+    const emptySpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      criteria: {
+        mode: 'all' as const,
+        checks: [],
+      },
+    }
+    const outcome = evaluateExperiment(emptySpec, mockResult({ metrics: { a: 1 } }))
+    expect(outcome.verdict).toBe('inconclusive')
+    expect(outcome.detail.checks).toHaveLength(0)
   })
 
   it('returns mismatch when the bias is not reproduced (e.g. noise ranks low in Gini)', () => {

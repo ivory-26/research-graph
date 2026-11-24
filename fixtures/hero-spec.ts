@@ -1,4 +1,4 @@
-import type { ExperimentResult, ExperimentSpec } from '../src/shared/types'
+import type { ExperimentSpec } from '../src/shared/types'
 
 /**
  * Hand-written hero spec test fixture (docs/00-scope.md:29-37 & Issue #23).
@@ -160,45 +160,4 @@ print(f"Computed metrics: {metrics}")
   memoryMb: 2048,
   cpuCount: 1,
   network: 'none',
-}
-
-/**
- * Recorded real run outcome from the pinned E2B container environment
- * (sandbox id: 'sb-rg-hero-20261124-7f4a9b', image digest: sha256:7f4a9b..., packages verified).
- */
-export const HERO_RECORDED_RUN_RESULT: ExperimentResult = {
-  exitCode: 0,
-  stdout:
-    "Computed metrics: {'rank_impurity_noise_20': 4.0, 'rank_permutation_noise_20': 11.0, 'n_features': 12.0, 'n_samples': 120.0, 'noise_20_gini_importance': 0.088, 'noise_20_perm_importance': -0.019}",
-  stderr: '',
-  metrics: {
-    rank_impurity_noise_20: 4,
-    rank_permutation_noise_20: 11,
-    n_features: 12,
-    n_samples: 120,
-    noise_20_gini_importance: 0.088,
-    noise_20_perm_importance: -0.019,
-  },
-  artifacts: [],
-  durationMs: 1420,
-  environment: {
-    imageDigest: 'sha256:7f4a9b6348c59918bc25de02e5b7cd0f898a3b839849202029c71a39c09bf87e',
-    python: 'Python 3.12.0',
-    packages: {
-      numpy: '2.5.5',
-      pandas: '2.3.3',
-      'scikit-learn': '1.9.1',
-      scipy: '1.17.1',
-      matplotlib: '3.10.0',
-    },
-    datasets: [
-      {
-        name: 'breast-w',
-        sha256: '9f24e3c3b018151978eb32d39994c924bcfe12bfa40efd6168eef08ce61d2f8e',
-        bytes: 19485,
-      },
-    ],
-    seeds: [42],
-    startedAt: '2026-11-24T12:00:00.000Z',
-  },
 }

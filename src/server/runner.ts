@@ -560,6 +560,9 @@ export class E2BRunner implements ExperimentRunner {
           cpuCount: opts.cpuCount,
         }))
 
+    // Note: E2B allocates memory at the template level (fixed at 2048 MB in the pinned
+    // researchgraph-python:locked template). memoryMb is recorded in sandbox metadata
+    // for observability and auditing, while cpuCount is passed to Sandbox.create.
     const sandbox = await createSandbox(updatedSpec.image, {
       timeoutMs: updatedSpec.timeoutSeconds * 1000,
       metadata: {
