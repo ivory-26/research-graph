@@ -6,12 +6,12 @@
  * no database driver or auth secret into any bundle that is not actually
  * serving a request.
  *
- * `stages` has no production value today. `#23`, `#24` and `#25` are not on
- * main (PR #43 is blocked and is not a dependency of this branch), and `#7`
- * has not landed. A GET that would have to start a pipeline therefore returns
- * 503 rather than pretending to run one. The approval POST needs no stage
- * provider and is fully live.
+ * The GET route supplies the real provider (`./production-stages`) through
+ * `stagesFactory`; the approval POST does not need one. A stream that cannot
+ * build a provider still refuses with 503 before claiming anything rather than
+ * pretending to run a pipeline.
  */
+import type { Database } from '../../db/client'
 import { readVerifiedActorFromNeonAuth } from './authorization'
 import {
   createPipelineHandlers,
@@ -23,10 +23,16 @@ import type { PipelineTimings } from './timings'
 
 export type ProductionPipelineOptions = {
   /**
-   * Supplied by the pipeline workstream once `PipelineStages` has a real
-   * implementation. Until then, omit it.
+   * An explicit provider, or `null` to refuse to start work. When omitted, the
+   * stream route supplies the real provider through `stagesFactory`.
    */
   stages?: PipelineStages | null
+  /**
+   * Builds the stage provider over the same database the handlers use. This is
+   * the seam the mounted GET route uses; it is also how a test can supply the
+   * real provider while swapping the database client.
+   */
+  stagesFactory?: (db: Database) => PipelineStages
   /** Tests only. */
   timings?: Partial<PipelineTimings>
 }
@@ -34,8 +40,8 @@ export type ProductionPipelineOptions = {
 /**
  * Builds the handlers over the live database and Neon Auth identity.
  *
- * The only thing a caller may override is `stages`: the data, identity and
- * authorization paths are fixed.
+ * The only things a caller may override are `stages` / `stagesFactory`: the
+ * data, identity and authorization paths are fixed.
  */
 export async function createProductionPipelineHandlers(
   options: ProductionPipelineOptions = {},
@@ -45,10 +51,16 @@ export async function createProductionPipelineHandlers(
     import('./data'),
   ])
 
+  const db = getDb()
+  const stages =
+    options.stages !== undefined
+      ? options.stages
+      : (options.stagesFactory?.(db) ?? null)
+
   return createPipelineHandlers({
-    data: createDrizzlePipelineData(getDb()),
+    data: createDrizzlePipelineData(db),
     readActor: readVerifiedActorFromNeonAuth,
-    stages: options.stages ?? null,
+    stages,
     timings: options.timings,
   })
 }
@@ -63,13 +75,22 @@ export async function handlePipelineApproval(
 }
 
 /**
- * The SSE GET. Mounted only when a real `PipelineStages` provider exists;
- * otherwise a fresh request is refused with 503 before any claim is written.
+ * The SSE GET used by `src/routes/api/pipeline/$experimentId.ts`.
+ *
+ * The provider is imported lazily so the approval POST never pays for the E2B
+ * SDK or the model client. A GET that cannot build a provider still fails
+ * closed: `createPipelineHandlers` refuses with 503 before claiming anything.
  */
 export async function handlePipelineStream(
   request: Request,
   params: PipelineRouteParams,
 ): Promise<Response> {
-  const handlers = await createProductionPipelineHandlers()
+  const { createProductionPipelineStages } = await import(
+    './production-stages'
+  )
+
+  const handlers = await createProductionPipelineHandlers({
+    stagesFactory: (db) => createProductionPipelineStages({ db }),
+  })
   return handlers.stream(request, params)
 }

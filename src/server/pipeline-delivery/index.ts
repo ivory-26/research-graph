@@ -22,6 +22,12 @@ export {
 } from './production'
 export type { ProductionPipelineOptions } from './production'
 
+export { createProductionPipelineStages } from './production-stages'
+export type {
+  ProductionPipelineStageOptions,
+  ProductionPipelineStages,
+} from './production-stages'
+
 export {
   createDrizzlePipelineData,
 } from './data'
@@ -31,6 +37,7 @@ export type {
   WorkspaceMemberView,
 } from './data'
 
+export { PipelineStageError } from './stages'
 export type {
   PipelineEmit,
   PipelineExecutionResult,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PipelineDbError } from '../../db/pipeline-validation'
+import { PipelineStageError } from './stages'
 import { describeStreamFailure } from './stream'
 
 /**
@@ -34,5 +35,17 @@ describe('describeStreamFailure', () => {
     )
     expect(text).not.toContain('db.internal')
     expect(text).not.toContain('row 42')
+  })
+
+  it('uses a provider-authored sentence and not the exception detail', () => {
+    const text = describeStreamFailure(
+      new PipelineStageError(
+        'validation failed at postgres://u:p@db.internal sk-live-123',
+        'The stored experiment plan failed validation',
+      ),
+    )
+    expect(text).toBe('The stored experiment plan failed validation')
+    expect(text).not.toContain('sk-live-123')
+    expect(text).not.toContain('db.internal')
   })
 })

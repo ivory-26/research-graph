@@ -47,10 +47,11 @@ import {
 } from '../pipeline-transport'
 import type { VerifiedActor } from './authorization'
 import type { ExperimentScope, PipelineData } from './data'
-import type {
-  PipelineEmit,
-  PipelineStageContext,
-  PipelineStages,
+import {
+  PipelineStageError,
+  type PipelineEmit,
+  type PipelineStageContext,
+  type PipelineStages,
 } from './stages'
 import type { PipelineTimings } from './timings'
 
@@ -149,6 +150,9 @@ export function describeStreamFailure(error: unknown): string {
   if (error instanceof PipelineDbError) {
     return `The pipeline database refused the operation (${error.code})`
   }
+  // A provider supplies its own product-authored sentence; `Error.message`
+  // stays in the server log.
+  if (error instanceof PipelineStageError) return error.safeMessage
   return 'The pipeline failed unexpectedly'
 }
 

@@ -24,13 +24,16 @@
  *   container); it is not a way to point the suite at a shared database.
  *
  * The test URL therefore needs the `CREATEDB` privilege. A local container
- * (`pgvector/pgvector:pg18`) satisfies that:
+ * (`pgvector/pgvector:pg18`) satisfies that. The password is generated, not a
+ * literal, because a committed `POSTGRES_PASSWORD=...` line trips secret
+ * scanners even when it only guards a disposable loopback container:
  *
  * ```bash
+ * TEST_PG_PASSWORD="$(openssl rand -hex 16)"
  * docker run --rm -d --name rg-test-pg \
- *   -e POSTGRES_PASSWORD=postgres -p 127.0.0.1:55432:5432 \
+ *   -e POSTGRES_PASSWORD="$TEST_PG_PASSWORD" -p 127.0.0.1:55432:5432 \
  *   pgvector/pgvector:pg18
- * TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/postgres \
+ * TEST_DATABASE_URL="postgresql://postgres:$TEST_PG_PASSWORD@127.0.0.1:55432/postgres" \
  *   pnpm exec vitest run src/server/pipeline-delivery
  * ```
  */
@@ -355,11 +358,23 @@ async function insertedId(
   return row.id
 }
 
+export type SeedWorkspaceOptions = {
+  /**
+   * A plan to store on the experiment. Its `claimNodeId` is replaced with the
+   * seeded claim node so the database's scope check still holds. Defaults to
+   * the transport fixture spec.
+   */
+  spec?: ExperimentSpec
+}
+
 /**
  * Seeds one workspace with one member, one non-member identity, an unrelated
  * workspace, a claim node and one pending experiment.
  */
-export async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
+export async function seedWorkspace(
+  pool: Pool,
+  options: SeedWorkspaceOptions = {},
+): Promise<SeededWorkspace> {
   const memberId = 'test-member'
   const strangerId = 'test-stranger'
   const outsiderId = 'test-outsider'
@@ -404,7 +419,9 @@ export async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
     [workspaceId, 'Claim', JSON.stringify(claimNodeData)],
   )
 
-  const spec = makeSpec(claimNodeId)
+  const spec = options.spec
+    ? { ...options.spec, claimNodeId }
+    : makeSpec(claimNodeId)
 
   const experimentId = await insertedId(
     pool,

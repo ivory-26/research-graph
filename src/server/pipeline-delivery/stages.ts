@@ -1,13 +1,13 @@
 /**
  * The stage-provider seam between the SSE transport and the pipeline itself.
  *
- * `src/server/pipeline.ts` (`#7`), `src/server/planner.ts` (`#23`),
- * `src/server/runner.ts` (`#24`) and `src/server/evaluate.ts` (`#25`) do not
- * exist on main today. The delivery transport is written against this narrow
- * port instead of importing any of them:
+ * The real provider is `./production-stages`; it builds on
+ * `src/server/planner.ts`, `src/server/runner.ts` and
+ * `src/server/evaluate.ts` while the delivery transport stays written against
+ * this narrow port:
  *
- * - `plan` runs the stages up to and including PLAN_EXPERIMENT and returns the
- *   exact `ExperimentSpec` to offer at the human gate.
+ * - `plan` produces the exact `ExperimentSpec` to offer at the human gate. For
+ *   the current provider that is the persisted plan, validated by the planner.
  * - `execute` runs EXECUTE and EVALUATE after an approval and returns the run
  *   it produced (or `null` when the pipeline ended without a run).
  *
@@ -16,8 +16,9 @@
  * own `stage.*`, `agent_task.recorded`, `node.upserted`, `edge.upserted`,
  * `run.*` and `verdict.computed` events through `emit`.
  *
- * There is intentionally no production implementation in this PR. Supplying a
- * fake one would make the endpoint appear to run a pipeline it cannot run.
+ * A provider must emit `stage.*` only for work it actually performs. A stored
+ * plan is not a reason to replay INGEST_SOURCE: that stage happened before the
+ * experiment row existed.
  */
 import type { PipelineEvent } from '../../shared/events'
 import type { PipelineEventInput } from '../../db/pipeline-validation'
@@ -64,4 +65,22 @@ export interface PipelineStages {
     context: PipelineStageContext,
     spec: ExperimentSpec,
   ): Promise<PipelineExecutionResult>
+}
+
+/**
+ * A stage refusal whose message is safe to persist and stream.
+ *
+ * `Error.message` is not: it can carry a provider response, a connection
+ * string or a request id, and `pipeline.failed.error` is both stored durably
+ * and sent to the browser. A provider that wants a specific sentence on the
+ * wire supplies `safeMessage` and keeps the detail in the server log.
+ */
+export class PipelineStageError extends Error {
+  readonly safeMessage: string
+
+  constructor(detail: string, safeMessage: string) {
+    super(detail)
+    this.name = 'PipelineStageError'
+    this.safeMessage = safeMessage
+  }
 }
