@@ -104,6 +104,7 @@
       "data": {
         "type": "source",
         "sourceId": "src-1",
+        "kind": "paper",
         "title": "Strobl et al. 2007",
         "sublabel": "SOURCE · PRIMARY",
         "isHero": true,
@@ -120,6 +121,7 @@
       "data": {
         "type": "source",
         "sourceId": "src-2",
+        "kind": "paper",
         "title": "Strobl et al. 2008",
         "sublabel": "SOURCE · SUPPORT",
         "isHero": false,
@@ -136,6 +138,7 @@
       "data": {
         "type": "source",
         "sourceId": "src-3",
+        "kind": "paper",
         "title": "Kursa & Rudnicki 2010",
         "sublabel": "SOURCE · SUPPORT",
         "isHero": false,
@@ -154,6 +157,9 @@
         "sublabel": "CLAIM · QUALITATIVE",
         "title": "Gini importance favours high-cardinality features; permutation does not",
         "text": "Gini importance favours high-cardinality features; permutation does not",
+        "reported": null,
+        "datasetName": "breast-w",
+        "methodName": "impurity",
         "mode": "adapted",
         "locator": {
           "page": 4,
@@ -200,6 +206,8 @@
         "sublabel": "DATASET · ADAPTED",
         "title": "breast-w + 3 noise cols",
         "name": "breast-w (OpenML 52350)",
+        "url": "https://www.openml.org/data/download/52350/breast-w.arff",
+        "sha256": null,
         "rows": 569,
         "features": 9,
         "noiseColumns": "noise_2, noise_5, noise_20"
@@ -214,10 +222,11 @@
         "type": "run",
         "sublabel": "RUN A · ROOT",
         "title": "Impurity · adapted",
+        "runId": "run-1",
+        "status": "succeeded",
+        "mode": "adapted",
         "verdict": null,
         "isPreview": true,
-        "mode": "adapted",
-        "runId": "run-1",
         "network": "none",
         "parameter": { "importance_method": "impurity" }
       }
@@ -231,11 +240,12 @@
         "type": "run",
         "sublabel": "RUN B · WHAT-IF",
         "title": "Permutation",
-        "verdict": null,
-        "isPreview": true,
-        "mode": "adapted",
         "runId": "run-2",
         "parentRunId": "run-1",
+        "status": "succeeded",
+        "mode": "adapted",
+        "verdict": null,
+        "isPreview": true,
         "network": "none",
         "parameter": { "importance_method": "permutation" },
         "singleParamDiff": "importance_method: impurity → permutation"
@@ -250,6 +260,7 @@
         "type": "result",
         "sublabel": "RESULT · PREVIEW",
         "title": "Result A",
+        "runId": "run-1",
         "verdict": null,
         "isPreview": true,
         "metrics": {
@@ -258,8 +269,17 @@
         },
         "criteria": "rank_impurity(noise_20) <= 5",
         "verdictDetail": {
-          "passed": true,
-          "summary": "Specification target: Noise feature with 20 categories ranked #4 in impurity importance."
+          "checks": [
+            {
+              "metric": "rank_impurity_noise_20",
+              "op": "lte",
+              "threshold": 5,
+              "tolerance": null,
+              "measured": 4,
+              "passed": true
+            }
+          ],
+          "explanation": "Specification target: Noise feature with 20 categories ranked #4 in impurity importance."
         }
       }
     },
@@ -272,6 +292,7 @@
         "type": "result",
         "sublabel": "RESULT · PREVIEW",
         "title": "Result B",
+        "runId": "run-2",
         "verdict": null,
         "isPreview": true,
         "metrics": {
@@ -280,8 +301,17 @@
         },
         "criteria": "rank_permutation(noise_20) > 5",
         "verdictDetail": {
-          "passed": true,
-          "summary": "Specification target: Permutation importance drops noise_20 from rank 4 to rank 11 (bottom quartile)."
+          "checks": [
+            {
+              "metric": "rank_permutation_noise_20",
+              "op": "gt",
+              "threshold": 5,
+              "tolerance": null,
+              "measured": 11,
+              "passed": true
+            }
+          ],
+          "explanation": "Specification target: Permutation importance drops noise_20 from rank 4 to rank 11 (bottom quartile)."
         }
       }
     }

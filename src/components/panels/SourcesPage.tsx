@@ -72,7 +72,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
         venue: kind === 'repo' ? 'GitHub Open Source' : 'Web Page',
         pages: 0,
         size: '—',
-        status: 'SEEDED',
+        status: 'QUEUED',
         doi: webUrl,
       };
 
@@ -81,7 +81,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
         onIngestSource(cleanTitle, kind, webUrl);
       }
       setIsIngestingWeb(false);
-      onShowToast(`Sample source added to workspace list.`);
+      onShowToast(`Source URL queued for workspace ingestion.`);
     }, 1200);
   };
 
@@ -283,7 +283,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
       {/* Active Papers in Workspace List */}
       <div className="space-y-3">
         <div className="text-[11px] uppercase tracking-wider text-[var(--text-dim)]">
-          ACTIVE INGESTED SOURCES IN WORKSPACE ({sources.length})
+          WORKSPACE SOURCES ({sources.length})
         </div>
         <div className="space-y-2">
           {sources.map((s) => (

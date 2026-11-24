@@ -2,6 +2,8 @@
 @import "tailwindcss";
 @import "@xyflow/react/dist/style.css";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: "Geist", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "Geist Mono", "JetBrains Mono", monospace;
@@ -57,7 +59,8 @@ html.light {
 html.light .text-sky-400 {
   color: #0369a1 !important;
 }
-html.light .text-violet-400 {
+html.light .text-violet-400,
+html.light .text-violet-300 {
   color: #6d28d9 !important;
 }
 html.light .text-pink-400 {
@@ -66,7 +69,8 @@ html.light .text-pink-400 {
 html.light .text-amber-400 {
   color: #b45309 !important;
 }
-html.light .text-emerald-400 {
+html.light .text-emerald-400,
+html.light .text-emerald-300 {
   color: #047857 !important;
 }
 

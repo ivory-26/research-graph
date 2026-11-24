@@ -7,10 +7,19 @@ import type {
   RunMode,
   RunStatus,
   Verdict,
+  VerdictDetail,
   NodeData,
 } from '../shared/types';
 
-export type { NodeType, EdgeRelation, EdgeStatus, RunMode, RunStatus, Verdict };
+export type { NodeType, EdgeRelation, EdgeStatus, RunMode, RunStatus, Verdict, VerdictDetail };
+
+export const PINNED_IMAGE_PACKAGES: Record<string, string> = {
+  numpy: '2.5.5',
+  pandas: '2.3.3',
+  'scikit-learn': '1.9.1',
+  scipy: '1.17.1',
+  matplotlib: '3.10.0',
+};
 
 export interface SourceChunk {
   id: string;
@@ -36,18 +45,30 @@ export interface WorkspaceSource {
   isHero?: boolean;
 }
 
+export type WorkspaceNodeData = NodeData & {
+  title?: string;
+  sublabel?: string;
+  isPreview?: boolean;
+  isHero?: boolean;
+  venue?: string;
+  doi?: string;
+  pages?: number;
+  noiseColumns?: string;
+  features?: number;
+  parameter?: Record<string, any>;
+  parentRunId?: string;
+  singleParamDiff?: string;
+  criteria?: string;
+  verdictDetail?: VerdictDetail;
+  [key: string]: any;
+};
+
 export interface WorkspaceNode {
   id: string;
   type: NodeType;
   title: string;
   position: { x: number; y: number };
-  data: NodeData & {
-    type: NodeType;
-    sublabel?: string;
-    title?: string;
-    isPreview?: boolean;
-    [key: string]: any;
-  };
+  data: WorkspaceNodeData;
 }
 
 export interface WorkspaceEdge {

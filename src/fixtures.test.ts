@@ -9,7 +9,9 @@ import {
   DEMO_NODES,
   DEMO_EDGES,
   DEMO_STRATEGIES,
+  PINNED_IMAGE_PACKAGES as DEMO_PINS,
 } from './data/demoWorkspace';
+import { PINNED_IMAGE_PACKAGES as RUNNER_PINS } from './server/runner';
 
 describe('Workspace Fixture (Issue #17 Acceptance Criteria)', () => {
   const fixturePath = path.resolve(process.cwd(), 'fixtures/workspace.json');
@@ -147,5 +149,63 @@ describe('Workspace Fixture (Issue #17 Acceptance Criteria)', () => {
     expect(DEMO_NODES).toEqual(data.nodes);
     expect(DEMO_EDGES).toEqual(data.edges);
     expect(DEMO_STRATEGIES).toEqual(data.strategies);
+  });
+
+  it('ensures PINNED_IMAGE_PACKAGES in demoWorkspace matches runner.ts without drift', () => {
+    expect(DEMO_PINS).toEqual(RUNNER_PINS);
+  });
+
+  it('validates every node against the frozen NodeData schema union', () => {
+    const data = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+
+    for (const node of data.nodes) {
+      const d = node.data;
+      expect(d.type).toBe(node.type);
+
+      switch (d.type) {
+        case 'source':
+          expect(typeof d.sourceId).toBe('string');
+          expect(typeof d.kind).toBe('string');
+          break;
+        case 'claim':
+          expect(typeof d.text).toBe('string');
+          expect(d.reported === null || typeof d.reported === 'object').toBe(true);
+          expect(d.datasetName === null || typeof d.datasetName === 'string').toBe(true);
+          expect(d.methodName === null || typeof d.methodName === 'string').toBe(true);
+          expect(typeof d.locator).toBe('object');
+          expect(typeof d.locator.page).toBe('number');
+          expect(typeof d.locator.quote).toBe('string');
+          break;
+        case 'method':
+          expect(typeof d.summary).toBe('string');
+          expect(d.library === null || typeof d.library === 'string').toBe(true);
+          break;
+        case 'dataset':
+          expect(typeof d.name).toBe('string');
+          expect(d.url === null || typeof d.url === 'string').toBe(true);
+          expect(d.sha256 === null || typeof d.sha256 === 'string').toBe(true);
+          expect(d.rows === null || typeof d.rows === 'number').toBe(true);
+          break;
+        case 'run':
+          expect(typeof d.runId).toBe('string');
+          expect(['queued', 'running', 'succeeded', 'failed', 'timeout', 'cancelled']).toContain(d.status);
+          expect(['exact', 'adapted', 'conceptual']).toContain(d.mode);
+          break;
+        case 'result':
+          expect(typeof d.runId).toBe('string');
+          expect(typeof d.metrics).toBe('object');
+          expect(d.verdict === null || ['match', 'mismatch', 'inconclusive', 'failed'].includes(d.verdict)).toBe(true);
+          if (d.verdictDetail) {
+            expect(Array.isArray(d.verdictDetail.checks)).toBe(true);
+            expect(d.verdictDetail.explanation === null || typeof d.verdictDetail.explanation === 'string').toBe(true);
+          }
+          break;
+        case 'note':
+          expect(typeof d.body).toBe('string');
+          break;
+        default:
+          throw new Error(`Unexpected node type: ${d.type}`);
+      }
+    }
   });
 });

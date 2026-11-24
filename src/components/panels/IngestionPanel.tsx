@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { DEMO_SOURCES, DEMO_CHUNKS } from '../../data/demoWorkspace';
 import { UploadCloud, Globe, CheckCircle2, X, FileText, Copy, Check } from 'lucide-react';
 
@@ -32,6 +32,7 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
   );
   const [crawlStatus, setCrawlStatus] = useState<string | null>(null);
   const [copiedChunkId, setCopiedChunkId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -43,7 +44,7 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
   const handleCrawl = () => {
     setCrawlStatus('Adding paper project page to local sources...');
     setTimeout(() => {
-      setCrawlStatus('Source added to workspace list.');
+      setCrawlStatus('Source URL queued for workspace ingestion.');
     }, 800);
   };
 
@@ -149,7 +150,23 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
                 <p className="text-[11px] text-[var(--text-dim)] mt-1 max-w-xs">
                   Extracts text in coordinate reading order, computes SHA-256 hash, and chunks with character offsets.
                 </p>
-                <button className="mt-4 rounded-none bg-[#f97316] px-4 py-2 text-xs font-bold uppercase text-black hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)] cursor-pointer">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept=".pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setCrawlStatus(`Source ${file.name} queued for workspace extraction.`);
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mt-4 rounded-none bg-[#f97316] px-4 py-2 text-xs font-bold uppercase text-black hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)] cursor-pointer"
+                >
                   Select File
                 </button>
               </div>

@@ -2,6 +2,7 @@ import React from 'react';
 import { X, Download } from 'lucide-react';
 import rawWorkspace from '../../../fixtures/workspace.json';
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../../fixtures/hero-spec';
+import { PINNED_IMAGE_PACKAGES } from '../../data/demoWorkspace';
 
 function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
   const scriptCode = spec.files['main.py'] || '';
@@ -13,6 +14,10 @@ function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
   const claimPage = claimNode?.data?.locator?.page;
   const claimCharStart = claimNode?.data?.locator?.charStart;
   const claimCharEnd = claimNode?.data?.locator?.charEnd;
+
+  const pinnedPipPackages = Object.entries(PINNED_IMAGE_PACKAGES)
+    .map(([pkg, ver]) => `"${pkg}==${ver}"`)
+    .join(' ');
 
   return JSON.stringify(
     {
@@ -36,7 +41,7 @@ function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
           outputs: [],
           source: [
             '# 1. Pinned dependencies install\n',
-            '!pip install -q "scikit-learn==1.9.1" "pandas==2.3.3" "numpy==2.5.5" "scipy==1.17.1" "matplotlib==3.10.0"\n',
+            `!pip install -q ${pinnedPipPackages}\n`,
           ],
         },
         {

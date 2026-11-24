@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useState, useEffect } from 'react';
+import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -148,11 +148,17 @@ function CanvasInner({
     );
   }, [initialNodes, initialEdges, settings.repulsion, settings.linkDistance, simulationSeed]);
 
-  // Double-click focus on node and immediate neighborhood
+  // References for tracking layout inputs, rendered positions, and manual user drags
+  const userDraggedNodeIdsRef = useRef<Set<string>>(new Set());
+  const nodesRef = useRef<Node[]>([]);
+
+  // Double-click focus on node and immediate neighborhood (centred on actually rendered position)
   const handleNodeDoubleClick = useCallback(
     (nodeId: string) => {
-      const nodePos =
-        viewMode === 'memory'
+      const renderedNode = nodesRef.current.find((n) => n.id === nodeId);
+      const nodePos = renderedNode
+        ? renderedNode.position
+        : viewMode === 'memory'
           ? forceLayout.positions[nodeId]
           : initialNodes.find((n) => n.id === nodeId)?.position;
 
@@ -165,6 +171,7 @@ function CanvasInner({
   );
 
   const handleResetLayout = useCallback(() => {
+    userDraggedNodeIdsRef.current.clear();
     setSimulationSeed((s) => s + 1);
     setTimeout(() => {
       fitView({ padding: 0.25, duration: 600 });
@@ -172,6 +179,7 @@ function CanvasInner({
   }, [fitView]);
 
   const handleAnimateLayout = useCallback(() => {
+    userDraggedNodeIdsRef.current.clear();
     setSimulationSeed((s) => s + 1);
   }, []);
 
@@ -374,18 +382,49 @@ function CanvasInner({
   const [nodes, setNodes, onNodesChange] = useNodesState(rfNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(rfEdges);
 
+  // Keep nodesRef in sync for coordinate center lookups
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
+  // Track layout signature: recomputed layout applies when signature changes or node wasn't manually dragged
+  const layoutSignature = `${viewMode}:${simulationSeed}:${settings.repulsion}:${settings.linkDistance}`;
+  const prevLayoutSignatureRef = useRef(layoutSignature);
+
+  const handleNodesChange = useCallback(
+    (changes: any) => {
+      if (Array.isArray(changes)) {
+        for (const c of changes) {
+          if (c.type === 'position' && (c.dragging || c.position)) {
+            userDraggedNodeIdsRef.current.add(c.id);
+          }
+        }
+      }
+      onNodesChange(changes);
+    },
+    [onNodesChange]
+  );
+
   // Synchronize state when nodes, viewMode, filters, or forceLayout change
   useEffect(() => {
+    const signatureChanged = prevLayoutSignatureRef.current !== layoutSignature;
+    if (signatureChanged) {
+      prevLayoutSignatureRef.current = layoutSignature;
+      userDraggedNodeIdsRef.current.clear();
+    }
+
     setNodes((currentNodes) => {
       return rfNodes.map((rfNode) => {
         const match = currentNodes.find((cn) => cn.id === rfNode.id);
+        const isDragged = userDraggedNodeIdsRef.current.has(rfNode.id);
+        const useMatchPosition = !signatureChanged && isDragged && match;
         return {
           ...rfNode,
-          position: match ? match.position : rfNode.position,
+          position: useMatchPosition ? match.position : rfNode.position,
         };
       });
     });
-  }, [rfNodes, setNodes]);
+  }, [rfNodes, layoutSignature, setNodes]);
 
   useEffect(() => {
     setEdges(rfEdges);
@@ -429,8 +468,10 @@ function CanvasInner({
   }, [searchQuery, initialNodes]);
 
   const handleJumpToNode = (node: WorkspaceNode) => {
-    const pos =
-      viewMode === 'memory'
+    const renderedNode = nodesRef.current.find((n) => n.id === node.id);
+    const pos = renderedNode
+      ? renderedNode.position
+      : viewMode === 'memory'
         ? forceLayout.positions[node.id] || { x: node.position.x - 450, y: node.position.y - 200 }
         : node.position;
 
@@ -455,8 +496,11 @@ function CanvasInner({
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
+        onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeDragStop={(_, node) => {
+          userDraggedNodeIdsRef.current.add(node.id);
+        }}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodeClick={handleNodeClick}
@@ -685,13 +729,13 @@ function CanvasInner({
               <div className="flex items-center gap-2 text-sky-400 font-semibold tracking-wide">
                 <span className="inline-block h-2 w-2 rounded-full bg-sky-400 shadow-[0_0_10px_#38bdf8] animate-pulse" />
                 <span>
-                  Memory Network: {initialNodes.length} knowledge entities ·{' '}
-                  {initialEdges.length} connections
+                  Memory Network: {initialNodes.length} nodes ·{' '}
+                  {initialEdges.length} edges
                 </span>
               </div>
               <div className="text-[10px] text-[var(--text-dim)] truncate max-w-xs md:max-w-md">
                 <span className="text-[var(--text-muted)]">Mode:</span> Force-directed organic
-                clustering · Click entity to inspect · Double-click to zoom
+                clustering · Click node to inspect · Double-click to zoom
               </div>
             </div>
           </Panel>

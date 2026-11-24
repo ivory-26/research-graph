@@ -64,7 +64,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         <div className="flex items-center gap-2">
           <span className="badge-orange-outline text-[10px]">MODE: ADAPTED</span>
           <span className="b border-[var(--border-primary)] bg-[var(--bg-surface-hover)] text-[var(--text-muted)] text-[10px]">
-            DATA: {((datasetNode?.data?.sublabel as string) || 'OPENML:52350').toUpperCase()}
+            DATA: OPENML:52350
           </span>
         </div>
 
@@ -114,11 +114,11 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           <div className="border-t border-[var(--border-primary)] pt-2 space-y-1">
             <div className="text-[10px] text-[var(--text-dim)] uppercase">Tested Importance Methods:</div>
             <div className="flex items-center gap-1.5 text-[10px]">
-              <span className="px-1.5 py-0.5 border border-violet-500/40 text-violet-300 bg-violet-500/10">
+              <span className="px-1.5 py-0.5 border border-violet-500/40 text-violet-600 dark:text-violet-400 font-bold bg-violet-500/10">
                 Gini (MDI)
               </span>
               <span className="text-[var(--text-dim)]">vs</span>
-              <span className="px-1.5 py-0.5 border border-emerald-500/40 text-emerald-300 bg-emerald-500/10">
+              <span className="px-1.5 py-0.5 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/10">
                 Permutation
               </span>
             </div>
@@ -128,7 +128,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         {/* Quick Entity Navigation */}
         {allNodes.length > 0 && (
           <div className="space-y-1.5 font-mono">
-            <div className="l text-[10px]">KNOWLEDGE GRAPH ENTITIES ({allNodes.length})</div>
+            <div className="l text-[10px]">GRAPH NODES ({allNodes.length})</div>
             <div className="flex flex-col gap-1 max-h-56 overflow-y-auto pr-1">
               {allNodes.map((n) => {
                 const nTheme = NODE_CATEGORY_THEMES[n.type] || NODE_CATEGORY_THEMES.source;
@@ -233,7 +233,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           <div className="text-[10px] text-[var(--text-dim)] font-mono mt-1 flex items-center gap-2">
             <span>ID: {node.id}</span>
             <span>·</span>
-            <span>{totalConnections} connections</span>
+            <span>{totalConnections} edges</span>
           </div>
         </div>
 
