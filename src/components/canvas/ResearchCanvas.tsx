@@ -381,7 +381,7 @@ function CanvasInner({
         const match = currentNodes.find((cn) => cn.id === rfNode.id);
         return {
           ...rfNode,
-          position: rfNode.position || (match ? match.position : { x: 0, y: 0 }),
+          position: match ? match.position : rfNode.position,
         };
       });
     });

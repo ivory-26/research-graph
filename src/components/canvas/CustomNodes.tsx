@@ -502,7 +502,7 @@ export const RunNode: React.FC<NodeProps> = ({ data, selected }) => {
             <span className="text-[11px] font-mono font-bold text-[var(--text-primary)]">
               {data.title as string}
             </span>
-            {data.verdict && data.verdict !== 'spec' && data.verdict !== 'preview' ? (
+            {data.verdict ? (
               <span className="badge-orange-outline !text-[7px] !px-1 rounded-none uppercase">
                 {String(data.verdict)}
               </span>
@@ -566,7 +566,7 @@ export const RunNode: React.FC<NodeProps> = ({ data, selected }) => {
         <span className="text-[12px] font-medium text-[var(--text-primary)] truncate mr-1">
           {data.title as string}
         </span>
-        {data.verdict && data.verdict !== 'spec' && data.verdict !== 'preview' ? (
+        {data.verdict ? (
           <span className="badge-orange-outline !text-[8px] !px-1 rounded-none uppercase">
             {String(data.verdict)}
           </span>
@@ -613,7 +613,7 @@ export const ResultNode: React.FC<NodeProps> = ({ data, selected }) => {
             <span className="text-[11px] font-mono font-bold text-[var(--text-primary)]">
               {data.title as string}
             </span>
-            {data.verdict && data.verdict !== 'spec' && data.verdict !== 'preview' ? (
+            {data.verdict ? (
               <span className="badge-solid-white !text-[7px] !px-1 rounded-none uppercase">
                 {String(data.verdict)}
               </span>
@@ -656,7 +656,7 @@ export const ResultNode: React.FC<NodeProps> = ({ data, selected }) => {
         <span className="text-[12px] font-medium text-[var(--text-primary)] truncate mr-1">
           {data.title as string}
         </span>
-        {data.verdict && data.verdict !== 'spec' && data.verdict !== 'preview' ? (
+        {data.verdict ? (
           <span className="badge-solid-white !text-[8px] !px-1 rounded-none uppercase">
             {String(data.verdict)}
           </span>

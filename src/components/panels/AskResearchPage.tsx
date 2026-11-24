@@ -126,21 +126,17 @@ export const AskResearchPage: React.FC = () => {
     setInput('');
     setIsSearching(true);
 
-    try {
-      const result = retrieveDemoCitations(textToSend);
+    const result = retrieveDemoCitations(textToSend);
 
-      const aiMsg: Message = {
-        id: `ai-${Date.now()}`,
-        sender: 'ai',
-        text: result.answer,
-        citations: result.citations,
-      };
+    const aiMsg: Message = {
+      id: `ai-${Date.now()}`,
+      sender: 'ai',
+      text: result.answer,
+      citations: result.citations,
+    };
 
-      setMessages((prev) => [...prev, aiMsg]);
-      setIsSearching(false);
-    } catch {
-      setIsSearching(false);
-    }
+    setMessages((prev) => [...prev, aiMsg]);
+    setIsSearching(false);
   };
 
   return (
@@ -203,7 +199,7 @@ export const AskResearchPage: React.FC = () => {
             {m.citations && m.citations.length > 0 && (
               <div className="mt-3 pt-2.5 border-t border-[var(--border-primary)] space-y-2">
                 <div className="text-[9px] text-[var(--text-dim)] uppercase tracking-wider font-bold">
-                  Indexed Evidence Passages:
+                  Workspace Evidence Passages:
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   {m.citations.map((c, i) => {

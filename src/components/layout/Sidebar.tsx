@@ -124,13 +124,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <span className="text-[9px] text-[#f97316] uppercase font-bold">Current</span>
             </div>
-            <button
-              onClick={() => setIsWorkspaceMenuOpen(false)}
-              className="w-full text-left p-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition flex items-center justify-between text-[11px]"
-            >
-              <span>+ Create new workspace</span>
-              <ExternalLink className="h-3 w-3" />
-            </button>
+            <div className="w-full text-left p-2 text-[var(--text-dim)] flex items-center justify-between text-[10px]">
+              <span>Demo Workspace · read-only</span>
+            </div>
           </div>
         )}
       </div>

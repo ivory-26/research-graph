@@ -26,7 +26,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({ onShowToast, onIngestS
         id: s.id,
         title: s.title,
         venue: s.venue,
-        pages: node?.data?.pages ?? Math.max(1, Math.round(s.bytes / 35000)),
+        pages: node?.data?.pages ?? 1,
         size: `${(s.bytes / 1024).toFixed(0)} KB`,
         status: 'SEEDED',
         doi: s.doi || s.url || '',

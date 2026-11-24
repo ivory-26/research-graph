@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import rawWorkspace from '../../../fixtures/workspace.json';
 import {
   Play,
   Terminal,
@@ -51,6 +52,9 @@ export const Navbar: React.FC<NavbarProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const sourceCount = rawWorkspace.nodes.filter((n) => n.type === 'source').length;
+  const claimCount = rawWorkspace.nodes.filter((n) => n.type === 'claim').length;
 
   return (
     <header className="flex flex-col w-full z-30 select-none border-b border-[var(--border-primary)] bg-[var(--header-bg)] transition-colors duration-200">
@@ -106,7 +110,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <span>{currentWorkspace}</span>
                     </div>
                     <div className="text-[10px] text-[var(--text-dim)] mt-0.5">
-                      3 sources · 1 claim (demo)
+                      {sourceCount} sources · {claimCount} claim (fixture)
                     </div>
                   </div>
                   <span className="text-[9px] text-[#f97316] uppercase font-bold">Active</span>

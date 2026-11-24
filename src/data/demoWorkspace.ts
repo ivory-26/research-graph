@@ -1,12 +1,16 @@
 import rawWorkspace from '../../fixtures/workspace.json';
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../fixtures/hero-spec';
+import type {
+  NodeType,
+  EdgeRelation,
+  EdgeStatus,
+  RunMode,
+  RunStatus,
+  Verdict,
+  NodeData,
+} from '../shared/types';
 
-export type NodeType = 'source' | 'claim' | 'method' | 'dataset' | 'result' | 'run' | 'note';
-export type EdgeRelation = 'supports' | 'contradicts' | 'cites' | 'uses_dataset' | 'tests' | 'produced' | 'derived_from';
-export type EdgeStatus = 'suggested' | 'accepted' | 'rejected';
-export type RunMode = 'exact' | 'adapted' | 'conceptual';
-export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled';
-export type Verdict = 'match' | 'mismatch' | 'inconclusive' | 'failed';
+export type { NodeType, EdgeRelation, EdgeStatus, RunMode, RunStatus, Verdict };
 
 export interface SourceChunk {
   id: string;
@@ -37,8 +41,11 @@ export interface WorkspaceNode {
   type: NodeType;
   title: string;
   position: { x: number; y: number };
-  data: {
+  data: NodeData & {
     type: NodeType;
+    sublabel?: string;
+    title?: string;
+    isPreview?: boolean;
     [key: string]: any;
   };
 }

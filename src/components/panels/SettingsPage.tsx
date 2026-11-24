@@ -75,7 +75,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onShowToast }) => {
                 <div className="text-[var(--text-primary)] font-semibold">Motion & animations</div>
                 <div className="text-[10px] text-[var(--text-dim)]">GPU accelerated particle flow</div>
               </div>
-              <strong className="text-emerald-400">OPTIMIZED</strong>
+              <strong className="text-emerald-600 dark:text-emerald-400">OPTIMIZED</strong>
             </div>
           </div>
         </div>

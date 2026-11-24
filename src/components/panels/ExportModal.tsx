@@ -9,12 +9,10 @@ function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
   const checks = spec.criteria.checks;
 
   const claimNode = (rawWorkspace.nodes as any[]).find((n) => n.type === 'claim');
-  const claimQuote =
-    claimNode?.data?.locator?.quote ||
-    'A variable with more categories has a higher probability to be selected in individual splits purely by chance. Consequently, impurity-based variable importance measures (Gini importance) are severely biased towards variables with many categories, even when they carry no actual information about the response.';
-  const claimPage = claimNode?.data?.locator?.page ?? 4;
-  const claimCharStart = claimNode?.data?.locator?.charStart ?? 3810;
-  const claimCharEnd = claimNode?.data?.locator?.charEnd ?? 4220;
+  const claimQuote = claimNode?.data?.locator?.quote || '';
+  const claimPage = claimNode?.data?.locator?.page;
+  const claimCharStart = claimNode?.data?.locator?.charStart;
+  const claimCharEnd = claimNode?.data?.locator?.charEnd;
 
   return JSON.stringify(
     {
@@ -89,10 +87,20 @@ function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
           metadata: {},
           source: [
             '### Evaluation Criteria\n',
-            ...checks.map(
-              (c) =>
-                `- Target check: \`${c.metric}\` ${c.op === 'lte' ? '<=' : c.op} ${c.value} -> evaluates whether high-cardinality noise is ranked among top predictors.\n`
-            ),
+            ...checks.map((c) => {
+              const opMap: Record<string, string> = {
+                lte: '<=',
+                lt: '<',
+                gte: '>=',
+                gt: '>',
+                eq: '==',
+              };
+              const opSymbol = opMap[c.op] || c.op;
+              const explanation = c.metric.includes('impurity')
+                ? 'evaluates whether high-cardinality noise is artificially favored and ranked among top predictors under impurity importance.'
+                : 'evaluates whether permutation importance remedies the bias by dropping high-cardinality noise toward the bottom ranks.';
+              return `- Target check: \`${c.metric}\` ${opSymbol} ${c.value} -> ${explanation}\n`;
+            }),
           ],
         },
       ],

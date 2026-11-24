@@ -81,13 +81,13 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
 
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-[var(--text-dim)]">OpenML ID:</span>
-            <span className="text-sky-400">{(datasetNode?.data?.openmlId as string) || '52350'}</span>
+            <span className="text-sky-600 dark:text-sky-400 font-bold">{(datasetNode?.data?.openmlId as string) || '52350'}</span>
           </div>
 
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-[var(--text-dim)]">Dimensions:</span>
             <span className="text-[var(--text-primary)]">
-              {datasetNode?.data?.rows ? `${datasetNode.data.rows} rows × ${datasetNode.data.features || 30} features` : '569 rows × 30 features'}
+              {datasetNode?.data?.rows ? `${datasetNode.data.rows} rows × ${datasetNode.data.features || 9} features` : '569 rows × 9 features'}
             </span>
           </div>
 
@@ -97,16 +97,16 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
             </div>
             <div className="grid grid-cols-1 gap-1 text-[10px] text-[var(--text-muted)]">
               <div className="flex justify-between bg-[var(--bg-surface-hover)] p-1 border border-[var(--border-primary)]">
-                <code className="text-pink-400 font-bold">noise_2</code>
+                <code className="text-pink-600 dark:text-pink-400 font-bold">noise_2</code>
                 <span>2 levels (binary)</span>
               </div>
               <div className="flex justify-between bg-[var(--bg-surface-hover)] p-1 border border-[var(--border-primary)]">
-                <code className="text-pink-400 font-bold">noise_5</code>
+                <code className="text-pink-600 dark:text-pink-400 font-bold">noise_5</code>
                 <span>5 levels (moderate)</span>
               </div>
               <div className="flex justify-between bg-[var(--bg-surface-hover)] p-1 border border-[var(--border-primary)]">
-                <code className="text-pink-400 font-bold">noise_20</code>
-                <span className="text-amber-400 font-bold">20 levels (high bias)</span>
+                <code className="text-pink-600 dark:text-pink-400 font-bold">noise_20</code>
+                <span className="text-amber-600 dark:text-amber-400 font-bold">20 levels (high bias)</span>
               </div>
             </div>
           </div>
@@ -256,7 +256,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
                 href={node.data.url || `https://doi.org/${node.data.doi}`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-sky-400 hover:underline flex items-center gap-1"
+                className="text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1 font-bold"
               >
                 <span>{node.data.doi}</span>
                 <ExternalLink className="h-3 w-3" />
@@ -277,13 +277,13 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           {node.data?.library && (
             <div className="flex items-center justify-between text-[10px] font-mono border-t border-[var(--border-primary)] pt-2">
               <span className="text-[var(--text-dim)]">Library:</span>
-              <span className="text-violet-400 font-bold">{node.data.library}</span>
+              <span className="text-violet-600 dark:text-violet-400 font-bold">{node.data.library}</span>
             </div>
           )}
-          {node.data?.verdict && (
+          {(node.data?.verdict || node.data?.isPreview) && (
             <div className="flex items-center justify-between text-[10px] font-mono border-t border-[var(--border-primary)] pt-2">
               <span className="text-[var(--text-dim)]">Status:</span>
-              <span className="badge-solid-white rounded-none uppercase">{node.data.verdict}</span>
+              <span className="badge-solid-white rounded-none uppercase">{node.data.verdict || 'PREVIEW'}</span>
             </div>
           )}
 
@@ -296,12 +296,12 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-[var(--text-dim)]">Dimensions:</span>
-                <span className="text-pink-400 font-bold">{node.data.rows} rows × {node.data.features} features</span>
+                <span className="text-pink-600 dark:text-pink-400 font-bold">{node.data.rows} rows × {node.data.features || 9} features</span>
               </div>
               {node.data.noiseColumns && (
                 <div className="flex justify-between">
                   <span className="text-[var(--text-dim)]">Noise Variables:</span>
-                  <span className="text-amber-400 font-mono">{node.data.noiseColumns}</span>
+                  <span className="text-amber-600 dark:text-amber-400 font-mono font-bold">{node.data.noiseColumns}</span>
                 </div>
               )}
             </div>
@@ -312,7 +312,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
             <div className="border-t border-[var(--border-primary)] pt-2 space-y-1 font-mono text-[10px]">
               <div className="flex justify-between">
                 <span className="text-[var(--text-dim)]">Importance Method:</span>
-                <span className="text-amber-400 font-bold uppercase">{node.data.parameter.importance_method}</span>
+                <span className="text-amber-600 dark:text-amber-400 font-bold uppercase">{node.data.parameter.importance_method}</span>
               </div>
               {node.data.singleParamDiff && (
                 <div className="text-[10px] text-[#f97316] bg-[#f97316]/10 p-1 border border-[#f97316]/30">
@@ -335,13 +335,13 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
               {Object.entries(node.data.metrics).map(([k, v]) => (
                 <div key={k} className="flex justify-between bg-[var(--bg-surface-hover)] p-1 border border-[var(--border-primary)]">
                   <span className="text-[var(--text-dim)] font-mono">{k}:</span>
-                  <span className="text-emerald-400 font-bold">{String(v)}</span>
+                  <span className="text-emerald-600 dark:text-emerald-400 font-bold">{String(v)}</span>
                 </div>
               ))}
               {node.data.criteria && (
                 <div className="flex justify-between text-[10px] text-[var(--text-secondary)] border-t border-[var(--border-primary)] pt-1">
                   <span>Criteria:</span>
-                  <code className="text-emerald-400 font-bold">{node.data.criteria}</code>
+                  <code className="text-emerald-600 dark:text-emerald-400 font-bold">{node.data.criteria}</code>
                 </div>
               )}
             </div>
@@ -352,7 +352,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         {incomingEdges.length > 0 && (
           <div className="space-y-1.5">
             <div className="l flex items-center gap-1">
-              <ArrowLeft className="h-3 w-3 text-sky-400" />
+              <ArrowLeft className="h-3 w-3 text-sky-600 dark:text-sky-400" />
               <span>INCOMING RELATIONSHIPS ({incomingEdges.length})</span>
             </div>
             <div className="space-y-1">
@@ -402,7 +402,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
                     className="p-2 border border-[var(--border-primary)] bg-[var(--bg-surface)] hover:border-[var(--border-secondary)] hover:bg-[var(--bg-surface-hover)] cursor-pointer transition flex items-center justify-between text-xs font-mono"
                   >
                     <div className="flex items-center gap-1.5 truncate">
-                      <span className="text-[9px] uppercase font-bold text-emerald-400">
+                      <span className="text-[9px] uppercase font-bold text-emerald-600 dark:text-emerald-400">
                         {e.relation}
                       </span>
                       <span className="text-[var(--text-dim)]">to</span>

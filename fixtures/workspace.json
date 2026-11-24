@@ -201,7 +201,7 @@
         "title": "breast-w + 3 noise cols",
         "name": "breast-w (OpenML 52350)",
         "rows": 569,
-        "features": 30,
+        "features": 9,
         "noiseColumns": "noise_2, noise_5, noise_20"
       }
     },
@@ -214,7 +214,8 @@
         "type": "run",
         "sublabel": "RUN A · ROOT",
         "title": "Impurity · adapted",
-        "verdict": "spec",
+        "verdict": null,
+        "isPreview": true,
         "mode": "adapted",
         "runId": "run-1",
         "network": "none",
@@ -230,7 +231,8 @@
         "type": "run",
         "sublabel": "RUN B · WHAT-IF",
         "title": "Permutation",
-        "verdict": "spec",
+        "verdict": null,
+        "isPreview": true,
         "mode": "adapted",
         "runId": "run-2",
         "parentRunId": "run-1",
@@ -248,7 +250,8 @@
         "type": "result",
         "sublabel": "RESULT · PREVIEW",
         "title": "Result A",
-        "verdict": "preview",
+        "verdict": null,
+        "isPreview": true,
         "metrics": {
           "rank_impurity_noise_20": 4,
           "rank_permutation_noise_20": 11
@@ -269,7 +272,8 @@
         "type": "result",
         "sublabel": "RESULT · PREVIEW",
         "title": "Result B",
-        "verdict": "preview",
+        "verdict": null,
+        "isPreview": true,
         "metrics": {
           "rank_impurity_noise_20": 4,
           "rank_permutation_noise_20": 11
@@ -433,7 +437,7 @@
       "status": "accepted",
       "confidence": 1.0,
       "evidenceRunId": "run-1",
-      "rationale": "Impurity test specification with target rank #2 for noise_20."
+      "rationale": "Impurity test specification with target rank #4 for noise_20."
     },
     {
       "id": "e-run2-result2",
@@ -443,7 +447,7 @@
       "status": "accepted",
       "confidence": 1.0,
       "evidenceRunId": "run-2",
-      "rationale": "Permutation test specification with target rank #29 for noise_20."
+      "rationale": "Permutation test specification with target rank #11 for noise_20."
     },
     {
       "id": "e-run1-run2-whatif",
