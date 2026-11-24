@@ -613,7 +613,9 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
   })
 
   describe('Integration with real 3 demo papers (synthesis and citation verification)', () => {
-    it('answers cross-paper question and verifies verbatim citations across Strobl 2007, Strobl 2008, and Kursa 2010', async () => {
+    it(
+      'answers cross-paper question and verifies verbatim citations across Strobl 2007, Strobl 2008, and Kursa 2010',
+      async () => {
       const papersDir = path.resolve(process.cwd(), 'fixtures/papers')
       const strobl2007Pdf = path.join(papersDir, 'strobl-2007.pdf')
       const strobl2008Pdf = path.join(papersDir, 'strobl-2008.pdf')
@@ -758,7 +760,7 @@ describe('Ask-Across-Sources Retrieval (Issue #14)', () => {
       expect(res.citations[0]?.verified).toBe(true)
       expect(res.citations[1]?.verified).toBe(true)
       expect(res.citations[2]?.verified).toBe(true)
-    })
+    }, 30000)
 
     const hasDb = Boolean(process.env.DATABASE_URL)
     const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY)

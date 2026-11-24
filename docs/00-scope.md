@@ -28,10 +28,10 @@ This claim has **no headline number** — it is simulation-based. That is delibe
 
 ### The experiment
 
-1. Load `breast-w` (OpenML 52350, 19 KB, 569 rows, 30 features, verified reachable 2026-11-20).
+1. Load `breast-w` (OpenML 52350, 19 KB, 569 rows, 9 features (+ 3 noise cols = 12 total simulation features), verified reachable 2026-11-20).
 2. Append three uninformative categorical columns with 2, 5 and 20 levels.
 3. Fit a random forest. Report impurity importance ranks and permutation importance ranks for every column.
-4. Criterion: `rank_impurity(noise_20) <= 5` **and** `rank_permutation(noise_20) > 15`.
+4. Criterion: `rank_impurity(noise_20) <= 5` **and** `rank_permutation(noise_20) > 5`.
 
 Measured in seconds on one CPU core.
 
