@@ -101,6 +101,7 @@ export function diffSpecLeaves(
 
 /**
  * Returns a deep-cloned ExperimentSpec with a single dot-separated leaf path updated.
+ * Supports `files.<filename>` where `<filename>` may contain dots (e.g. `files.main.py`).
  * Never mutates the input spec.
  */
 export function applySingleLeafChange(
@@ -108,7 +109,21 @@ export function applySingleLeafChange(
   leafPath: string,
   value: unknown,
 ): ExperimentSpec {
-  const segments = leafPath
+  const trimmedPath = leafPath.trim()
+  if (trimmedPath.startsWith('files.')) {
+    const fileKey = trimmedPath.slice('files.'.length)
+    if (!fileKey || !Object.hasOwn(spec.files, fileKey)) {
+      throw new BranchValidationError(
+        `File "${fileKey}" does not exist in spec.files for path "${leafPath}"`,
+        'INVALID_PATH',
+      )
+    }
+    const cloned = structuredClone(spec)
+    cloned.files[fileKey] = structuredClone(value) as string
+    return cloned
+  }
+
+  const segments = trimmedPath
     .split('.')
     .map((s) => s.trim())
     .filter(Boolean)
@@ -135,7 +150,7 @@ export function applySingleLeafChange(
       }
       cursor = cursor[idx]
     } else if (isPlainObject(cursor)) {
-      if (!(seg in cursor)) {
+      if (!Object.hasOwn(cursor, seg)) {
         throw new BranchValidationError(
           `Segment "${seg}" does not exist in path "${leafPath}"`,
           'INVALID_PATH',
@@ -161,7 +176,7 @@ export function applySingleLeafChange(
     }
     cursor[idx] = structuredClone(value)
   } else if (isPlainObject(cursor)) {
-    if (!(last in cursor)) {
+    if (!Object.hasOwn(cursor, last)) {
       throw new BranchValidationError(
         `Leaf "${last}" does not exist in path "${leafPath}"`,
         'INVALID_PATH',
@@ -223,66 +238,70 @@ export interface WhatIfBranchStore {
 }
 
 export function createDrizzleWhatIfBranchStore(
-  db: Pick<Database, 'insert'>,
+  db: Pick<Database, 'transaction'>,
 ): WhatIfBranchStore {
   return {
     async createExperimentAndRun(input: NewWhatIfBranchInput) {
-      const [exp] = await db
-        .insert(experiments)
-        .values({
-          workspaceId: input.workspaceId,
-          claimNodeId: input.claimNodeId,
-          spec: input.spec,
-          mode: input.spec.mode,
-          approvalState: input.approvalState ?? 'pending',
-        })
-        .returning()
+      return db.transaction(async (tx) => {
+        const [exp] = await tx
+          .insert(experiments)
+          .values({
+            workspaceId: input.workspaceId,
+            claimNodeId: input.claimNodeId,
+            spec: input.spec,
+            mode: input.spec.mode,
+            approvalState: input.approvalState ?? 'pending',
+          })
+          .returning()
 
-      if (!exp) {
-        throw new Error('experiments insert returned no row')
-      }
+        if (!exp) {
+          throw new Error('experiments insert returned no row')
+        }
 
-      const [run] = await db
-        .insert(runs)
-        .values({
-          experimentId: exp.id,
-          parentRunId: input.parentRunId,
-          attempt: 1,
-          status: 'queued',
-          spec: input.spec,
-          parameters: input.spec.parameters,
-          environment: input.environment,
-        })
-        .returning()
+        // Note: pipeline wiring must adopt this queued row (matching experimentId + attempt 1)
+        // when EXECUTE runs the branched experiment rather than inserting a duplicate row.
+        const [run] = await tx
+          .insert(runs)
+          .values({
+            experimentId: exp.id,
+            parentRunId: input.parentRunId,
+            attempt: 1,
+            status: 'queued',
+            spec: input.spec,
+            parameters: input.spec.parameters,
+            environment: input.environment,
+          })
+          .returning()
 
-      if (!run) {
-        throw new Error('runs insert returned no row')
-      }
+        if (!run) {
+          throw new Error('runs insert returned no row')
+        }
 
-      if (!run.parentRunId) {
-        throw new Error('runs insert failed to persist parentRunId')
-      }
+        if (!run.parentRunId) {
+          throw new Error('runs insert failed to persist parentRunId')
+        }
 
-      return {
-        experiment: {
-          id: exp.id,
-          workspaceId: exp.workspaceId,
-          claimNodeId: exp.claimNodeId,
-          spec: exp.spec,
-          mode: exp.mode,
-          approvalState: exp.approvalState,
-        },
-        run: {
-          id: run.id,
-          experimentId: run.experimentId,
-          parentRunId: run.parentRunId,
-          attempt: run.attempt,
-          status: run.status,
-          spec: run.spec,
-          parameters: run.parameters,
-          environment: run.environment,
-        },
-      }
+        return {
+          experiment: {
+            id: exp.id,
+            workspaceId: exp.workspaceId,
+            claimNodeId: exp.claimNodeId,
+            spec: exp.spec,
+            mode: exp.mode,
+            approvalState: exp.approvalState,
+          },
+          run: {
+            id: run.id,
+            experimentId: run.experimentId,
+            parentRunId: run.parentRunId,
+            attempt: run.attempt,
+            status: run.status,
+            spec: run.spec,
+            parameters: run.parameters,
+            environment: run.environment,
+          },
+        }
+      })
     },
   }
 }
@@ -304,10 +323,7 @@ export type BranchWhatIfResult = {
   diff: SpecLeafDiff
 }
 
-function initialBranchEnvironment(
-  spec: ExperimentSpec,
-  startedAt: string,
-): RunEnvironment {
+function initialBranchEnvironment(spec: ExperimentSpec): RunEnvironment {
   return {
     imageDigest: 'unknown',
     python: 'unknown',
@@ -315,7 +331,7 @@ function initialBranchEnvironment(
     datasets: [],
     seeds:
       typeof spec.parameters.seed === 'number' ? [spec.parameters.seed] : [],
-    startedAt,
+    startedAt: '',
   }
 }
 
@@ -367,6 +383,14 @@ export async function branchWhatIf(
     )
   }
 
+  if (childSpec.claimNodeId !== parentRun.spec.claimNodeId) {
+    throw new BranchValidationError(
+      'What-if branch cannot change claimNodeId',
+      'INVALID_SPEC',
+      diffs,
+    )
+  }
+
   const validation = validateExperimentSpec(childSpec)
   if (!validation.valid) {
     throw new BranchValidationError(
@@ -376,14 +400,13 @@ export async function branchWhatIf(
     )
   }
 
-  const now = options.now ?? (() => new Date())
   const { experiment, run } = await options.store.createExperimentAndRun({
     workspaceId: parentRun.workspaceId,
-    claimNodeId: childSpec.claimNodeId,
+    claimNodeId: parentRun.spec.claimNodeId,
     parentRunId: parentRun.id,
     spec: childSpec,
     approvalState: options.approvalState ?? 'pending',
-    environment: initialBranchEnvironment(childSpec, now().toISOString()),
+    environment: initialBranchEnvironment(childSpec),
   })
 
   return {

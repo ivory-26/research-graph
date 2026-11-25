@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../fixtures/hero-spec'
+import { experiments, runs } from '../db/schema'
 import type { ExperimentSpec } from '../shared/types'
 import {
   BranchValidationError,
   applySingleLeafChange,
   branchWhatIf,
+  createDrizzleWhatIfBranchStore,
   diffSpecLeaves,
   type BranchedExperimentRecord,
   type BranchedRunRecord,
@@ -196,5 +198,108 @@ describe('branchWhatIf (Issue #27)', () => {
       code: 'INVALID_PATH',
     })
     expect(store.experiments).toHaveLength(0)
+  })
+
+  it('rejects prototype-pollution paths like __proto__ and supports dot-containing file keys', async () => {
+    const parentRun = makeCompletedParentRun()
+    const store = new MemoryWhatIfBranchStore()
+
+    await expect(
+      branchWhatIf(parentRun, { path: 'parameters.__proto__', value: {} }, { store }),
+    ).rejects.toMatchObject({
+      name: 'BranchValidationError',
+      code: 'INVALID_PATH',
+    })
+
+    const updated = await branchWhatIf(
+      parentRun,
+      {
+        path: 'files.main.py',
+        value: `${parentRun.spec.files['main.py']!}\n# what-if comment`,
+      },
+      { store },
+    )
+    expect(updated.run.spec.files['main.py']).toContain('# what-if comment')
+  })
+
+  it('rejects candidateSpec that changes claimNodeId', async () => {
+    const parentRun = makeCompletedParentRun()
+    const store = new MemoryWhatIfBranchStore()
+    const modified = structuredClone(parentRun.spec)
+    modified.claimNodeId = 'other-claim-node'
+
+    await expect(
+      branchWhatIf(parentRun, { candidateSpec: modified }, { store }),
+    ).rejects.toMatchObject({
+      name: 'BranchValidationError',
+      code: 'INVALID_SPEC',
+    })
+  })
+
+  it('persists experiment and queued child run atomically inside db.transaction', async () => {
+    const insertedTables: unknown[] = []
+    let txCalls = 0
+
+    const fakeDb = {
+      async transaction<T>(fn: (tx: any) => Promise<T>): Promise<T> {
+        txCalls++
+        const tx = {
+          insert(table: unknown) {
+            insertedTables.push(table)
+            return {
+              values(val: Record<string, unknown>) {
+                return {
+                  async returning() {
+                    if (table === experiments) {
+                      return [
+                        {
+                          id: 'exp-tx-1',
+                          workspaceId: val.workspaceId,
+                          claimNodeId: val.claimNodeId,
+                          spec: val.spec,
+                          mode: val.mode,
+                          approvalState: val.approvalState,
+                        },
+                      ]
+                    }
+                    if (table === runs) {
+                      return [
+                        {
+                          id: 'run-tx-1',
+                          experimentId: val.experimentId,
+                          parentRunId: val.parentRunId,
+                          attempt: val.attempt,
+                          status: val.status,
+                          spec: val.spec,
+                          parameters: val.parameters,
+                          environment: val.environment,
+                        },
+                      ]
+                    }
+                    return []
+                  },
+                }
+              },
+            }
+          },
+        }
+        return fn(tx)
+      },
+    }
+
+    const store = createDrizzleWhatIfBranchStore(fakeDb as any)
+    const parentRun = makeCompletedParentRun()
+    const result = await branchWhatIf(
+      parentRun,
+      { parameterName: 'importance_method', value: 'permutation' },
+      { store },
+    )
+
+    expect(txCalls).toBe(1)
+    expect(insertedTables).toEqual([experiments, runs])
+    expect(result.experiment.id).toBe('exp-tx-1')
+    expect(result.run.id).toBe('run-tx-1')
+    expect(result.run.parentRunId).toBe(parentRun.id)
+    expect(result.run.environment.startedAt).toBe('')
   })
 })
