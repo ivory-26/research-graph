@@ -107,10 +107,11 @@ function formatReportedValue(reported: ReportedValue | null): string {
   if (!reported) {
     return 'None (qualitative claim; no reported numeric threshold)'
   }
+  const compStr = reported.comparator ? formatOp(reported.comparator) : ''
   const valueStr =
     reported.value === null
       ? 'null (qualitative)'
-      : `${reported.value}${reported.comparator && reported.against !== null ? ` (${reported.comparator} ${reported.against})` : ''}`
+      : `${reported.value}${compStr && reported.against !== null ? ` (${compStr} ${reported.against})` : ''}`
   return `\`${reported.metric}\` = ${valueStr} — "${reported.quote}"`
 }
 
@@ -209,12 +210,17 @@ function buildDatasetDownloadCell(spec: ExperimentSpec): NbformatCodeCell {
     lines.push('        urllib.request.urlretrieve(ds["url"], dest)')
     lines.push('    actual_sha256 = hashlib.sha256(dest.read_bytes()).hexdigest()')
     lines.push('    expected_sha256 = ds["sha256"]')
-    lines.push('    if expected_sha256 is not None and actual_sha256 != expected_sha256:')
+    lines.push('    if expected_sha256 is not None:')
+    lines.push('        if actual_sha256 != expected_sha256:')
     lines.push(
-      '        raise ValueError(f"SHA-256 mismatch for {ds[\'name\']}: expected {expected_sha256}, got {actual_sha256}")',
+      '            raise ValueError(f"SHA-256 mismatch for {ds[\'name\']}: expected {expected_sha256}, got {actual_sha256}")',
     )
     lines.push(
-      '    print(f"Verified {ds[\'name\']} at {dest} ({dest.stat().st_size} bytes, sha256={actual_sha256})")',
+      '        print(f"Verified {ds[\'name\']} at {dest} ({dest.stat().st_size} bytes, sha256={actual_sha256})")',
+    )
+    lines.push('    else:')
+    lines.push(
+      '        print(f"Downloaded {ds[\'name\']} at {dest} ({dest.stat().st_size} bytes, unpinned sha256={actual_sha256})")',
     )
   }
 
@@ -315,8 +321,8 @@ function buildCriteriaMarkdownCell(spec: ExperimentSpec): NbformatMarkdownCell {
 export function buildNotebookDocument(
   input: BuildNotebookInput,
 ): NbformatV4Document {
-  const pythonVersion =
-    input.environment?.python?.replace(/^Python\s+/i, '').trim() || '3.12'
+  const rawPy = input.environment?.python?.replace(/^Python\s+/i, '').trim()
+  const pythonVersion = rawPy && rawPy !== 'unknown' ? rawPy : '3.12'
 
   return {
     nbformat: 4,
