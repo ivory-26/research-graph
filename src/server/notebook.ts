@@ -149,27 +149,31 @@ function buildMetadataMarkdownCell(input: BuildNotebookInput): NbformatMarkdownC
 function buildPipInstallCell(
   packages: Record<string, string> | undefined,
 ): NbformatCodeCell {
-  // Filter out any pip error sentinels or empty values, and restrict to known valid pinned packages
-  const candidate = packages && Object.keys(packages).length > 0 ? packages : PINNED_IMAGE_PACKAGES
-  const filtered: Record<string, string> = {}
-
-  for (const [pkg, ver] of Object.entries(candidate)) {
-    if (pkg.startsWith('__') || !ver || ver === 'unknown') continue
-    // Only pin packages that match the pinned runtime libraries
-    if (pkg in PINNED_IMAGE_PACKAGES) {
-      filtered[pkg] = ver
-    }
+  if (!packages || Object.keys(packages).length === 0) {
+    throw new Error(
+      'Cannot build notebook dependencies install cell: run environment.packages is required to prevent unpinned drift',
+    )
   }
 
-  const effectivePackages = Object.keys(filtered).length > 0 ? filtered : PINNED_IMAGE_PACKAGES
+  const filtered: Record<string, string> = {}
+  for (const [pkg, ver] of Object.entries(packages)) {
+    if (pkg.startsWith('__') || !ver || ver === 'unknown') continue
+    filtered[pkg] = ver
+  }
 
-  const pkgArgs = Object.entries(effectivePackages)
+  if (Object.keys(filtered).length === 0) {
+    throw new Error(
+      'Cannot build notebook dependencies install cell: no valid package versions found in environment.packages',
+    )
+  }
+
+  const pkgArgs = Object.entries(filtered)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([pkg, ver]) => `"${pkg}==${ver}"`)
     .join(' ')
 
   const code = [
-    '# 1. Install pinned runtime dependencies',
+    '# Install pinned runtime dependencies from run environment',
     `!pip install -q ${pkgArgs}`,
   ].join('\n')
 
@@ -185,7 +189,7 @@ function buildPipInstallCell(
 
 function buildDatasetDownloadCell(spec: ExperimentSpec): NbformatCodeCell {
   const lines: string[] = [
-    '# 2. Download datasets and verify SHA-256 checksums',
+    '# Download datasets and verify SHA-256 checksums',
     'import hashlib',
     'import pathlib',
     'import urllib.request',
@@ -259,7 +263,7 @@ function buildVerbatimScriptCell(spec: ExperimentSpec): NbformatCodeCell {
 
 function buildMetricsDisplayCell(): NbformatCodeCell {
   const lines = [
-    '# 5. Read and display measured metrics',
+    '# Read and display measured metrics',
     'import json',
     'import pathlib',
     '',

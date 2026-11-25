@@ -8,8 +8,8 @@ import { buildNotebookArtifact, buildNotebookDocument } from './notebook'
 const HERO_CLAIM = {
   text: 'Gini impurity importance is biased toward high-cardinality variables, whereas permutation importance does not show this bias.',
   quote:
-    'Random forest variable importance measures based on Gini impurity are biased in favor of variables with many categories.',
-  page: 1,
+    'random forest variable importance measures based on the Gini gain are biased in favor of variables with many categories',
+  page: 4,
   reported: null,
 }
 
@@ -102,7 +102,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
         ...HERO_CLAIM,
         reported: {
           metric: 'rank_impurity_noise_20',
-          value: 4,
+          value: 2, // distinct from measured value (4) to assert honest separation
           comparator: 'lt',
           against: 5,
           quote: HERO_CLAIM.quote,
@@ -118,7 +118,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
 
     const parsed = JSON.parse(artifact.content)
     expect(parsed.nbformat).toBe(4)
-    expect(parsed.cells[0].source.join('')).toContain('`rank_impurity_noise_20` = 4')
+    expect(parsed.cells[0].source.join('')).toContain('`rank_impurity_noise_20` = 2 (< 5)')
   })
 
   it('throws if the entrypoint file is missing from spec.files', () => {
@@ -128,6 +128,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(() =>
       buildNotebookDocument({
         spec: brokenSpec,
+        environment: HERO_RECORDED_RUN_RESULT.environment,
         claim: HERO_CLAIM,
       }),
     ).toThrow(/not found in ExperimentSpec\.files/)
