@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import {
   HERO_EXPERIMENT_SPEC_RUN_A,
   HERO_RECORDED_RUN_RESULT,
@@ -6,12 +7,48 @@ import {
 import { buildNotebookArtifact, buildNotebookDocument } from './notebook'
 
 const HERO_CLAIM = {
-  text: 'Gini impurity importance is biased toward high-cardinality variables, whereas permutation importance does not show this bias.',
+  text: 'Gini importance favours high-cardinality features; permutation does not',
   quote:
-    'random forest variable importance measures based on the Gini gain are biased in favor of variables with many categories',
+    'A variable with more categories has a higher probability to be selected in individual splits purely by chance. Consequently, impurity-based variable importance measures (Gini importance) are severely biased towards variables with many categories, even when they carry no actual information about the response.',
   page: 4,
   reported: null,
 }
+
+const NbformatCellIdSchema = z.string().regex(/^[a-zA-Z0-9-_]{1,64}$/)
+
+const NbformatV45Schema = z.object({
+  nbformat: z.literal(4),
+  nbformat_minor: z.literal(5),
+  metadata: z.object({
+    kernelspec: z.object({
+      display_name: z.string(),
+      language: z.string(),
+      name: z.string(),
+    }),
+    language_info: z.object({
+      name: z.literal('python'),
+      version: z.string().optional(),
+    }),
+  }),
+  cells: z.array(
+    z.discriminatedUnion('cell_type', [
+      z.object({
+        cell_type: z.literal('markdown'),
+        id: NbformatCellIdSchema,
+        metadata: z.record(z.string(), z.unknown()),
+        source: z.array(z.string()),
+      }),
+      z.object({
+        cell_type: z.literal('code'),
+        id: NbformatCellIdSchema,
+        execution_count: z.null(),
+        metadata: z.record(z.string(), z.unknown()),
+        outputs: z.array(z.unknown()),
+        source: z.array(z.string()),
+      }),
+    ]),
+  ),
+})
 
 describe('buildNotebookDocument (Issue #28)', () => {
   it('produces a valid nbformat v4.5 document with all 6 required cells for the hero spec', () => {
@@ -158,5 +195,31 @@ describe('buildNotebookDocument (Issue #28)', () => {
     const auxCell2 = nb.cells.find((c) => c.id.startsWith('cell-aux-extremely_long_nested_path'))
     expect(auxCell2).toBeDefined()
     expect(auxCell2!.id.length).toBeLessThanOrEqual(64)
+  })
+
+  it('validates against the nbformat v4.5 schema, excludes pip/setuptools/wheel, and omits unknown python version', () => {
+    const nb = buildNotebookDocument({
+      spec: HERO_EXPERIMENT_SPEC_RUN_A,
+      environment: {
+        python: 'unknown',
+        packages: {
+          ...HERO_RECORDED_RUN_RESULT.environment.packages,
+          pip: '24.3.1',
+          setuptools: '75.1.0',
+          wheel: '0.44.0',
+        },
+      },
+      claim: HERO_CLAIM,
+      verdict: 'match',
+    })
+
+    const parsed = NbformatV45Schema.parse(nb)
+    expect(parsed.metadata.language_info.version).toBeUndefined()
+
+    const pipSrc = parsed.cells[1]!.source.join('')
+    expect(pipSrc).not.toContain('"pip==')
+    expect(pipSrc).not.toContain('"setuptools==')
+    expect(pipSrc).not.toContain('"wheel==')
+    expect(pipSrc).toContain('"numpy==2.5.5"')
   })
 })
