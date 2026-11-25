@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
+  EXPLAIN_GAP_MODEL_ID,
   evaluateAndExplainExperiment,
   evaluateCheck,
   evaluateExperiment,
 } from './evaluate'
 import { HERO_EXPERIMENT_SPEC_RUN_A, HERO_RECORDED_RUN_RESULT } from '../../fixtures/hero-spec'
 import type { ExperimentResult } from '../shared/types'
-import type { AgentTaskInsert, AgentTaskStore, CallModel, CallModelResult } from './model'
+import {
+  createCallModel,
+  type AgentTaskInsert,
+  type AgentTaskStore,
+  type CallModel,
+  type CallModelResult,
+  type StructuredGenerator,
+} from './model'
 
 class MemoryTaskStore implements AgentTaskStore {
   readonly rows: Array<AgentTaskInsert & { id: string }> = []
@@ -172,6 +180,7 @@ describe('evaluateAndExplainExperiment (Stage 7 with explain_gap model call)', (
 
     const fakeCallModel: CallModel = async (_schema, prompt, callCtx) => {
       expect(callCtx.taskKind).toBe('explain_gap')
+      expect(callCtx.modelId).toBe(EXPLAIN_GAP_MODEL_ID)
       expect(prompt).toContain('Verdict: mismatch')
       return {
         output: {
@@ -196,5 +205,47 @@ describe('evaluateAndExplainExperiment (Stage 7 with explain_gap model call)', (
 
     expect(outcome.verdict).toBe('mismatch')
     expect(outcome.detail.explanation).toContain('Gini impurity importance')
+  })
+
+  it('routes and prices the explain_gap call on gemini-4-hydrogen through the real wrapper', async () => {
+    const store = new MemoryTaskStore()
+    const seenModelIds: string[] = []
+
+    const generate: StructuredGenerator = async (request) => {
+      seenModelIds.push(request.modelId)
+      return {
+        output: { explanation: 'The measured values met every criterion.' },
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      }
+    }
+
+    const outcome = await evaluateAndExplainExperiment(
+      HERO_EXPERIMENT_SPEC_RUN_A,
+      mockResult({
+        metrics: {
+          rank_impurity_noise_20: 4,
+          rank_permutation_noise_20: 11,
+        },
+      }),
+      { workspaceId: 'ws-123', taskKind: 'explain_gap', store },
+      { callModelFn: createCallModel({ generate }) },
+    )
+
+    expect(outcome.verdict).toBe('match')
+    expect(seenModelIds).toEqual([EXPLAIN_GAP_MODEL_ID])
+
+    // The selection is what the task row records, not just what we passed in.
+    expect(store.rows).toHaveLength(1)
+    expect(store.rows[0]).toMatchObject({
+      taskKind: 'explain_gap',
+      model: EXPLAIN_GAP_MODEL_ID,
+      status: 'succeeded',
+      promptTokens: 1_000_000,
+      completionTokens: 1_000_000,
+    })
+    // Published Standard paid price: $1.50 input + $7.50 output per million
+    // tokens. The wrapper fills cost_usd from DEFAULT_PRICING by model id.
+    expect(store.rows[0]!.costUsd).toBe('9.000000')
   })
 })
