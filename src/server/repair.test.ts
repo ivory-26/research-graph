@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { HERO_EXPERIMENT_SPEC_RUN_A, HERO_RECORDED_RUN_RESULT } from '../../fixtures/hero-spec'
+import type { Database } from '../db/client'
 import type { ExperimentResult, ExperimentSpec } from '../shared/types'
 import {
   MAX_REPAIR_ATTEMPTS,
   REPAIR_STDERR_TAIL_CHARS,
+  createDrizzleRepairRunStore,
   isAutoApprovableRepair,
   repairAndRetryRun,
+  executeApprovedRepairCandidate,
   type NewRepairRunRecord,
   type RepairRunRecord,
   type RepairRunStore,
@@ -17,7 +20,15 @@ import {
   type AgentTaskStore,
   type StructuredGenerator,
 } from './model'
-import type { ExperimentRunner } from './runner'
+import {
+  createTestDatabase,
+  seedWorkspace,
+  type TestDatabase,
+} from './pipeline-delivery/test-support/pg'
+import { SandboxTimeoutError, type ExperimentRunner } from './runner'
+
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
+const describeIntegration = TEST_DATABASE_URL ? describe : describe.skip
 
 class MemoryTaskStore implements AgentTaskStore {
   readonly rows: Array<AgentTaskInsert & { id: string }> = []
@@ -140,6 +151,19 @@ describe('isAutoApprovableRepair', () => {
     const orig = '    x = df["col"]'
     const repaired = 'x = df["col"]'
     expect(isAutoApprovableRepair(orig, repaired)).toBe(false)
+  })
+
+  it('rejects auto-approval on indentation shifts on import lines and protected criteria metrics', () => {
+    expect(
+      isAutoApprovableRepair('import numpy as np', '  import numpy as np'),
+    ).toBe(false)
+    expect(
+      isAutoApprovableRepair(
+        'score = result["accuracy"]',
+        'score = result["acc"]',
+        ['accuracy'],
+      ),
+    ).toBe(false)
   })
 })
 
@@ -308,6 +332,162 @@ describe('repairAndRetryRun (Issue #26)', () => {
     expect(result.status).toBe('exhausted')
     expect(result.attemptsUsed).toBe(0)
     expect(result.runs).toEqual([failedAttempt3Run])
+    expect(taskStore.rows).toHaveLength(0)
+  })
+
+  it('sanitizes untyped runner errors before persisting stderr or prompting the next repair', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, 'ImportError: broken')
+
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+
+    const taskStore = new MemoryTaskStore()
+    const capturedPrompts: string[] = []
+    let callCount = 0
+    const generate: StructuredGenerator = async ({ prompt }) => {
+      capturedPrompts.push(prompt)
+      callCount++
+      return {
+        output: {
+          script: brokenSpec.files['main.py']!.replace(
+            'numpys_broken',
+            `attempt_${callCount}`,
+          ),
+          summary: `Attempt ${callCount}`,
+        },
+        inputTokens: 100,
+        outputTokens: 50,
+      }
+    }
+    const callModelFn = createCallModel({
+      generate,
+      sleep: async () => {},
+    })
+
+    const leakedTrace = 'redacted_error_info'
+    const hostFragment = 'internal-sandbox-host.local'
+    let runnerCalls = 0
+    const runner: ExperimentRunner = {
+      async run(): Promise<ExperimentResult> {
+        runnerCalls++
+        if (runnerCalls === 1) {
+          throw new Error(
+            `ECONNRESET https://${hostFragment}/debug/${leakedTrace}`,
+          )
+        }
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+
+    const result = await repairAndRetryRun(failedRun, {
+      runStore,
+      runner,
+      modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+      callModelFn,
+    })
+
+    expect(result.repaired).toBe(true)
+    expect(result.runs).toHaveLength(3)
+    const run2 = result.runs[1]!
+    expect(run2.status).toBe('failed')
+    expect(run2.stderr).toBe('The experiment runner failed before producing a result')
+    expect(run2.stderr).not.toContain(leakedTrace)
+    expect(run2.stderr).not.toContain(hostFragment)
+
+    expect(capturedPrompts[1]).not.toContain(leakedTrace)
+    expect(capturedPrompts[1]).not.toContain(hostFragment)
+    expect(JSON.stringify(taskStore.rows)).not.toContain(leakedTrace)
+    expect(JSON.stringify(taskStore.rows)).not.toContain(hostFragment)
+  })
+
+  it('halts non-allowlisted repairs at the durable gate and runs only via executeApprovedRepairCandidate', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, 'ValueError: bad n_estimators')
+
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+
+    const taskStore = new MemoryTaskStore()
+    const generate: StructuredGenerator = async () => ({
+      output: {
+        script: HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!.replace(
+          'n_estimators=100',
+          'n_estimators=250',
+        ),
+        summary: 'Changed n_estimators',
+      },
+      inputTokens: 100,
+      outputTokens: 50,
+    })
+    const callModelFn = createCallModel({
+      generate,
+      sleep: async () => {},
+    })
+
+    let runnerCalls = 0
+    const runner: ExperimentRunner = {
+      async run(spec): Promise<ExperimentResult> {
+        runnerCalls++
+        expect(spec.files['main.py']).toContain('n_estimators=250')
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+
+    const paused = await repairAndRetryRun(failedRun, {
+      runStore,
+      runner,
+      modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+      callModelFn,
+      claimId: 'claim-1',
+      openApprovalGate: async (input) => ({
+        gate: {
+          id: 'gate-durable-1',
+          experimentId: input.experimentId,
+          workspaceId: input.workspaceId,
+          executionClaimId: input.claimId,
+          gateSeq: 3,
+          status: 'pending',
+          offeredSpec: input.spec,
+          decidedBy: null,
+          decidedAt: null,
+          decisionEventSeq: null,
+          createdAt: new Date(),
+          claim: {
+            active: true,
+            expired: false,
+            closedAt: null,
+            closeReason: null,
+          },
+        },
+        event: {
+          seq: 3,
+          experimentId: input.experimentId,
+          at: new Date().toISOString(),
+          type: 'approval.requested',
+          spec: input.spec,
+        },
+        created: true,
+      }),
+    })
+
+    expect(paused.repaired).toBe(false)
+    expect(paused.status).toBe('awaiting_approval')
+    expect(paused.gateId).toBe('gate-durable-1')
+    expect(paused.attemptsUsed).toBe(1)
+    expect(runnerCalls).toBe(0)
+
+    const resumed = await executeApprovedRepairCandidate(
+      paused.finalRun,
+      paused.candidateSpec!,
+      { runStore, runner },
+    )
+    expect(runnerCalls).toBe(1)
+    expect(resumed.parentRunId).toBe(failedRun.id)
+    expect(resumed.attempt).toBe(2)
+    expect(resumed.status).toBe('succeeded')
   })
 
   it('re-opens approval gate when repair modifies non-import/path/column logic', async () => {
@@ -352,8 +532,593 @@ describe('repairAndRetryRun (Issue #26)', () => {
 
     expect(result.repaired).toBe(false)
     expect(result.status).toBe('awaiting_approval')
-    expect(result.attemptsUsed).toBe(0)
+    expect(result.attemptsUsed).toBe(1)
     expect(result.candidateSpec).toBeDefined()
+    expect(result.workspaceId).toBe('ws-1')
+    expect(result.claimNodeId).toBe(brokenSpec.claimNodeId)
     expect(runnerCalled).toBe(false)
+  })
+
+  it('handles non-429 callModel failures gracefully without mutating persisted finalRun.stderr', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, 'SyntaxError: invalid syntax')
+
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+
+    const taskStore = new MemoryTaskStore()
+    const seenPrompts: string[] = []
+    const callModelFn = createCallModel({
+      generate: async ({ prompt }) => {
+        seenPrompts.push(prompt)
+        throw new Error('Model provider unavailable https://internal-key-leak')
+      },
+      sleep: async () => {},
+    })
+
+    const runner: ExperimentRunner = {
+      async run() {
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+
+    const result = await repairAndRetryRun(failedRun, {
+      runStore,
+      runner,
+      modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+      callModelFn,
+      maxAttempts: 2,
+    })
+
+    expect(result.repaired).toBe(false)
+    expect(result.status).toBe('validation_failed')
+    expect(result.attemptsUsed).toBe(2)
+    expect(result.validationErrors?.[0]).toBe('REPAIR_SCRIPT model call failed')
+    expect(result.validationErrors?.[0]).not.toContain('internal-key-leak')
+    expect(seenPrompts[1]).toContain('REPAIR_SCRIPT model call failed')
+    expect(result.finalRun).toEqual(failedRun)
+    expect(result.finalRun.stderr).toBe('SyntaxError: invalid syntax')
+  })
+
+  it('rejects auto-approval when a protected metric key is renamed in a dict literal alongside an unrelated bracket access', () => {
+    const orig = 'out["rf"] = {"accuracy": val}'
+    const next = 'out["rf"] = {"acc": val}'
+    expect(isAutoApprovableRepair(orig, next, ['accuracy'])).toBe(false)
+  })
+
+  it('rejects auto-approval for non-path/non-column string literal changes on lines with bracket or path calls', () => {
+    expect(
+      isAutoApprovableRepair(
+        'y = (df["label"] == "malignant").astype(int)',
+        'y = (df["label"] == "benign").astype(int)',
+      ),
+    ).toBe(false)
+    expect(
+      isAutoApprovableRepair(
+        'df = pd.read_csv("train.csv", sep=",")',
+        'df = pd.read_csv("train.csv", sep=";")',
+      ),
+    ).toBe(false)
+    expect(
+      isAutoApprovableRepair(
+        'params["n_estimators"] = 100',
+        'params["max_depth"] = 10',
+      ),
+    ).toBe(false)
+    expect(
+      isAutoApprovableRepair(
+        '# compute metrics using random forest',
+        '# compute metrics using xgboost',
+      ),
+    ).toBe(false)
+    expect(
+      isAutoApprovableRepair('x = meta["cutoff"]', 'x = meta["threshold"]'),
+    ).toBe(false)
+  })
+
+  it('persists timeout status and sanitizes SandboxTimeoutError details', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, "ModuleNotFoundError: No module named 'sklern'")
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+
+    const taskStore = new MemoryTaskStore()
+    const callModelFn = createCallModel({
+      generate: async () => ({
+        output: {
+          script: HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!,
+          summary: 'Fixed typo',
+        },
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
+      sleep: async () => {},
+    })
+
+    const runner: ExperimentRunner = {
+      async run() {
+        throw new SandboxTimeoutError(
+          'Timeout contacting https://internal-e2b-host.local/sandbox',
+          60,
+          '',
+          'e2b host trace: internal_host_leak',
+          60000,
+        )
+      },
+      async cancel() {},
+    }
+
+    const result = await repairAndRetryRun(failedRun, {
+      runStore,
+      runner,
+      modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+      callModelFn,
+      maxAttempts: 1,
+    })
+
+    expect(result.repaired).toBe(false)
+    expect(result.status).toBe('exhausted')
+    expect(result.finalRun.status).toBe('timeout')
+    expect(result.finalRun.stderr).toBe('The experiment sandbox timed out before completing')
+    expect(result.finalRun.stderr).not.toContain('internal-e2b-host.local')
+    expect(result.finalRun.stderr).not.toContain('internal_host_leak')
+  })
+
+  it('emits lifecycle events (run.started, run.succeeded, verdict.computed) when emitEvent is supplied', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, "ModuleNotFoundError: No module named 'sklern'")
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+
+    const taskStore = new MemoryTaskStore()
+    const callModelFn = createCallModel({
+      generate: async () => ({
+        output: {
+          script: HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!,
+          summary: 'Fixed typo',
+        },
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
+      sleep: async () => {},
+    })
+
+    const runner: ExperimentRunner = {
+      async run(_spec, onStdout) {
+        onStdout?.('training model\n')
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+
+    const events: any[] = []
+    const result = await repairAndRetryRun(failedRun, {
+      runStore,
+      runner,
+      modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+      callModelFn,
+      maxAttempts: 1,
+      emitEvent: (ev) => {
+        events.push(ev)
+      },
+    })
+
+    expect(result.repaired).toBe(true)
+    const types = events.map((e) => e.type)
+    expect(types).toContain('run.started')
+    expect(types).toContain('run.stdout')
+    expect(types).toContain('run.succeeded')
+    expect(types).toContain('verdict.computed')
+  })
+
+  it('invokes openApprovalGate and sets gateId on awaiting_approval', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, "ModuleNotFoundError: No module named 'sklern'")
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+
+    const taskStore = new MemoryTaskStore()
+    const modifiedScript = HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!.replace(
+      'RandomForestClassifier(n_estimators=100',
+      'RandomForestClassifier(n_estimators=200',
+    )
+    const callModelFn = createCallModel({
+      generate: async () => ({
+        output: {
+          script: modifiedScript,
+          summary: 'Changed n_estimators to 200',
+        },
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
+      sleep: async () => {},
+    })
+
+    const runner: ExperimentRunner = {
+      async run() {
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+
+    let openedGateInput: any = null
+    const result = await repairAndRetryRun(failedRun, {
+      runStore,
+      runner,
+      modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+      callModelFn,
+      maxAttempts: 1,
+      claimId: 'claim-abc',
+      openApprovalGate: async (input) => {
+        openedGateInput = input
+        return {
+          gate: {
+            id: 'gate-123',
+            experimentId: input.experimentId,
+            workspaceId: input.workspaceId,
+            executionClaimId: input.claimId,
+            gateSeq: 7,
+            status: 'pending',
+            offeredSpec: input.spec,
+            decidedBy: null,
+            decidedAt: null,
+            decisionEventSeq: null,
+            createdAt: new Date(),
+            claim: {
+              active: true,
+              expired: false,
+              closedAt: null,
+              closeReason: null,
+            },
+          },
+          event: {
+            seq: 7,
+            experimentId: input.experimentId,
+            at: new Date().toISOString(),
+            type: 'approval.requested',
+            spec: input.spec,
+          },
+          created: true,
+        }
+      },
+    })
+
+    expect(result.status).toBe('awaiting_approval')
+    expect(result.gateId).toBe('gate-123')
+    expect(result.gateSeq).toBe(7)
+    expect(openedGateInput).toMatchObject({
+      workspaceId: 'ws-1',
+      experimentId: failedRun.experimentId,
+      claimId: 'claim-abc',
+    })
+  })
+
+  it('requires claimId and propagates errors when openApprovalGate fails instead of silently awaiting', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, "ModuleNotFoundError: No module named 'sklern'")
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+
+    const taskStore = new MemoryTaskStore()
+    const modifiedScript = HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!.replace(
+      'RandomForestClassifier(n_estimators=100',
+      'RandomForestClassifier(n_estimators=200',
+    )
+    const callModelFn = createCallModel({
+      generate: async () => ({
+        output: {
+          script: modifiedScript,
+          summary: 'Changed n_estimators to 200',
+        },
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
+      sleep: async () => {},
+    })
+    const runner: ExperimentRunner = {
+      async run() {
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+
+    await expect(
+      repairAndRetryRun(failedRun, {
+        runStore,
+        runner,
+        modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+        callModelFn,
+        openApprovalGate: async () => {
+          throw new Error('should require claimId first')
+        },
+      }),
+    ).rejects.toThrow('options.claimId is required')
+
+    await expect(
+      repairAndRetryRun(failedRun, {
+        runStore,
+        runner,
+        modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+        callModelFn,
+        claimId: 'claim-abc',
+        openApprovalGate: async () => {
+          throw new Error('CLAIM_MISMATCH: claim closed')
+        },
+      }),
+    ).rejects.toThrow('CLAIM_MISMATCH')
+  })
+
+  it('executes approved repair candidate via executeApprovedRepairCandidate and enforces ceiling at attempt 3', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, "ModuleNotFoundError: No module named 'sklern'")
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+
+    const runner: ExperimentRunner = {
+      async run(_spec, onStdout) {
+        onStdout?.('running candidate\n')
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+
+    const events: any[] = []
+    const executedRun = await executeApprovedRepairCandidate(
+      failedRun,
+      HERO_EXPERIMENT_SPEC_RUN_A,
+      {
+        runStore,
+        runner,
+        emitEvent: (ev) => {
+          events.push(ev)
+        },
+      },
+    )
+
+    expect(executedRun.parentRunId).toBe(failedRun.id)
+    expect(executedRun.attempt).toBe(failedRun.attempt + 1)
+    expect(executedRun.status).toBe('succeeded')
+    expect(events.map((e) => e.type)).toEqual([
+      'run.started',
+      'run.stdout',
+      'run.succeeded',
+      'verdict.computed',
+    ])
+
+    const attemptThreeRun: RepairRunRecord = { ...failedRun, attempt: 3 }
+    await expect(
+      executeApprovedRepairCandidate(
+        attemptThreeRun,
+        HERO_EXPERIMENT_SPEC_RUN_A,
+        { runStore, runner },
+      ),
+    ).rejects.toThrow('Repair ceiling reached')
+  })
+
+  it('emits non-empty error placeholder on run.failed when stderr is empty', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, "ModuleNotFoundError: No module named 'sklern'")
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+    const runner: ExperimentRunner = {
+      async run() {
+        return {
+          ...structuredClone(HERO_RECORDED_RUN_RESULT),
+          exitCode: 2,
+          stderr: '',
+        }
+      },
+      async cancel() {},
+    }
+
+    const events: any[] = []
+    await executeApprovedRepairCandidate(failedRun, HERO_EXPERIMENT_SPEC_RUN_A, {
+      runStore,
+      runner,
+      emitEvent: (ev) => {
+        events.push(ev)
+      },
+    })
+
+    const failedEvent = events.find((e) => e.type === 'run.failed')
+    expect(failedEvent?.error).toBe('Process exited with code 2')
+  })
+
+  it('persists and updates repair runs through createDrizzleRepairRunStore', async () => {
+    const insertedValues: Array<Record<string, unknown>> = []
+    const updatedSets: Array<Record<string, unknown>> = []
+    const brokenSpec = makeBrokenImportSpec()
+    const startedAt = new Date('2026-11-26T10:00:00.000Z')
+    const finishedAt = new Date('2026-11-26T10:00:05.000Z')
+
+    const createdRow: RepairRunRecord = {
+      id: 'run-db-2',
+      experimentId: 'exp-db-1',
+      parentRunId: 'run-db-1',
+      attempt: 2,
+      status: 'running',
+      spec: brokenSpec,
+      parameters: structuredClone(brokenSpec.parameters),
+      metrics: {},
+      environment: structuredClone(HERO_RECORDED_RUN_RESULT.environment),
+      verdict: null,
+      verdictDetail: null,
+      stdout: '',
+      stderr: '',
+      startedAt,
+      finishedAt: null,
+    }
+    const updatedRow: RepairRunRecord = {
+      ...createdRow,
+      status: 'succeeded',
+      metrics: structuredClone(HERO_RECORDED_RUN_RESULT.metrics),
+      verdict: 'match',
+      verdictDetail: { checks: [], explanation: 'ok' },
+      stdout: 'done',
+      stderr: '',
+      finishedAt,
+    }
+
+    let returnCreated = true
+    let returnUpdated = true
+    const fakeDb = {
+      insert() {
+        return {
+          values(vals: Record<string, unknown>) {
+            insertedValues.push(vals)
+            return {
+              async returning() {
+                return returnCreated ? [createdRow] : []
+              },
+            }
+          },
+        }
+      },
+      update() {
+        return {
+          set(vals: Record<string, unknown>) {
+            updatedSets.push(vals)
+            return {
+              where() {
+                return {
+                  async returning() {
+                    return returnUpdated ? [updatedRow] : []
+                  },
+                }
+              },
+            }
+          },
+        }
+      },
+    } as unknown as Pick<Database, 'insert' | 'update'>
+
+    const store = createDrizzleRepairRunStore(fakeDb)
+    const created = await store.createRun({
+      experimentId: 'exp-db-1',
+      parentRunId: 'run-db-1',
+      attempt: 2,
+      status: 'running',
+      spec: brokenSpec,
+      parameters: structuredClone(brokenSpec.parameters),
+      environment: structuredClone(HERO_RECORDED_RUN_RESULT.environment),
+      startedAt,
+    })
+    expect(created).toEqual(createdRow)
+    expect(insertedValues[0]).toMatchObject({
+      experimentId: 'exp-db-1',
+      parentRunId: 'run-db-1',
+      attempt: 2,
+      status: 'running',
+    })
+
+    const updated = await store.updateRun('run-db-2', {
+      status: 'succeeded',
+      metrics: structuredClone(HERO_RECORDED_RUN_RESULT.metrics),
+      environment: structuredClone(HERO_RECORDED_RUN_RESULT.environment),
+      verdict: 'match',
+      verdictDetail: { checks: [], explanation: 'ok' },
+      stdout: 'done',
+      stderr: '',
+      finishedAt,
+    })
+    expect(updated).toEqual(updatedRow)
+    expect(updatedSets[0]).toMatchObject({ status: 'succeeded', verdict: 'match' })
+
+    returnCreated = false
+    await expect(
+      store.createRun({
+        experimentId: 'exp-db-1',
+        parentRunId: 'run-db-1',
+        attempt: 2,
+        status: 'running',
+        spec: brokenSpec,
+        parameters: structuredClone(brokenSpec.parameters),
+        environment: structuredClone(HERO_RECORDED_RUN_RESULT.environment),
+        startedAt,
+      }),
+    ).rejects.toThrow('runs insert returned no row')
+
+    returnUpdated = false
+    await expect(
+      store.updateRun('run-db-2', {
+        status: 'failed',
+        metrics: {},
+        environment: structuredClone(HERO_RECORDED_RUN_RESULT.environment),
+        verdict: 'failed',
+        verdictDetail: { checks: [], explanation: null },
+        stdout: '',
+        stderr: 'boom',
+        finishedAt,
+      }),
+    ).rejects.toThrow('runs update for run-db-2 returned no row')
+  })
+})
+
+describeIntegration('createDrizzleRepairRunStore over real Postgres', () => {
+  let testDb: TestDatabase
+
+  it('persists chained parentRunId runs rows against real schema constraints', async () => {
+    testDb = await createTestDatabase(TEST_DATABASE_URL as string)
+    try {
+      const seed = await seedWorkspace(testDb.pool, {
+        spec: makeBrokenImportSpec(),
+      })
+      const parentInsert = await testDb.pool.query<{ id: string }>(
+        `INSERT INTO runs (experiment_id, attempt, status, spec, parameters, environment, stderr)
+         VALUES ($1, 1, 'failed', $2, $3, $4, 'ModuleNotFoundError: numpys_broken')
+         RETURNING id`,
+        [
+          seed.experimentId,
+          JSON.stringify(seed.spec),
+          JSON.stringify(seed.spec.parameters),
+          JSON.stringify(HERO_RECORDED_RUN_RESULT.environment),
+        ],
+      )
+      const parentId = parentInsert.rows[0]!.id
+      const failedRun: RepairRunRecord = {
+        ...makeFailedRun(seed.spec, "ModuleNotFoundError: No module named 'numpys_broken'"),
+        id: parentId,
+        experimentId: seed.experimentId,
+      }
+
+      const runStore = createDrizzleRepairRunStore(testDb.db)
+      const taskStore = new MemoryTaskStore()
+      const callModelFn = createCallModel({
+        generate: async () => ({
+          output: {
+            script: HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!,
+            summary: 'Fixed typo in numpy import',
+          },
+          inputTokens: 100,
+          outputTokens: 50,
+        }),
+        sleep: async () => {},
+      })
+      const runner: ExperimentRunner = {
+        async run() {
+          return structuredClone(HERO_RECORDED_RUN_RESULT)
+        },
+        async cancel() {},
+      }
+
+      const result = await repairAndRetryRun(failedRun, {
+        runStore,
+        runner,
+        modelContext: {
+          workspaceId: seed.workspaceId,
+          strategyId: null,
+          store: taskStore,
+        },
+        callModelFn,
+      })
+
+      expect(result.repaired).toBe(true)
+      expect(result.finalRun.parentRunId).toBe(parentId)
+      expect(result.finalRun.attempt).toBe(2)
+      expect(result.finalRun.status).toBe('succeeded')
+    } finally {
+      await testDb.close()
+    }
   })
 })

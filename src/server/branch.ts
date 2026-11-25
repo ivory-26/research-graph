@@ -1,6 +1,8 @@
+import { posix } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database } from '../db/client'
+import type { OpenApprovalGateInput, OpenApprovalGateResult } from '../db/pipeline-types'
 import { runs } from '../db/schema'
 import type {
   ExperimentResult,
@@ -10,6 +12,13 @@ import type {
   Verdict,
   VerdictDetail,
 } from '../shared/types'
+import type {
+  RunFailedEvent,
+  RunStartedEvent,
+  RunStdoutEvent,
+  RunSucceededEvent,
+  VerdictComputedEvent,
+} from '../shared/events'
 import { evaluateExperiment } from './evaluate-verdict'
 import {
   callModel as productionCallModel,
@@ -18,6 +27,9 @@ import {
 } from './model'
 import { extractEntrypointFile, validateExperimentSpec } from './planner'
 import {
+  MetricsExtractionError,
+  PackageVerificationError,
+  SandboxTimeoutError,
   runnerErrorToFailedResult,
   type ExperimentRunner,
 } from './runner'
@@ -129,15 +141,14 @@ export function createDrizzleRepairRunStore(
   }
 }
 
-function maskQuotedLiterals(line: string): string {
-  return line
-    .replace(/"([^"\\]|\\.)*"/g, '"__STR__"')
-    .replace(/'([^'\\]|\\.)*'/g, "'__STR__'")
+function isBlankOrComment(line: string): boolean {
+  const trimmed = line.trim()
+  return trimmed === '' || trimmed.startsWith('#')
 }
 
 function isCleanImportStatement(line: string): boolean {
   const trimmed = line.trim()
-  if (trimmed === '' || trimmed.startsWith('#')) return true
+  if (trimmed === '' || trimmed.startsWith('#')) return false
   // Reject multiple statements on one line (semicolons) or trailing comments/code that might disguise execution
   if (trimmed.includes(';')) return false
   // Strictly validate single clean import or from ... import ... statements
@@ -153,11 +164,50 @@ function isCleanImportStatement(line: string): boolean {
  * - column access: obj['col'] or obj["col"]
  * - path literals in dataset loading: Path("..."), open("...", ...) or read_csv("...")
  * Disallows:
- * - Metric keys (e.g. rank_impurity_noise_20)
+ * - Metric keys (e.g. rank_impurity_noise_20 or any key in spec.criteria)
  * - Changes to indentation/control flow
  * - General string substitutions or assignments
  */
-function isAllowedColumnOrPathChange(origLine: string, nextLine: string): boolean {
+function maskPathLiterals(line: string): string {
+  return line.replace(
+    /((?:Path|open|read_csv|read_table|read_parquet|urlretrieve)\s*\(\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,
+    '$1__PATH__',
+  )
+}
+
+/**
+ * Masks string literals inside DataFrame column access (`df["col"]`, `.drop(columns="col")`).
+ * Non-column dict receivers (`params`, `config`, `meta`, `metrics`, etc.) are excluded so key
+ * renames on non-DataFrame dictionaries are routed through the approval gate.
+ *
+ * Known limitation: regex-based inspection cannot infer Python runtime types, so any bracketed
+ * string literal on an unlisted receiver identifier (for example `d["x"]` -> `d["y"]`) is
+ * still treated as a DataFrame column rename and auto-approved.
+ */
+function maskColumnLiterals(line: string): string {
+  if (
+    /\b(?:params|parameters|config|hyperparams|kwargs|options|args|meta|metadata|settings|env|labels|classes|metrics|scores|results|counts|totals|mapping|lookup|cache|state|context|out|output|summary)\[/.test(
+      line,
+    )
+  ) {
+    return line
+  }
+  return line
+    .replace(
+      /(\[\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')(\s*\])/g,
+      '$1__COL__$2',
+    )
+    .replace(
+      /(\.drop\([^)]*columns\s*=\s*\[?\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g,
+      '$1__COL__',
+    )
+}
+
+function isAllowedColumnOrPathChange(
+  origLine: string,
+  nextLine: string,
+  protectedMetricKeys: readonly string[] = [],
+): boolean {
   // Indentation must match exactly
   const origIndent = origLine.match(/^\s*/)?.[0] || ''
   const nextIndent = nextLine.match(/^\s*/)?.[0] || ''
@@ -174,44 +224,71 @@ function isAllowedColumnOrPathChange(origLine: string, nextLine: string): boolea
     return false
   }
 
-  // Must only differ in allowed positions (dataset file path or dictionary/dataframe column access)
-  const isPathAccess =
-    /(?:Path|open|read_csv|read_table|read_parquet|urllib|urlretrieve)\s*\([^)]*["']([^"']+)["'][^)]*\)/
-  const isColAccess =
-    /(?:\[\s*["']([^"']+)["']\s*\]|\.drop\(.*columns=\s*\[?["']([^"']+)["'])/
-
-  const origIsPath = isPathAccess.test(origTrimmed)
-  const nextIsPath = isPathAccess.test(nextTrimmed)
-  if (origIsPath && nextIsPath) {
-    // Both are path calls; verify code outside quotes is identical
-    return maskQuotedLiterals(origTrimmed) === maskQuotedLiterals(nextTrimmed)
+  if (protectedMetricKeys.length > 0) {
+    const stringLiteralRegex =
+      /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'/g
+    for (const line of [origTrimmed, nextTrimmed]) {
+      stringLiteralRegex.lastIndex = 0
+      let match: RegExpExecArray | null
+      while ((match = stringLiteralRegex.exec(line)) !== null) {
+        const literal = match[1] ?? match[2] ?? ''
+        if (protectedMetricKeys.includes(literal)) {
+          return false
+        }
+      }
+    }
   }
 
-  const origIsCol = isColAccess.test(origTrimmed)
-  const nextIsCol = isColAccess.test(nextTrimmed)
-  if (origIsCol && nextIsCol) {
-    // Both are column access expressions; verify structure is identical
-    return maskQuotedLiterals(origTrimmed) === maskQuotedLiterals(nextTrimmed)
+  // Must only differ in allowed positions (dataset file path argument or bracket/drop column access)
+  const maskedOrigPath = maskPathLiterals(origTrimmed)
+  const maskedNextPath = maskPathLiterals(nextTrimmed)
+  if (
+    maskedOrigPath !== origTrimmed &&
+    maskedNextPath !== nextTrimmed &&
+    maskedOrigPath === maskedNextPath
+  ) {
+    return true
+  }
+
+  const maskedOrigCol = maskColumnLiterals(origTrimmed)
+  const maskedNextCol = maskColumnLiterals(nextTrimmed)
+  if (
+    maskedOrigCol !== origTrimmed &&
+    maskedNextCol !== nextTrimmed &&
+    maskedOrigCol === maskedNextCol
+  ) {
+    return true
   }
 
   return false
 }
 
-function isOnlyStringOrImportChange(origLine: string, nextLine: string): boolean {
-  if (isCleanImportStatement(origLine) && isCleanImportStatement(nextLine)) {
-    return true
+function isOnlyStringOrImportChange(
+  origLine: string,
+  nextLine: string,
+  protectedMetricKeys: readonly string[] = [],
+): boolean {
+  if (isBlankOrComment(origLine) && isBlankOrComment(nextLine)) {
+    // Only allow identical comments / blank lines; comment modifications require the approval gate
+    return origLine.trim() === nextLine.trim()
   }
-  return isAllowedColumnOrPathChange(origLine, nextLine)
+  if (isCleanImportStatement(origLine) && isCleanImportStatement(nextLine)) {
+    const origIndent = origLine.match(/^\s*/)?.[0] || ''
+    const nextIndent = nextLine.match(/^\s*/)?.[0] || ''
+    return origIndent === nextIndent
+  }
+  return isAllowedColumnOrPathChange(origLine, nextLine, protectedMetricKeys)
 }
 
 /**
  * Computes line-level diff hunks using LCS and checks whether every change
  * affects only imports, column names, or paths (string literals).
- * Any other change re-opens the human approval gate (docs/03-agent-pipeline.md:124).
+ * Any other change re-opens the human approval gate (docs/03-agent-pipeline.md:152).
  */
 export function isAutoApprovableRepair(
   originalScript: string,
   repairedScript: string,
+  protectedMetricKeys: readonly string[] = [],
 ): boolean {
   const origLines = originalScript.replace(/\r\n/g, '\n').split('\n')
   const nextLines = repairedScript.replace(/\r\n/g, '\n').split('\n')
@@ -222,6 +299,13 @@ export function isAutoApprovableRepair(
 
   const m = origLines.length
   const n = nextLines.length
+
+  // Cap LCS allocation to prevent untrusted model output from allocating
+  // excessive memory in the host process (docs/03-agent-pipeline.md:152).
+  if (m > 500 || n > 500 || m * n > 250_000) {
+    return false
+  }
+
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
     new Array<number>(n + 1).fill(0),
   )
@@ -263,16 +347,26 @@ export function isAutoApprovableRepair(
 
     if (removed.length === added.length) {
       for (let k = 0; k < removed.length; k++) {
-        if (!isOnlyStringOrImportChange(removed[k]!, added[k]!)) {
+        if (
+          !isOnlyStringOrImportChange(
+            removed[k]!,
+            added[k]!,
+            protectedMetricKeys,
+          )
+        ) {
           return false
         }
       }
     } else {
       for (const line of removed) {
-        if (!isCleanImportStatement(line)) return false
+        if (!isCleanImportStatement(line) && !isBlankOrComment(line)) {
+          return false
+        }
       }
       for (const line of added) {
-        if (!isCleanImportStatement(line)) return false
+        if (!isCleanImportStatement(line) && !isBlankOrComment(line)) {
+          return false
+        }
       }
     }
   }
@@ -286,10 +380,18 @@ export function buildRepairPrompt(
   stderr: string,
 ): string {
   const tailStderr = stderr.slice(-REPAIR_STDERR_TAIL_CHARS)
+  const entrypointFile = extractEntrypointFile(spec.entrypoint)
+  const auxiliaryFiles = Object.fromEntries(
+    Object.entries(spec.files).filter(
+      ([path]) => posix.normalize(path) !== entrypointFile,
+    ),
+  )
   const specSummary = {
     claimNodeId: spec.claimNodeId,
     mode: spec.mode,
+    image: spec.image,
     entrypoint: spec.entrypoint,
+    auxiliaryFiles,
     datasets: spec.datasets.map((d) => ({
       name: d.name,
       path: d.path,
@@ -297,6 +399,10 @@ export function buildRepairPrompt(
     })),
     parameters: spec.parameters,
     criteria: spec.criteria,
+    timeoutSeconds: spec.timeoutSeconds,
+    memoryMb: spec.memoryMb,
+    cpuCount: spec.cpuCount,
+    network: spec.network,
   }
 
   return [
@@ -322,6 +428,10 @@ export function buildRepairPrompt(
   ].join('\n')
 }
 
+/**
+ * Local copy of `initialEnvironment` from `src/server/pipeline-delivery/production-stages.ts:92-105`
+ * (kept local per `docs/07-workstreams.md` file ownership; unify if a shared helper is extracted).
+ */
 function initialRepairEnvironment(
   spec: ExperimentSpec,
   startedAt: string,
@@ -337,18 +447,26 @@ function initialRepairEnvironment(
   }
 }
 
+export type RepairPipelineEvent =
+  | Omit<RunStartedEvent, 'seq'>
+  | Omit<RunStdoutEvent, 'seq'>
+  | Omit<RunSucceededEvent, 'seq'>
+  | Omit<RunFailedEvent, 'seq'>
+  | Omit<VerdictComputedEvent, 'seq'>
+
 export type RepairRetryOptions = {
   runStore: RepairRunStore
   runner: ExperimentRunner
   modelContext: Omit<CallModelContext, 'taskKind'>
-  callModelFn?: CallModel
   maxAttempts?: number
+  callModelFn?: CallModel
   onStdout?: (chunk: string) => void
-  onApprovalRequired?: (candidate: {
-    attempt: number
-    spec: ExperimentSpec
-    summary: string
-  }) => Promise<boolean>
+  /** Active execution claim id required when `openApprovalGate` is provided. */
+  claimId?: string
+  /** Durable gate opener matching `openApprovalGate(db, input)` (`src/db/pipeline-approval.ts:55`). */
+  openApprovalGate?: (input: OpenApprovalGateInput) => Promise<OpenApprovalGateResult>
+  /** Optional lifecycle event sink; `seq` allocation is left to the caller's experiment event log. */
+  emitEvent?: (event: RepairPipelineEvent) => Promise<void> | void
   now?: () => Date
 }
 
@@ -360,26 +478,72 @@ export type RepairRetryResult = {
     | 'awaiting_approval'
     | 'validation_failed'
     | 'not_failed'
+  /** Number of repair attempts spent (including model call failures that consumed an attempt before run creation). */
   attemptsUsed: number
   runs: RepairRunRecord[]
   finalRun: RepairRunRecord
   candidateSpec?: ExperimentSpec
+  workspaceId?: string
+  claimNodeId?: string
+  gateId?: string
+  gateSeq?: number
   validationErrors?: string[]
 }
 
+/**
+ * Local copy of `failedResultFromRunnerError` from
+ * `src/server/pipeline-delivery/production-stages.ts:113-136` (same file-ownership boundary).
+ * Diverges intentionally on `SandboxTimeoutError`: the repair path records a generic message
+ * and keys `runs.status = 'timeout'` per `docs/04-experiment-runtime.md:259`, whereas EXECUTE
+ * currently maps sandbox timeouts to `'failed'`.
+ */
 function sanitizeRunnerError(
   err: unknown,
   spec: ExperimentSpec,
   startedAt: string,
 ): ExperimentResult {
+  if (
+    err instanceof SandboxTimeoutError ||
+    (err instanceof Error && err.name === 'SandboxTimeoutError')
+  ) {
+    const timeoutErr = err as SandboxTimeoutError
+    console.error('[repairAndRetryRun] sandbox timed out', err)
+    return {
+      exitCode: 124,
+      stdout: timeoutErr.stdout ?? '',
+      stderr: 'The experiment sandbox timed out before completing',
+      metrics: {},
+      artifacts: [],
+      durationMs: timeoutErr.durationMs ?? 0,
+      environment: timeoutErr.environment ?? initialRepairEnvironment(spec, startedAt),
+    }
+  }
+
   const typed =
-    err instanceof Error &&
-    ['PackageVerificationError', 'MetricsExtractionError', 'SandboxTimeoutError'].includes(
-      err.name,
-    )
+    err instanceof PackageVerificationError ||
+    err instanceof MetricsExtractionError ||
+    (err instanceof Error &&
+      ['PackageVerificationError', 'MetricsExtractionError'].includes(err.name))
 
   if (typed) {
-    return runnerErrorToFailedResult(err, spec, startedAt)
+    if (
+      err instanceof PackageVerificationError ||
+      err instanceof MetricsExtractionError
+    ) {
+      return runnerErrorToFailedResult(err, spec, startedAt)
+    }
+    const isPkg = (err as Error).name === 'PackageVerificationError'
+    return {
+      exitCode: 1,
+      stdout: (err as any).stdout ?? '',
+      stderr: isPkg
+        ? 'Runtime environment package verification failed'
+        : 'Failed to extract metrics from experiment execution',
+      metrics: {},
+      artifacts: [],
+      durationMs: (err as any).durationMs ?? 0,
+      environment: initialRepairEnvironment(spec, startedAt),
+    }
   }
 
   console.error('[repairAndRetryRun] experiment runner failed', err)
@@ -394,14 +558,32 @@ function sanitizeRunnerError(
   }
 }
 
+function remainingRepairAttempts(
+  currentAttempt: number,
+  requestedMax?: number,
+): number {
+  return Math.min(
+    Math.max(0, MAX_REPAIR_ATTEMPTS - (currentAttempt - 1)),
+    requestedMax ?? MAX_REPAIR_ATTEMPTS,
+  )
+}
+
 /**
  * On a failed run, invokes REPAIR_SCRIPT up to two attempts maximum.
  * Each attempt creates a new `runs` row with `attempt` incremented and `parentRunId` chained.
+ *
+ * Tracking issue #63 (https://github.com/ivory-26/research-graph/issues/63) tracks wiring this
+ * into the EXECUTE stage in `src/server/pipeline-delivery/production-stages.ts:307-343`
+ * for docs/05-plan.md:74 ("Repair loop and multi-strategy selection | —", owned by ivory-26).
  */
 export async function repairAndRetryRun(
   failedRun: RepairRunRecord,
   options: RepairRetryOptions,
 ): Promise<RepairRetryResult> {
+  if (options.openApprovalGate && !options.claimId) {
+    throw new Error('options.claimId is required when options.openApprovalGate is provided')
+  }
+
   if (failedRun.status !== 'failed') {
     return {
       repaired: false,
@@ -414,10 +596,7 @@ export async function repairAndRetryRun(
 
   // The two-attempt ceiling is enforced against the total repair chain (initial run is attempt 1,
   // so repairs are attempts 2 and 3; at attempt >= 3, ceiling is reached).
-  const maxAttempts = Math.min(
-    Math.max(0, MAX_REPAIR_ATTEMPTS - (failedRun.attempt - 1)),
-    options.maxAttempts ?? MAX_REPAIR_ATTEMPTS,
-  )
+  const maxAttempts = remainingRepairAttempts(failedRun.attempt, options.maxAttempts)
 
   if (maxAttempts <= 0) {
     return {
@@ -430,10 +609,12 @@ export async function repairAndRetryRun(
   }
   const call = options.callModelFn ?? productionCallModel
   const now = options.now ?? (() => new Date())
-  const onStdout = options.onStdout ?? (() => {})
 
   const chain: RepairRunRecord[] = [failedRun]
   let currentRun = failedRun
+  // Keep prompt-only failure notes out of `currentRun.stderr` so `finalRun` always
+  // reflects an unmodified persisted `runs` row.
+  let promptStderr = failedRun.stderr
   let attemptsUsed = 0
 
   for (let i = 0; i < maxAttempts; i++) {
@@ -449,7 +630,12 @@ export async function repairAndRetryRun(
       }
     }
 
-    const originalScript = currentRun.spec.files[entrypointFile]
+    const normalizedEntrypoint = posix.normalize(entrypointFile)
+    const entrypointKey =
+      Object.keys(currentRun.spec.files).find(
+        (key) => posix.normalize(key) === normalizedEntrypoint,
+      ) ?? entrypointFile
+    const originalScript = currentRun.spec.files[entrypointKey]
     if (typeof originalScript !== 'string') {
       return {
         repaired: false,
@@ -466,16 +652,44 @@ export async function repairAndRetryRun(
     const prompt = buildRepairPrompt(
       originalScript,
       currentRun.spec,
-      currentRun.stderr,
+      promptStderr,
     )
 
-    const modelRes = await call(RepairScriptSchema, prompt, {
-      ...options.modelContext,
-      taskKind: 'repair_script',
-    })
+    let modelRes: { output: RepairScriptOutput }
+    try {
+      modelRes = await call(RepairScriptSchema, prompt, {
+        ...options.modelContext,
+        taskKind: 'repair_script',
+        inputRef: {
+          experimentId: currentRun.experimentId,
+          runId: currentRun.id,
+        },
+      })
+    } catch (err) {
+      console.error('[repairAndRetryRun] REPAIR_SCRIPT callModel failed', err)
+      attemptsUsed = i + 1
+      const sanitizedMsg = 'REPAIR_SCRIPT model call failed'
+      if (i + 1 < maxAttempts) {
+        promptStderr = `${promptStderr}\n${sanitizedMsg}`
+        continue
+      }
+      return {
+        repaired: false,
+        status: 'validation_failed',
+        attemptsUsed,
+        runs: chain,
+        finalRun: currentRun,
+        validationErrors: [sanitizedMsg],
+      }
+    }
+    attemptsUsed = i + 1
 
     const repairedScript = modelRes.output.script
     if (!repairedScript || repairedScript.trim().length === 0) {
+      if (i + 1 < maxAttempts) {
+        promptStderr = `${promptStderr}\nREPAIR_SCRIPT returned an empty script`
+        continue
+      }
       return {
         repaired: false,
         status: 'validation_failed',
@@ -486,16 +700,38 @@ export async function repairAndRetryRun(
       }
     }
 
+    if (
+      repairedScript.replace(/\r\n/g, '\n') ===
+      originalScript.replace(/\r\n/g, '\n')
+    ) {
+      if (i + 1 < maxAttempts) {
+        promptStderr = `${promptStderr}\nREPAIR_SCRIPT returned an unchanged script`
+        continue
+      }
+      return {
+        repaired: false,
+        status: 'validation_failed',
+        attemptsUsed,
+        runs: chain,
+        finalRun: currentRun,
+        validationErrors: ['REPAIR_SCRIPT returned an unchanged script'],
+      }
+    }
+
     const repairedSpec: ExperimentSpec = {
       ...structuredClone(currentRun.spec),
       files: {
         ...structuredClone(currentRun.spec.files),
-        [entrypointFile]: repairedScript,
+        [entrypointKey]: repairedScript,
       },
     }
 
     const validation = validateExperimentSpec(repairedSpec)
     if (!validation.valid) {
+      if (i + 1 < maxAttempts) {
+        promptStderr = `${promptStderr}\nValidation failed: ${validation.errors.join('; ')}`
+        continue
+      }
       return {
         repaired: false,
         status: 'validation_failed',
@@ -507,73 +743,64 @@ export async function repairAndRetryRun(
       }
     }
 
-    const autoApproved = isAutoApprovableRepair(originalScript, repairedScript)
+    const protectedMetricKeys = currentRun.spec.criteria.checks.map(
+      (c) => c.metric,
+    )
+    const autoApproved = isAutoApprovableRepair(
+      originalScript,
+      repairedScript,
+      protectedMetricKeys,
+    )
     if (!autoApproved) {
-      const approvedByGate = options.onApprovalRequired
-        ? await options.onApprovalRequired({
-            attempt: currentRun.attempt + 1,
-            spec: repairedSpec,
-            summary: modelRes.output.summary,
-          })
-        : false
+      // Non-allowlisted changes must never execute via an in-memory callback alone;
+      // pause at the durable approval gate and resume via `executeApprovedRepairCandidate`.
+      // Note: Under production EXECUTE, an experiment begins with approvalState = 'approved'.
+      // Re-opening an approval gate on a failed repair run requires the approval state transition
+      // or repair gate support tracked in follow-up issue #63 (docs/05-plan.md:74, owned by ivory-26).
+      let gateId: string | undefined
+      let gateSeq: number | undefined
+      if (options.openApprovalGate) {
+        const gateRes = await options.openApprovalGate({
+          workspaceId: options.modelContext.workspaceId,
+          experimentId: currentRun.experimentId,
+          claimId: options.claimId!,
+          spec: repairedSpec,
+        })
+        gateId = gateRes.gate.id
+        gateSeq = gateRes.gate.gateSeq
+      }
 
-      if (!approvedByGate) {
-        return {
-          repaired: false,
-          status: 'awaiting_approval',
-          attemptsUsed,
-          runs: chain,
-          finalRun: currentRun,
-          candidateSpec: repairedSpec,
-        }
+      return {
+        repaired: false,
+        status: 'awaiting_approval',
+        attemptsUsed,
+        runs: chain,
+        finalRun: currentRun,
+        candidateSpec: repairedSpec,
+        workspaceId: options.modelContext.workspaceId,
+        claimNodeId: repairedSpec.claimNodeId,
+        gateId,
+        gateSeq,
       }
     }
 
-    attemptsUsed++
-    const startedAt = now()
-    const newRun = await options.runStore.createRun({
-      experimentId: currentRun.experimentId,
-      parentRunId: currentRun.id,
-      attempt: currentRun.attempt + 1,
-      status: 'running',
-      spec: repairedSpec,
-      parameters: structuredClone(repairedSpec.parameters),
-      environment: initialRepairEnvironment(
-        repairedSpec,
-        startedAt.toISOString(),
-      ),
-      startedAt,
-    })
-
-    let result: ExperimentResult
-    try {
-      result = await options.runner.run(repairedSpec, onStdout)
-    } catch (err) {
-      result = sanitizeRunnerError(
-        err,
-        repairedSpec,
-        startedAt.toISOString(),
-      )
-    }
-
-    const evaluated = evaluateExperiment(repairedSpec, result)
-    const runStatus: RunStatus = result.exitCode === 0 ? 'succeeded' : 'failed'
-
-    const updatedRun = await options.runStore.updateRun(newRun.id, {
-      status: runStatus,
-      metrics: result.metrics,
-      environment: result.environment,
-      verdict: evaluated.verdict,
-      verdictDetail: evaluated.detail,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      finishedAt: now(),
-    })
+    const updatedRun = await executeChainedRepairRun(
+      currentRun,
+      repairedSpec,
+      {
+        runStore: options.runStore,
+        runner: options.runner,
+        emitEvent: options.emitEvent,
+        onStdout: options.onStdout,
+        now,
+      },
+    )
 
     chain.push(updatedRun)
     currentRun = updatedRun
+    promptStderr = updatedRun.stderr
 
-    if (runStatus === 'succeeded') {
+    if (updatedRun.status === 'succeeded') {
       return {
         repaired: true,
         status: 'repaired',
@@ -591,4 +818,164 @@ export async function repairAndRetryRun(
     runs: chain,
     finalRun: currentRun,
   }
+}
+
+export type ExecuteApprovedRepairCandidateOptions = {
+  runStore: RepairRunStore
+  runner: ExperimentRunner
+  emitEvent?: (event: RepairPipelineEvent) => Promise<void> | void
+  onStdout?: (chunk: string) => void
+  now?: () => Date
+}
+
+async function executeChainedRepairRun(
+  parentRun: RepairRunRecord,
+  spec: ExperimentSpec,
+  options: ExecuteApprovedRepairCandidateOptions,
+): Promise<RepairRunRecord> {
+  const now = options.now ?? (() => new Date())
+  const startedAt = now()
+
+  const emit = async (
+    event:
+      | Omit<RunStartedEvent, 'seq' | 'experimentId' | 'at'>
+      | Omit<RunStdoutEvent, 'seq' | 'experimentId' | 'at'>
+      | Omit<RunSucceededEvent, 'seq' | 'experimentId' | 'at'>
+      | Omit<RunFailedEvent, 'seq' | 'experimentId' | 'at'>
+      | Omit<VerdictComputedEvent, 'seq' | 'experimentId' | 'at'>,
+  ) => {
+    if (!options.emitEvent) return
+    try {
+      await options.emitEvent({
+        ...event,
+        experimentId: parentRun.experimentId,
+        at: now().toISOString(),
+      } as RepairPipelineEvent)
+    } catch (err) {
+      console.error('[executeChainedRepairRun] emitEvent failed', err)
+    }
+  }
+
+  const newRun = await options.runStore.createRun({
+    experimentId: parentRun.experimentId,
+    parentRunId: parentRun.id,
+    attempt: parentRun.attempt + 1,
+    status: 'running',
+    spec,
+    parameters: structuredClone(spec.parameters),
+    environment: initialRepairEnvironment(spec, startedAt.toISOString()),
+    startedAt,
+  })
+
+  await emit({
+    type: 'run.started',
+    runId: newRun.id,
+    attempt: newRun.attempt,
+    sandboxId: null,
+  })
+
+  const pendingStdoutEmits: Promise<void>[] = []
+  let isKilledTimeout = false
+  let result: ExperimentResult
+  try {
+    result = await options.runner.run(spec, (chunk) => {
+      options.onStdout?.(chunk)
+      if (options.emitEvent) {
+        pendingStdoutEmits.push(
+          emit({
+            type: 'run.stdout',
+            runId: newRun.id,
+            chunk,
+          }).catch((err) => {
+            console.error('[executeChainedRepairRun] emitEvent stdout failed', err)
+          }),
+        )
+      }
+    })
+  } catch (err) {
+    if (
+      err instanceof SandboxTimeoutError ||
+      (err instanceof Error && err.name === 'SandboxTimeoutError')
+    ) {
+      isKilledTimeout = true
+    }
+    result = sanitizeRunnerError(err, spec, startedAt.toISOString())
+  }
+
+  await Promise.all(pendingStdoutEmits)
+
+  const evaluated = evaluateExperiment(spec, result)
+  const runStatus: RunStatus =
+    result.exitCode === 0
+      ? 'succeeded'
+      : isKilledTimeout
+        ? 'timeout'
+        : 'failed'
+
+  const updatedRun = await options.runStore.updateRun(newRun.id, {
+    status: runStatus,
+    metrics: result.metrics,
+    environment: result.environment,
+    verdict: evaluated.verdict,
+    verdictDetail: evaluated.detail,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    finishedAt: now(),
+  })
+
+  if (runStatus === 'succeeded') {
+    await emit({
+      type: 'run.succeeded',
+      runId: newRun.id,
+      result,
+    })
+  } else {
+    // Sandbox timeouts emit run.failed rather than run.timeout (reserved for 240s stream budget exhaustion)
+    await emit({
+      type: 'run.failed',
+      runId: newRun.id,
+      error: updatedRun.stderr || `Process exited with code ${result.exitCode}`,
+    })
+  }
+
+  if (evaluated.verdict && evaluated.detail) {
+    await emit({
+      type: 'verdict.computed',
+      runId: newRun.id,
+      verdict: evaluated.verdict,
+      detail: evaluated.detail,
+    })
+  }
+
+  return updatedRun
+}
+
+/**
+ * Resumes and executes an approved repair candidate spec once human approval
+ * has been resolved (docs/03-agent-pipeline.md:112-124).
+ * Precondition: Callers must verify the human approval decision on the durable gate
+ * (confirming `gate.status === 'approved'` and passing `gate.offeredSpec`) before invoking this function.
+ * Enforces the two-attempt repair ceiling against the run chain, re-validates the spec,
+ * creates the next chained `runs` row with incremented attempt and `parentRunId`, executes
+ * via runner, evaluates verdict by code, emits lifecycle events, and updates the run record.
+ */
+export async function executeApprovedRepairCandidate(
+  parentRun: RepairRunRecord,
+  approvedSpec: ExperimentSpec,
+  options: ExecuteApprovedRepairCandidateOptions,
+): Promise<RepairRunRecord> {
+  if (remainingRepairAttempts(parentRun.attempt) <= 0) {
+    throw new Error(
+      `Repair ceiling reached: cannot execute approved candidate beyond ${MAX_REPAIR_ATTEMPTS} repair attempts (current attempt ${parentRun.attempt})`,
+    )
+  }
+
+  const validation = validateExperimentSpec(approvedSpec)
+  if (!validation.valid) {
+    throw new Error(
+      `Approved repair candidate failed spec validation: ${validation.errors.join('; ')}`,
+    )
+  }
+
+  return executeChainedRepairRun(parentRun, approvedSpec, options)
 }
