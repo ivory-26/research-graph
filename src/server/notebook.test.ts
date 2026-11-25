@@ -133,4 +133,30 @@ describe('buildNotebookDocument (Issue #28)', () => {
       }),
     ).toThrow(/not found in ExperimentSpec\.files/)
   })
+
+  it('supports multi-file specs by generating bounded-id auxiliary write cells before entrypoint', () => {
+    const multiFileSpec = structuredClone(HERO_EXPERIMENT_SPEC_RUN_A)
+    multiFileSpec.files['utils/helpers.py'] = 'def add(a, b):\n    return a + b\n'
+    multiFileSpec.files['extremely/long/nested/path/to/some/deeply/nested/custom_module.py'] = '# module\n'
+
+    const nb = buildNotebookDocument({
+      spec: multiFileSpec,
+      environment: HERO_RECORDED_RUN_RESULT.environment,
+      claim: HERO_CLAIM,
+      verdict: 'match',
+    })
+
+    // 6 default cells + 2 auxiliary files = 8 cells
+    expect(nb.cells).toHaveLength(8)
+
+    const auxCell1 = nb.cells.find((c) => c.id.startsWith('cell-aux-utils_helpers'))
+    expect(auxCell1).toBeDefined()
+    expect(auxCell1!.cell_type).toBe('code')
+    expect(auxCell1!.id.length).toBeLessThanOrEqual(64)
+    expect(auxCell1!.source.join('')).toContain('target_path = pathlib.Path("utils/helpers.py")')
+
+    const auxCell2 = nb.cells.find((c) => c.id.startsWith('cell-aux-extremely_long_nested_path'))
+    expect(auxCell2).toBeDefined()
+    expect(auxCell2!.id.length).toBeLessThanOrEqual(64)
+  })
 })

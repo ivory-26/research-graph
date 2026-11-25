@@ -259,9 +259,15 @@ function buildVerbatimScriptCell(spec: ExperimentSpec): NbformatCodeCell[] {
       `print(f"Wrote {target_path} ({len(target_path.read_text())} characters)")`,
     ].join('\n')
 
+    const shortHash = createHash('sha256').update(filePath).digest('hex').slice(0, 8)
+    const sanitizedName = filePath
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .slice(0, 30)
+      .replace(/^_+|_+$/g, '')
+
     cells.push({
       cell_type: 'code',
-      id: `cell-aux-${filePath.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+      id: `cell-aux-${sanitizedName || 'file'}-${shortHash}`,
       execution_count: null,
       metadata: {},
       outputs: [],
