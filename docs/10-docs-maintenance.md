@@ -4,16 +4,16 @@ The docs are a manually refreshed snapshot of `main`. There is deliberately no C
 
 ## Source of truth
 
-`main` is the source of truth for code. A `docs/current-state-<date>` branch is a patch set against `main`, not a parallel truth.
+`main` is the source of truth for code and docs. The 25 November snapshot (`docs/current-state-25-nov`) was merged into `main` as `eab8512`, so `main` is the base for the next refresh.
 
-The current snapshot is `docs/current-state-25-nov`, pushed on 25 November 2026 and not merged at the time of writing. Until it is merged:
+For the next refresh:
 
-- Base the next documentation update on the newest `docs/current-state-*` branch, never on an older docs snapshot.
-- Rebase that branch onto `main` before editing, so the diff stays reviewable.
+- Branch from `main` as `docs/current-state-<date>`.
+- Rebase onto `main` before editing if the branch lives for more than a day, so the diff stays reviewable.
 - Record the refresh date in the README status line and in each document's status section.
 - Do not create a pull request unless asked; the branch is the handoff.
 
-Once a snapshot is merged, main becomes the base again and the next snapshot branches from it.
+A docs branch that is not merged is not a source of truth. It will drift.
 
 ## When to refresh
 
@@ -46,7 +46,7 @@ This process cannot guarantee that another developer updates the docs. It only m
 
 If drift becomes a recurring problem, the cheapest upgrade is a CI job that fails a PR touching `src/`, the schema, `scripts/` or `package.json` unless it also touches `docs/`, or carries a `docs:not-needed` label. That is a deliberate deferred decision, not an oversight.
 
-## Earlier docs branches
+## Merged docs branches
 
 These are fully merged into `main` (zero commits ahead) and are kept as history. Do not reopen them or base new work on them:
 
@@ -54,3 +54,4 @@ These are fully merged into `main` (zero commits ahead) and are kept as history.
 - `docs/merged-state-34-38`
 - `docs/29-demo-deck`
 - `docs/30-demo-recording`
+- `docs/current-state-25-nov`
