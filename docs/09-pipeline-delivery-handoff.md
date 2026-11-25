@@ -112,9 +112,15 @@ names a disposable Postgres server with `CREATEDB`:
 - `route.integration.test.ts` — the actual mounted route modules, called with
   real `Request` objects: cross-request approve and reject, reconnect replay
   without a second execution, and consumer cancellation killing the sandbox.
-  The real `E2BRunner` runs against an in-memory `e2b` sandbox; `callModel` and
-  the Neon client are the only other replaced boundaries. The database, SQL,
-  constraints, planner, runner logic and evaluator are real.
+  The real `E2BRunner` runs against an in-memory `e2b` sandbox; the Neon client,
+  the `auth.server` identity reader and `callModel` are the replaced
+  boundaries. The database, SQL, constraints, planner, runner logic and
+  evaluator are real.
+- `live-smoke.integration.test.ts` — opt-in (`LIVE_SMOKE=1`), credentialed and
+  skipped by default. It runs the mounted GET and approve routes with no `e2b`
+  or `callModel` replacement: a real sandbox on the pinned template, then a
+  real `explain_gap` call on `gemini-4-hydrogen`. It asserts the run row,
+  metrics, verdict, `agent_tasks` row and `agent_task.recorded` linkage.
 
 `test-support/production-fixtures.ts` holds the valid plan, the deterministic
 runner and the recording model call. No production path imports it.
@@ -132,6 +138,27 @@ TEST_DATABASE_URL="postgresql://postgres:$TEST_PG_PASSWORD@127.0.0.1:55432/postg
   pnpm exec vitest run src/server/pipeline-delivery
 ```
 
+The opt-in live smoke additionally needs the pinned template in the same E2B
+team. Publish it once (rebuilds are cached; only needed after changing
+`Dockerfile.template`):
+
+```bash
+E2B_API_KEY=... node scripts/build-e2b-template.mjs
+```
+
+Then run the live file with the disposable database above and both keys:
+
+```bash
+E2B_API_KEY=... GOOGLE_GENERATIVE_AI_API_KEY=... \
+TEST_DATABASE_URL="postgresql://postgres:$TEST_PG_PASSWORD@127.0.0.1:55432/postgres" \
+LIVE_SMOKE=1 pnpm exec vitest run src/server/pipeline-delivery/live-smoke.integration.test.ts
+```
+
+The template bakes 1 vCPU / 2048 MB, so `E2BRunner` must not pass `cpuCount`
+to `Sandbox.create` (E2B treats that as a resize, which needs resizable
+templates). It also makes `/output` writable by the sandbox `user`; a
+root-owned directory fails the run with `EACCES` before metrics exist.
+
 `TEST_DATABASE_URL` names a **server**, not a database the suite may modify.
 The harness creates a uniquely named `rg_test_*` database on it, migrates and
 resets only that database, and drops only that database when the suite ends.
@@ -144,12 +171,17 @@ for a disposable CI server. `test-support/pg.ts` holds the checks;
 
 - **#7 graph write-back.** A completed run does not yet become result/run nodes
   plus the `produced` edge. That is the one integration seam #6 does not own.
-- **Live E2B verification.** This suite uses a deterministic in-memory sandbox;
-  a credentialed run against the pinned template is still the acceptance step
-  for the sandbox path. The runner itself is #24's verified implementation.
-- **Live Gemini explanation.** Without a provider key the evaluator logs the
-  failed `explain_gap` call (with its `agent_tasks` row) and keeps the
-  deterministic verdict. A live call is not required for the verdict.
+- **Live verification is opt-in, not CI.** `live-smoke.integration.test.ts`
+  ran green on 2026-11-25 against template build `3060b313` on
+  `gemini-4-hydrogen`, but it is skipped without credentials and is not part of
+  `pnpm test`.
+- **Provider capacity is not retried.** A `high demand` response from Gemini is
+  recorded as a failed `agent_tasks` row and the deterministic verdict still
+  completes; the live smoke then fails because it requires the explanation.
+  Only rate-limit errors are retried by `callModel`.
+- **`imageDigest` is `unknown` on E2B.** The template build does not populate
+  `/etc/image-digest`, so a live run records `unknown`. The template id and
+  build id are the durable identity until a build pipeline writes a digest.
 - **In-flight work is not rolled back.** Cancellation kills the sandbox and
   refuses later `emit` calls, but a database write already in flight when the
   deadline fires may still commit. The durable event log stays ordered.

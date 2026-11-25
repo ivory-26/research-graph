@@ -9,8 +9,11 @@ RUN pip install --no-cache-dir \
     scipy==1.17.1 \
     matplotlib==3.10.0
 
-# Pre-create output directory
+# Pre-create the output directory and make it writable by the sandbox user.
+# E2B appends `USER user` after these steps, so a root-owned /output would make
+# `open('/output/metrics.json', 'w')` fail with EACCES. This mirrors the local
+# Docker hardening in docs/04 (chmod 0o777 on /output).
 # /etc/image-digest is populated by the build pipeline when the pinned template is published
-RUN mkdir -p /output
+RUN mkdir -p /output && chmod 777 /output
 
 WORKDIR /workspace
