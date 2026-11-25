@@ -83,3 +83,5 @@ The UI reads `fixtures/workspace.json` and `fixtures/hero-spec.ts`. It does not 
 ## Working style
 
 The deadline is 30 November and the deliverable is a five-minute recording. A feature that is not in that recording did not ship. Ask before building anything that is not on the spine in [docs/05-plan.md](./docs/05-plan.md).
+
+Documentation is refreshed manually; there is no CI gate. Before a milestone or after a change to schema, stages, routes, commands, auth or ownership, follow [docs/10-docs-maintenance.md](./docs/10-docs-maintenance.md). Do not state that a fixture value is measured run output.

@@ -52,6 +52,7 @@ The graph is the presentation, not the product. The product is the claim:
 | [07-workstreams](./docs/07-workstreams.md) | the four-way split and file ownership |
 | [08-auth](./docs/08-auth.md) | Neon Auth setup, proxy, workspace guard |
 | [09-pipeline-delivery](./docs/09-pipeline-delivery-handoff.md) | SSE delivery, approval path, test and live-run record |
+| [10-docs-maintenance](./docs/10-docs-maintenance.md) | the manual refresh process and when each doc must change |
 | [GLOSSARY](./GLOSSARY.md) | the vocabulary |
 | [ADRs](./docs/adr/) | why the surprising decisions were made |
 
