@@ -243,9 +243,14 @@ describe('PDF Ingestion Integration with Fixtures', () => {
       expect(page1.text).toContain('predictive accuracy')
       expect(page1.text).toContain('candidate predictor variables')
 
-      const p1Col1Idx = page1.text.indexOf('Within the past few years, random forests')
-      const p1Col2Idx = page1.text.indexOf('Identifying relevant predictor variables')
-      expect(p1Col1Idx).toBeLessThan(p1Col2Idx)
+      const p1Col1StartIdx = page1.text.indexOf('Within the past few years, random forests')
+      const p1Col1EndIdx = page1.text.indexOf('DNA sequencing and other applications [2-5].')
+      const p1Col2StartIdx = page1.text.indexOf('Identifying relevant predictor variables')
+      const p1Col2EndIdx = page1.text.indexOf('of each predictor variable individu-')
+      expect(p1Col1StartIdx).toBeGreaterThan(-1)
+      expect(p1Col1EndIdx).toBeGreaterThan(p1Col1StartIdx)
+      expect(p1Col2StartIdx).toBeGreaterThan(p1Col1EndIdx)
+      expect(p1Col2EndIdx).toBeGreaterThan(p1Col2StartIdx)
 
       // Verify reading order preserves two-column layout on page 2 (column 1 before column 2)
       const page2 = result.pages[1]
@@ -304,6 +309,35 @@ describe('PDF Ingestion Integration with Fixtures', () => {
     }
   })
 
+  it('clamps inter-page separator offsets to the nearest preceding page instead of the last page', () => {
+    const p1 = 'Page one content.'
+    const p2 = 'Page two content.'
+    const p3 = 'Page three content.'
+    const fullText = `${p1}\n\n${p2}\n\n${p3}`
+    const p1End = p1.length
+    const p2Start = p1End + 2
+    const p2End = p2Start + p2.length
+    const p3Start = p2End + 2
+
+    const pages: ExtractedPage[] = [
+      { page: 1, text: p1, charStart: 0, charEnd: p1End },
+      { page: 2, text: p2, charStart: p2Start, charEnd: p2End },
+      { page: 3, text: p3, charStart: p3Start, charEnd: fullText.length },
+    ]
+
+    // Force a split right before p1's '\n\n' separator so the next chunk overlaps starting inside '\n\n'
+    const chunks = chunkDocument(fullText, pages, {
+      targetTokens: 5,
+      overlapRatio: 0.4,
+      charsPerToken: 4,
+    })
+
+    // None of the early chunks starting around page 1..2 boundary should be mislabelled as page 3
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+    expect(chunks[0]?.page).toBe(1)
+    expect(chunks[1]?.page).toBeLessThanOrEqual(2)
+  })
+
   it('marks needsOcr when document is empty or a page yields fewer than 40 characters (docs/03)', async () => {
     const resEmpty = await extractPdf(new Uint8Array(0))
     expect(resEmpty.needsOcr).toBe(true)
@@ -311,5 +345,36 @@ describe('PDF Ingestion Integration with Fixtures', () => {
     const ingestEmpty = await ingestPdf(new Uint8Array(0))
     expect(ingestEmpty.result.needsOcr).toBe(true)
     expect(ingestEmpty.chunks).toHaveLength(0)
+
+    // Minimal valid single-page PDF containing only 12 non-whitespace characters ('Scanned stub')
+    const streamBody = 'BT /F1 12 Tf 72 720 Td (Scanned stub) Tj ET'
+    const objects = [
+      '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n',
+      '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n',
+      '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n',
+      `4 0 obj << /Length ${streamBody.length} >> stream\n${streamBody}\nendstream\nendobj\n`,
+      '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n',
+    ]
+    let pdfStr = '%PDF-1.4\n'
+    const offsets = [0]
+    for (const obj of objects) {
+      offsets.push(pdfStr.length)
+      pdfStr += obj
+    }
+    const xrefStart = pdfStr.length
+    pdfStr += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+    for (let i = 1; i <= objects.length; i++) {
+      pdfStr += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`
+    }
+    pdfStr += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`
+
+    const sparsePdf = new TextEncoder().encode(pdfStr)
+    const sparseExtract = await extractPdf(sparsePdf)
+    expect(sparseExtract.totalPages).toBe(1)
+    expect(sparseExtract.needsOcr).toBe(true)
+
+    const sparseIngest = await ingestPdf(sparsePdf)
+    expect(sparseIngest.result.needsOcr).toBe(true)
+    expect(sparseIngest.chunks).toHaveLength(0)
   })
 })

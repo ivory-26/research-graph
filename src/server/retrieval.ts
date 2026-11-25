@@ -73,7 +73,7 @@ export interface RetrievePassagesOptions {
   sourceIds?: string[]
   /** Maximum number of passages to return (default: 6) */
   topK?: number
-  /** Maximum passages per source to ensure cross-source diversity (default: 3) */
+  /** Maximum passages per source to enforce cross-source diversity (default: Math.max(1, Math.ceil(limit / 2))) */
   maxPassagesPerSource?: number
   /** Minimum cosine similarity threshold (0 to 1) */
   minSimilarity?: number

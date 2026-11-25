@@ -130,6 +130,29 @@ describe('validateClaimQuotes', () => {
     expect(result.rejected).toHaveLength(1)
     expect(result.rejected[0].reason).toBe('VERBATIM_QUOTE_NOT_FOUND')
   })
+
+  it('prefers chunk ID lookup over another chunk ordinal when ID is a decimal string', () => {
+    const numericIdChunks: ChunkRef[] = [
+      { id: '1', ordinal: 0, page: 1, text: 'Quote strictly in chunk with id 1.' },
+      { id: 'chunk-ordinal-1', ordinal: 1, page: 2, text: 'Completely unrelated second chunk.' },
+    ]
+
+    const result = validateClaimQuotes(
+      [
+        {
+          text: 'Exact ID match',
+          quote: 'Quote strictly in chunk with id 1.',
+          chunkId: '1',
+        },
+      ],
+      numericIdChunks,
+    )
+
+    expect(result.rejected).toHaveLength(0)
+    expect(result.accepted).toHaveLength(1)
+    expect(result.accepted[0]?.chunkOrdinal).toBe(0)
+    expect(result.accepted[0]?.page).toBe(1)
+  })
 })
 
 describe('extractClaims with model wrapper', () => {

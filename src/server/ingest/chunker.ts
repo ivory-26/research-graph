@@ -161,15 +161,20 @@ function snapForwardToBoundary(text: string, tentativeStart: number, maxStart: n
 
 /**
  * Maps a character offset in the document to its 1-indexed page number.
+ * Offsets falling inside an inter-page `\n\n` separator resolve to the nearest preceding page.
  */
 function findPageForCharOffset(charOffset: number, pages: ExtractedPage[]): number {
   if (pages.length === 0) return 1
 
+  let nearestPrecedingPage = pages[0].page
   for (const page of pages) {
     if (charOffset >= page.charStart && charOffset <= page.charEnd) {
       return page.page
     }
+    if (charOffset > page.charEnd) {
+      nearestPrecedingPage = page.page
+    }
   }
 
-  return pages[pages.length - 1]?.page ?? 1
+  return nearestPrecedingPage
 }
