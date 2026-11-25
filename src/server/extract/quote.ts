@@ -58,10 +58,11 @@ export function validateClaimQuotes(
   const accepted: ValidatedClaim[] = []
   const rejected: RejectedClaim[] = []
 
-  const chunkMap = new Map<string, ChunkRef>()
+  const chunkById = new Map<string, ChunkRef>()
+  const chunkByOrdinal = new Map<string, ChunkRef>()
   for (const chunk of chunks) {
-    if (chunk.id) chunkMap.set(chunk.id, chunk)
-    chunkMap.set(String(chunk.ordinal), chunk)
+    if (chunk.id) chunkById.set(chunk.id, chunk)
+    chunkByOrdinal.set(String(chunk.ordinal), chunk)
   }
 
   for (const claim of claims) {
@@ -71,8 +72,8 @@ export function validateClaimQuotes(
       continue
     }
 
-    // 1. Resolve chunk explicitly cited by claim.chunkId
-    const targetChunk = chunkMap.get(claim.chunkId)
+    // 1. Resolve chunk explicitly cited by claim.chunkId (ID lookup first so numeric IDs cannot be shadowed by another chunk's ordinal)
+    const targetChunk = chunkById.get(claim.chunkId) ?? chunkByOrdinal.get(claim.chunkId)
     if (!targetChunk) {
       rejected.push({ claim, reason: 'CHUNK_NOT_FOUND' })
       continue

@@ -5,9 +5,10 @@ import { sourceChunks, sources } from '../db/schema'
 import type { CallModel, CallModelContext } from './model'
 import { agentTaskStore, callModel as defaultCallModel } from './model'
 import { embedQuery, type EmbedDeps } from './ingest/embed'
+import { DEFAULT_MIN_SIMILARITY } from './ingest/store'
 import { verifyVerbatimQuote } from './extract/quote'
 
-export const DEFAULT_MIN_RETRIEVAL_SIMILARITY = 0.5
+export const DEFAULT_MIN_RETRIEVAL_SIMILARITY = DEFAULT_MIN_SIMILARITY
 
 /**
  * Zod schema for structured output from the LLM when synthesizing
@@ -73,7 +74,7 @@ export interface RetrievePassagesOptions {
   sourceIds?: string[]
   /** Maximum number of passages to return (default: 6) */
   topK?: number
-  /** Maximum passages per source to ensure cross-source diversity (default: 3) */
+  /** Maximum passages per source to enforce cross-source diversity (default: Math.max(1, Math.ceil(limit / 2))) */
   maxPassagesPerSource?: number
   /** Minimum cosine similarity threshold (0 to 1) */
   minSimilarity?: number

@@ -1,5 +1,12 @@
+import { and, eq, inArray } from 'drizzle-orm'
 import type { Database } from '../../db/client'
-import { edges, type EdgeRow } from '../../db/schema'
+import {
+  edges,
+  nodes as nodesTable,
+  sourceChunks as sourceChunksTable,
+  sources as sourcesTable,
+  type EdgeRow,
+} from '../../db/schema'
 import { callModel as defaultCallModel, type CallModel, agentTaskStore } from '../model'
 import { normalizeQuote, verifyVerbatimQuote } from './quote'
 import type { UpdateTaskStatusFn } from './claims'
@@ -199,8 +206,11 @@ export async function proposeEdges(
     return { acceptedEdges: [], rejectedEdges: [] }
   }
 
-  // Enforce that evidence chunks carry valid UUIDs so proposed edges can be persisted
-  for (const chunk of chunks) {
+  const topK = options.topKChunks ?? 8
+  const selectedChunks = chunks.slice(0, topK)
+
+  // Enforce that rendered evidence chunks carry valid UUIDs so proposed edges can be persisted
+  for (const chunk of selectedChunks) {
     if (!chunk.id || !UUID_REGEX.test(chunk.id)) {
       throw new Error(
         `Every chunk passed to proposeEdges must have a valid UUID id. Received: ${chunk.id}`,
@@ -208,9 +218,7 @@ export async function proposeEdges(
     }
   }
 
-  const topK = options.topKChunks ?? 8
-  const selectedChunks = chunks.slice(0, topK)
-  const prompt = buildProposeEdgesPrompt(nodes, chunks, { topKChunks: topK })
+  const prompt = buildProposeEdgesPrompt(nodes, selectedChunks, { topKChunks: topK })
 
   const result = await callModelFn<ProposeEdgesResult>(
     ProposeEdgesResultSchema,
@@ -277,18 +285,65 @@ export async function storeEdges(
 ): Promise<EdgeRow[]> {
   if (edgesToStore.length === 0) return []
 
+  const uniqueNodeIds = new Set<string>()
+  const uniqueChunkIds = new Set<string>()
+  for (const edge of edgesToStore) {
+    if (
+      !UUID_REGEX.test(edge.fromNodeId) ||
+      !UUID_REGEX.test(edge.toNodeId) ||
+      !UUID_REGEX.test(edge.evidenceChunkId)
+    ) {
+      throw new Error(
+        `Invalid UUID in edge persistence: fromNodeId=${edge.fromNodeId}, toNodeId=${edge.toNodeId}, evidenceChunkId=${edge.evidenceChunkId}`,
+      )
+    }
+    uniqueNodeIds.add(edge.fromNodeId)
+    uniqueNodeIds.add(edge.toNodeId)
+    uniqueChunkIds.add(edge.evidenceChunkId)
+  }
+
   return await db.transaction(async (tx) => {
-    const inserted: EdgeRow[] = []
-    for (const edge of edgesToStore) {
-      if (
-        !UUID_REGEX.test(edge.fromNodeId) ||
-        !UUID_REGEX.test(edge.toNodeId) ||
-        !UUID_REGEX.test(edge.evidenceChunkId)
-      ) {
+    const ownedNodes = await tx
+      .select({ id: nodesTable.id })
+      .from(nodesTable)
+      .where(
+        and(
+          eq(nodesTable.workspaceId, workspaceId),
+          inArray(nodesTable.id, [...uniqueNodeIds]),
+        ),
+      )
+
+    const ownedNodeIds = new Set(ownedNodes.map((n) => n.id))
+    for (const nodeId of uniqueNodeIds) {
+      if (!ownedNodeIds.has(nodeId)) {
         throw new Error(
-          `Invalid UUID in edge persistence: fromNodeId=${edge.fromNodeId}, toNodeId=${edge.toNodeId}, evidenceChunkId=${edge.evidenceChunkId}`,
+          `Cross-workspace or missing node in edge persistence: node ${nodeId} does not belong to workspace ${workspaceId}`,
         )
       }
+    }
+
+    const ownedChunks = await tx
+      .select({ id: sourceChunksTable.id })
+      .from(sourceChunksTable)
+      .innerJoin(sourcesTable, eq(sourceChunksTable.sourceId, sourcesTable.id))
+      .where(
+        and(
+          eq(sourcesTable.workspaceId, workspaceId),
+          inArray(sourceChunksTable.id, [...uniqueChunkIds]),
+        ),
+      )
+
+    const ownedChunkIds = new Set(ownedChunks.map((c) => c.id))
+    for (const chunkId of uniqueChunkIds) {
+      if (!ownedChunkIds.has(chunkId)) {
+        throw new Error(
+          `Cross-workspace or missing evidence chunk in edge persistence: chunk ${chunkId} does not belong to workspace ${workspaceId}`,
+        )
+      }
+    }
+
+    const inserted: EdgeRow[] = []
+    for (const edge of edgesToStore) {
       const rows = await tx
         .insert(edges)
         .values({

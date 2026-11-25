@@ -80,6 +80,104 @@ describe('Firecrawl Web & Repo Ingestion (Issue #15)', () => {
       expect(result.title).toBe('Bias in Random Forest Importance')
       expect(result.markdown).toContain('# Bias in Random Forest Importance')
     })
+
+    it('rejects injected scraper response if returned metadata has application/pdf content-type', async () => {
+      await expect(
+        scrapeWithFirecrawl(
+          'https://example.com/stream',
+          {},
+          {
+            scraper: async () => ({
+              url: 'https://example.com/stream',
+              title: 'Stream',
+              markdown: 'binary',
+              description: null,
+              statusCode: 200,
+              metadata: { 'content-type': 'application/pdf' },
+            }),
+          },
+        ),
+      ).rejects.toThrow('PDFs never go through Firecrawl')
+    })
+
+    it('executes live fetch path, validates request shape, rejects non-2xx upstream statusCode and success: false, and falls back on bare-host titles', async () => {
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+
+      try {
+        // 1. Successful scrape against bare host with empty title
+        fetchMock.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                markdown: '# Root Project\nClean markdown content.',
+                metadata: { title: '   ', statusCode: 200 },
+              },
+            }),
+            { status: 200 },
+          ),
+        )
+
+        const ok = await scrapeWithFirecrawl('https://example.com/', { apiKey: 'fc-test-key' })
+        expect(ok.title).toBe('example.com')
+        expect(fetchMock).toHaveBeenCalledWith(
+          'https://api.firecrawl.dev/v1/scrape',
+          expect.objectContaining({
+            method: 'POST',
+            headers: expect.objectContaining({ Authorization: 'Bearer fc-test-key' }),
+            body: JSON.stringify({ url: 'https://example.com/', formats: ['markdown'] }),
+          }),
+        )
+
+        // 2. Rejects upstream HTTP 404 page returned inside Firecrawl metadata
+        fetchMock.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                markdown: '404 Not Found',
+                metadata: { title: 'Not Found', statusCode: 404 },
+              },
+            }),
+            { status: 200 },
+          ),
+        )
+        await expect(
+          scrapeWithFirecrawl('https://example.com/missing', { apiKey: 'fc-test-key' }),
+        ).rejects.toThrow('upstream HTTP 404')
+
+        // 3. Rejects Firecrawl payload success: false
+        fetchMock.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ success: false, error: 'Blocked by target site' }),
+            { status: 200 },
+          ),
+        )
+        await expect(
+          scrapeWithFirecrawl('https://example.com/blocked', { apiKey: 'fc-test-key' }),
+        ).rejects.toThrow('Blocked by target site')
+        // 4. Strips query string when deriving fallback title from pathname
+        fetchMock.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                markdown: '# Page Content\nText body.',
+                metadata: { statusCode: 200 },
+              },
+            }),
+            { status: 200 },
+          ),
+        )
+        const cleanTitle = await scrapeWithFirecrawl('https://example.com/project-page?ref=x#sec', {
+          apiKey: 'fc-test-key',
+        })
+        expect(cleanTitle.title).toBe('project-page')
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
   })
 
   describe('ingestWebSource', () => {
@@ -214,6 +312,41 @@ cforest implements conditional permutation importance which removes spurious cor
 
       expect(insertedKind).toBe('repo')
       expect(res.source.kind).toBe('repo')
+    })
+
+    it('keeps non-GitHub hosts containing github.com substring as web kind and falls back empty titles to URL', async () => {
+      let insertedSource: any = null
+      const mockDb: any = {
+        insert: vi.fn().mockImplementation(() => ({
+          values: vi.fn().mockImplementation((val) => {
+            if (!Array.isArray(val)) insertedSource = val
+            return {
+              returning: vi.fn().mockResolvedValue(
+                Array.isArray(val) ? val.map((v, i) => ({ id: `c-${i}`, ...v })) : [{ id: 'src-w', ...val }],
+              ),
+            }
+          }),
+        })),
+      }
+      mockDb.transaction = vi.fn().mockImplementation(async (cb) => cb(mockDb))
+
+      const mockEmbedder = vi.fn().mockResolvedValue([new Array(768).fill(0.01)])
+      const res = await ingestWebSource(
+        'https://notgithub.com/org/repo',
+        {
+          workspaceId: 'ws-host',
+          title: '   ',
+          preFetchedMarkdown: '# Lookalike Domain\nThis is a regular web page, not a GitHub repo.',
+        },
+        {
+          db: mockDb,
+          embedChunksFn: mockEmbedder,
+        },
+      )
+
+      expect(res.source.kind).toBe('web')
+      expect(insertedSource.kind).toBe('web')
+      expect(insertedSource.title).toBe('https://notgithub.com/org/repo')
     })
 
     it('verifies that ingested web chunks can be cited with verbatim quotes', async () => {

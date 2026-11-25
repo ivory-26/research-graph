@@ -9,11 +9,16 @@ import {
 import type { Chunk, ScoredChunk, SearchChunksOptions } from './types'
 
 /**
+ * Shared similarity threshold constant for opt-in caller filtering (ADR 0011).
+ */
+export const DEFAULT_MIN_SIMILARITY = 0.5
+
+/**
  * Inserts chunks with their embeddings, page numbers, and character spans into the database.
  *
  * Implements Issue #11:
  * - Stores chunks with page and character span in `source_chunks`
- * - Embeddings are persisted in the pgvector column for HNSW cosine search
+ * - Embeddings are persisted in `vector(768)` for pgvector cosine retrieval
  */
 export async function storeChunks(
   db: Database,
@@ -56,7 +61,8 @@ export async function storeChunks(
 }
 
 /**
- * Searches stored chunks by cosine similarity using Neon pgvector HNSW indexing.
+ * Searches stored chunks by cosine similarity (1 - cosineDistance).
+ * Per ADR 0011, ordering by `1 - cosineDistance` runs a cosine similarity scan suitable for workspace scale.
  *
  * Implements Issue #11:
  * - Top-k cosine search over stored chunks

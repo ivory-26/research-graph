@@ -5,7 +5,14 @@ import { ingestPdf } from '../ingest'
 import { buildProposeEdgesPrompt, proposeEdges, storeEdges, validateProposedEdges } from './edges'
 import { verifyVerbatimQuote } from './quote'
 import type { Database } from '../../db/client'
-import type { ChunkRef, NodeSummary, ProposedEdge, ProposeEdgesResult, ValidatedEdge } from './types'
+import {
+  ProposeEdgesResultSchema,
+  type ChunkRef,
+  type NodeSummary,
+  type ProposedEdge,
+  type ProposeEdgesResult,
+  type ValidatedEdge,
+} from './types'
 
 const CHUNK_UUID_1 = '11111111-1111-4111-8111-111111111111'
 const CHUNK_UUID_2 = '22222222-2222-4222-8222-222222222222'
@@ -663,9 +670,11 @@ describe('Integration test across 3 demo papers (verbatim quote verification and
         { id: nodeK10ClaimId, type: 'claim', title: 'Kursa 2010: Shadow Features' },
       ]
 
-      // Load checked-in fixture of model output
+      // Load and schema-validate checked-in fixture of model output
       const fixturePath = path.resolve(process.cwd(), 'fixtures/extract/three-papers-edges.json')
-      const capturedFixture: ProposeEdgesResult = JSON.parse(fs.readFileSync(fixturePath, 'utf8'))
+      const capturedFixture: ProposeEdgesResult = ProposeEdgesResultSchema.parse(
+        JSON.parse(fs.readFileSync(fixturePath, 'utf8')),
+      )
 
       const mockCallModel = vi.fn().mockResolvedValue({
         output: capturedFixture,
@@ -674,9 +683,19 @@ describe('Integration test across 3 demo papers (verbatim quote verification and
       })
 
       const insertedDbRows: any[] = []
+      const ownedNodeRows = workspaceNodes.map((n) => ({ id: n.id }))
+      const ownedChunkRows = [c1, c2, c3, c4, c5, c6].map((c) => ({ id: c.id }))
       const fakeDb = {
         transaction: vi.fn(async (cb: any) => {
           const tx = {
+            select: vi.fn(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(async () => ownedNodeRows),
+                innerJoin: vi.fn(() => ({
+                  where: vi.fn(async () => ownedChunkRows),
+                })),
+              })),
+            })),
             insert: vi.fn(() => ({
               values: vi.fn((vals: any) => ({
                 returning: vi.fn(async () => {
@@ -732,6 +751,19 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
     const fakeDb = {
       transaction: vi.fn(async (cb: any) => {
         const fakeTx = {
+          select: vi.fn(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(async () => [
+                { id: '11111111-1111-4111-8111-111111111111' },
+                { id: '22222222-2222-4222-8222-222222222222' },
+              ]),
+              innerJoin: vi.fn(() => ({
+                where: vi.fn(async () => [
+                  { id: '33333333-3333-4333-8333-333333333333' },
+                ]),
+              })),
+            })),
+          })),
           insert: vi.fn(() => ({
             values: vi.fn((vals: any) => ({
               returning: vi.fn(async () => {
@@ -772,6 +804,98 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
     expect(inserted[0].relation).toBe('supports')
   })
 
+  it('throws if fromNodeId or toNodeId does not belong to the target workspace', async () => {
+    const fakeDb = {
+      transaction: vi.fn(async (cb: any) => {
+        const fakeTx = {
+          select: vi.fn(() => ({
+            from: vi.fn(() => ({
+              // Only source node exists in workspace; target node belongs to another workspace
+              where: vi.fn(async () => [{ id: '11111111-1111-4111-8111-111111111111' }]),
+            })),
+          })),
+          insert: vi.fn(),
+        }
+        return await cb(fakeTx)
+      }),
+    } as unknown as Database
+
+    const crossWorkspaceEdge: ValidatedEdge = {
+      fromNodeId: '11111111-1111-4111-8111-111111111111',
+      toNodeId: '22222222-2222-4222-8222-222222222222',
+      relation: 'supports',
+      confidence: 0.9,
+      status: 'accepted',
+      evidenceChunkId: '33333333-3333-4333-8333-333333333333',
+      matchedQuote: 'Verified evidence chunk text.',
+      rationale: 'Cross-workspace attempt',
+    }
+
+    await expect(storeEdges(fakeDb, 'ws-owned', [crossWorkspaceEdge])).rejects.toThrow(
+      'Cross-workspace or missing node in edge persistence',
+    )
+  })
+
+  it('throws if evidenceChunkId belongs to a source outside the target workspace', async () => {
+    const fakeDb = {
+      transaction: vi.fn(async (cb: any) => {
+        const fakeTx = {
+          select: vi.fn(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(async () => [
+                { id: '11111111-1111-4111-8111-111111111111' },
+                { id: '22222222-2222-4222-8222-222222222222' },
+              ]),
+              // Chunk belongs to another tenant workspace, so join with sources filters it out
+              innerJoin: vi.fn(() => ({
+                where: vi.fn(async () => []),
+              })),
+            })),
+          })),
+          insert: vi.fn(),
+        }
+        return await cb(fakeTx)
+      }),
+    } as unknown as Database
+
+    const crossWorkspaceChunkEdge: ValidatedEdge = {
+      fromNodeId: '11111111-1111-4111-8111-111111111111',
+      toNodeId: '22222222-2222-4222-8222-222222222222',
+      relation: 'supports',
+      confidence: 0.9,
+      status: 'accepted',
+      evidenceChunkId: '99999999-9999-4999-8999-999999999999',
+      matchedQuote: 'Verified evidence chunk text.',
+      rationale: 'Cross-workspace evidence chunk attempt',
+    }
+
+    await expect(storeEdges(fakeDb, 'ws-owned', [crossWorkspaceChunkEdge])).rejects.toThrow(
+      'Cross-workspace or missing evidence chunk in edge persistence',
+    )
+  })
+
+  it('ignores non-UUID chunks beyond the topKChunks window instead of failing early', async () => {
+    const validChunkId = '11111111-1111-4111-8111-111111111111'
+    const outcome = await proposeEdges({
+      workspaceId: 'ws-slice',
+      topKChunks: 1,
+      nodes: [
+        { id: 'n1', type: 'claim', title: 'Node 1' },
+        { id: 'n2', type: 'method', title: 'Node 2' },
+      ],
+      chunks: [
+        { id: validChunkId, ordinal: 0, page: 1, text: 'Included passage.' },
+        { id: 'non-uuid-trailing', ordinal: 1, page: 2, text: 'Excluded passage beyond topK.' },
+      ],
+      callModelFn: vi.fn(async () => ({
+        output: { edges: [] },
+        task: { id: 'task-1' },
+        attempts: [],
+      })) as any,
+    })
+    expect(outcome.acceptedEdges).toHaveLength(0)
+  })
+
   it('throws an error if an edge to persist has a non-UUID node or chunk ID', async () => {
     const fakeDb = {
       transaction: vi.fn(async (cb: any) => cb({ insert: vi.fn() })),
@@ -809,19 +933,34 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
       const s08Id = crypto.randomUUID()
       const k10Id = crypto.randomUUID()
 
-      const c1Id = '11111111-1111-4111-8111-111111111111'
-      const c2Id = '11111111-1111-4111-8111-111111111112'
-      const c3Id = '22222222-2222-4222-8222-222222222221'
-      const c4Id = '22222222-2222-4222-8222-222222222222'
-      const c5Id = '33333333-3333-4333-8333-333333333331'
-      const c6Id = '33333333-3333-4333-8333-333333333332'
+      const c1Id = crypto.randomUUID()
+      const c2Id = crypto.randomUUID()
+      const c3Id = crypto.randomUUID()
+      const c4Id = crypto.randomUUID()
+      const c5Id = crypto.randomUUID()
+      const c6Id = crypto.randomUUID()
 
-      const nodeS07ClaimId = '11111111-0001-4000-8000-000000000001'
-      const nodeS07RfId = '11111111-0002-4000-8000-000000000002'
-      const nodeS08CviId = '22222222-0001-4000-8000-000000000001'
-      const nodeS08ClaimId = '22222222-0002-4000-8000-000000000002'
-      const nodeK10BorutaId = '33333333-0001-4000-8000-000000000001'
-      const nodeK10ClaimId = '33333333-0002-4000-8000-000000000002'
+      const nodeS07ClaimId = crypto.randomUUID()
+      const nodeS07RfId = crypto.randomUUID()
+      const nodeS08CviId = crypto.randomUUID()
+      const nodeS08ClaimId = crypto.randomUUID()
+      const nodeK10BorutaId = crypto.randomUUID()
+      const nodeK10ClaimId = crypto.randomUUID()
+
+      const fixtureIdMap = new Map<string, string>([
+        ['11111111-1111-4111-8111-111111111111', c1Id],
+        ['11111111-1111-4111-8111-111111111112', c2Id],
+        ['22222222-2222-4222-8222-222222222221', c3Id],
+        ['22222222-2222-4222-8222-222222222222', c4Id],
+        ['33333333-3333-4333-8333-333333333331', c5Id],
+        ['33333333-3333-4333-8333-333333333332', c6Id],
+        ['11111111-0001-4000-8000-000000000001', nodeS07ClaimId],
+        ['11111111-0002-4000-8000-000000000002', nodeS07RfId],
+        ['22222222-0001-4000-8000-000000000001', nodeS08CviId],
+        ['22222222-0002-4000-8000-000000000002', nodeS08ClaimId],
+        ['33333333-0001-4000-8000-000000000001', nodeK10BorutaId],
+        ['33333333-0002-4000-8000-000000000002', nodeK10ClaimId],
+      ])
 
       // Ingest real paper chunks
       const papersDir = path.resolve(process.cwd(), 'fixtures/papers')
@@ -872,7 +1011,17 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
         ])
 
         const fixturePath = path.resolve(process.cwd(), 'fixtures/extract/three-papers-edges.json')
-        const capturedFixture: ProposeEdgesResult = JSON.parse(fs.readFileSync(fixturePath, 'utf8'))
+        const parsedFixture = ProposeEdgesResultSchema.parse(
+          JSON.parse(fs.readFileSync(fixturePath, 'utf8')),
+        )
+        const capturedFixture: ProposeEdgesResult = {
+          edges: parsedFixture.edges.map((e) => ({
+            ...e,
+            fromNodeId: fixtureIdMap.get(e.fromNodeId) ?? e.fromNodeId,
+            toNodeId: fixtureIdMap.get(e.toNodeId) ?? e.toNodeId,
+            evidenceChunkId: fixtureIdMap.get(e.evidenceChunkId) ?? e.evidenceChunkId,
+          })),
+        }
 
         const chunkRefs: ChunkRef[] = [
           { id: c1Id, ordinal: c1.ordinal, text: c1.text, page: c1.page },

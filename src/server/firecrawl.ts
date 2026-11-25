@@ -8,7 +8,7 @@ import {
   type SourceRow,
 } from '../db/schema'
 import { chunkDocument } from './ingest/chunker'
-import { embedChunks, type EmbedDeps } from './ingest/embed'
+import { embedChunks, embedChunksForWorkspace, type EmbedDeps } from './ingest/embed'
 import { storeChunks } from './ingest/store'
 import type { Chunk, ChunkOptions } from './ingest/types'
 
@@ -102,6 +102,55 @@ export function isPdfUrl(url: string, metadata?: Record<string, unknown>): boole
 }
 
 /**
+ * Derives a clean fallback title from a URL's pathname segment or hostname (ignoring query strings).
+ */
+function extractFallbackTitleFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const lastSegment = parsed.pathname.split('/').filter(Boolean).pop()?.trim()
+    return lastSegment || parsed.hostname || 'Web Source'
+  } catch {
+    const urlSegment = url.split(/[?#]/)[0]?.replace(/\/+$/, '').split('/').pop()?.trim()
+    return urlSegment || 'Web Source'
+  }
+}
+
+/**
+ * Checks if a URL points to a hosted Git repository by inspecting its hostname rather than substring matching.
+ */
+function isRepoHost(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase()
+    return (
+      hostname === 'github.com' ||
+      hostname.endsWith('.github.com') ||
+      hostname === 'gitlab.com' ||
+      hostname.endsWith('.gitlab.com')
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Validates that a Firecrawl scrape result is non-PDF and returned a successful HTTP status.
+ */
+function validateScrapeResult(url: string, result: FirecrawlScrapeResult): FirecrawlScrapeResult {
+  if (isPdfUrl(url, result.metadata)) {
+    throw new Error(
+      `PDFs never go through Firecrawl. Scraped response content-type is application/pdf: ${url}`,
+    )
+  }
+  const statusCode = result.statusCode ?? 200
+  if (statusCode < 200 || statusCode >= 300) {
+    throw new Error(
+      `Firecrawl scraped upstream HTTP ${statusCode} error page for URL: ${url}`,
+    )
+  }
+  return result
+}
+
+/**
  * Scrapes a web page or repo README via Firecrawl API.
  *
  * Rules:
@@ -127,7 +176,8 @@ export async function scrapeWithFirecrawl(
   }
 
   if (deps.scraper) {
-    return deps.scraper(trimmed, options)
+    const injected = await deps.scraper(trimmed, options)
+    return validateScrapeResult(trimmed, injected)
   }
 
   const apiKey = options.apiKey ?? process.env.FIRECRAWL_API_KEY
@@ -194,23 +244,19 @@ export async function scrapeWithFirecrawl(
 
     const data = payload.data ?? {}
     const meta = data.metadata ?? {}
-
-    if (isPdfUrl(trimmed, meta)) {
-      throw new Error(
-        `PDFs never go through Firecrawl. Scraped response content-type is application/pdf: ${trimmed}`,
-      )
-    }
-
     const markdown = data.markdown ?? data.content ?? ''
+    const resolvedTitle =
+      (typeof meta.title === 'string' ? meta.title.trim() : '') ||
+      extractFallbackTitleFromUrl(trimmed)
 
-    return {
+    return validateScrapeResult(trimmed, {
       url: trimmed,
-      title: (meta.title as string) || (trimmed.split('/').pop() ?? 'Web Source'),
+      title: resolvedTitle,
       markdown,
       description: (meta.description as string) || null,
       statusCode: (meta.statusCode as number) ?? 200,
       metadata: meta,
-    }
+    })
   } finally {
     if (timeoutId) {
       clearTimeout(timeoutId)
@@ -252,7 +298,7 @@ export async function ingestWebSource(
   if (!markdown) {
     const scrapeResult = await scrapeWithFirecrawl(trimmed, options, deps)
     markdown = scrapeResult.markdown
-    title = title ?? scrapeResult.title
+    title = title?.trim() || scrapeResult.title
     metadata = scrapeResult.metadata
   }
 
@@ -260,15 +306,10 @@ export async function ingestWebSource(
     throw new Error(`No content could be extracted from URL: ${trimmed}`)
   }
 
-  const finalTitle = title ?? trimmed
+  const finalTitle = (title ?? '').trim() || trimmed
 
-  // 2. Detect kind (repo vs web)
-  const isRepo =
-    options.kind === 'repo' ||
-    trimmed.includes('github.com/') ||
-    trimmed.includes('gitlab.com/')
-
-  const kind: 'web' | 'repo' = options.kind ?? (isRepo ? 'repo' : 'web')
+  // 2. Detect kind (repo vs web) using hostname rather than substring match
+  const kind: 'web' | 'repo' = options.kind ?? (isRepoHost(trimmed) ? 'repo' : 'web')
 
   // 3. Compute sha256 and byte length
   const sha256 = crypto.createHash('sha256').update(markdown).digest('hex')
@@ -289,13 +330,10 @@ export async function ingestWebSource(
     throw new Error(`Content from URL produced zero valid chunks: ${trimmed}`)
   }
 
-  // 5. Embed chunks using gemini-embedding-2 (768d) with workspaceId task accounting
-  const embedFn = deps.embedChunksFn ?? embedChunks
-  const embeddings = await embedFn(
-    chunks,
-    { workspaceId: options.workspaceId },
-    deps.embedDeps ?? {},
-  )
+  // 5. Embed chunks using gemini-embedding-2 (768d) with mandatory workspaceId accounting
+  const embeddings = deps.embedChunksFn
+    ? await deps.embedChunksFn(chunks, { workspaceId: options.workspaceId }, deps.embedDeps ?? {})
+    : await embedChunksForWorkspace(options.workspaceId, chunks, {}, deps.embedDeps ?? {})
 
   // 6. Persist source and chunks atomically inside a single transaction
   let db = deps.db
