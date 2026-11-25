@@ -34,13 +34,15 @@ These are not style preferences. Breaking one of them breaks the product's only 
 | `@tanstack/react-start` | ≥ 1.168.60 — earlier versions carry CVE-2026-102989 |
 | `ai` | 7.x — `ToolLoopAgent`, `tool({ inputSchema })`, `generateText({ output: Output.object() })`. `generateObject` is deprecated |
 | `@ai-sdk/react` | 4.x — `useChat({ transport })`, `message.parts`. `handleSubmit` and `api` props no longer exist |
-| `@ai-sdk/google` | 4.x — models `gemini-3.8-flash`, embeddings `gemini-embedding-2` at 768 dims |
+| `@ai-sdk/google` | 4.x — models `gemini-3.8-flash` (default), `gemini-4-hydrogen` (evaluator `explain_gap` only), embeddings `gemini-embedding-2` at 768 dims |
 | Drizzle + Neon | pgvector on, HNSW optional at this scale |
 | `@xyflow/react` | canvas |
 | `unpdf` | PDF text extraction |
 | E2B | experiment sandbox |
 
 Much of the AI SDK material online describes v5 or v6 and will not compile. When in doubt, read the installed types, not a tutorial.
+
+`gemini-4-hydrogen` is a deliberate, evaluator-only exception: the Stage 7 `explain_gap` call uses it for the two-sentence explanation, while `evaluateExperiment` computes the verdict before that call and the model cannot change it. Every other text call site uses `gemini-3.8-flash`, and embeddings stay on `gemini-embedding-2`. `DEFAULT_PRICING` costs the evaluator call at the published Standard paid rate ($1.50 input / $7.50 output per million tokens, thinking included at the output rate); that is an accounting estimate, not billing telemetry.
 
 Gemini constrains our schemas: flat or one level of nesting, no recursive `$ref`, and never rely on `minLength` / `maxLength` / `uniqueItems` — they are silently ignored, so validate in Zod after the call.
 

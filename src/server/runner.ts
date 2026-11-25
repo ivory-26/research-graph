@@ -543,7 +543,6 @@ export interface E2BRunnerOptions {
       timeoutMs: number
       metadata: Record<string, string>
       allowInternetAccess: boolean
-      cpuCount?: number
     },
   ) => Promise<Sandbox>
   datasetFetcher?: (ref: DatasetRef) => Promise<FetchedDataset>
@@ -597,12 +596,13 @@ export class E2BRunner implements ExperimentRunner {
           timeoutMs: opts.timeoutMs,
           metadata: opts.metadata,
           allowInternetAccess: opts.allowInternetAccess,
-          cpuCount: opts.cpuCount,
         }))
 
-    // Note: E2B allocates memory at the template level (fixed at 2048 MB in the pinned
-    // researchgraph-python:locked template). memoryMb is recorded in sandbox metadata
-    // for observability and auditing, while cpuCount is passed to Sandbox.create.
+    // E2B allocates CPU and memory at the template level (the pinned
+    // researchgraph-python:locked template bakes 1 vCPU / 2048 MB). Passing
+    // `cpuCount` to Sandbox.create asks E2B to resize, which fails with
+    // "resizable templates are not enabled" on a team without that feature.
+    // The requested values stay in the sandbox metadata for audit.
     const sandbox = await createSandbox(updatedSpec.image, {
       timeoutMs: updatedSpec.timeoutSeconds * 1000,
       metadata: {
@@ -611,7 +611,6 @@ export class E2BRunner implements ExperimentRunner {
         cpuCount: String(updatedSpec.cpuCount),
       },
       allowInternetAccess: false,
-      cpuCount: updatedSpec.cpuCount,
     })
 
     const sandboxId = sandbox.sandboxId

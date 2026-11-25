@@ -170,3 +170,5 @@ Because of Gemini's structured-output subset ([ADR 0009](./adr/0009-gemini-only.
 - Never exceed 12 items in a top-level array; large arrays increase truncation risk and make validation all-or-nothing.
 
 Every call is sequential. Gemini's free-tier quotas are per project and unpublished, so the pipeline never issues parallel requests, and every call site goes through one `callModel()` wrapper that implements exponential backoff with jitter on 429 and records cost, tokens and latency on the task row.
+
+The one model exception is the Stage 7 `explain_gap` call, which pins `gemini-4-hydrogen` for the two-sentence explanation (`src/server/evaluate.ts`). The verdict is computed by `evaluateExperiment` before that call and the model cannot alter it. Every other text call site uses `gemini-3.8-flash`, and embeddings stay on `gemini-embedding-2`. `DEFAULT_PRICING` costs the evaluator call from the published Standard paid rate: $1.50 per million input tokens and $7.50 per million output tokens, with thinking billed at the output rate. The table is an accounting estimate from published prices, not billing telemetry or a statement about account entitlement.

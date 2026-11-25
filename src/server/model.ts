@@ -53,14 +53,26 @@ export type ModelPricing = {
 }
 
 /**
- * List price for the pinned model, used to fill `agent_tasks.cost_usd`.
- * Override through `createCallModel({ pricing })` if Google changes the price;
- * the row records the cost that the configured table produced.
+ * Published list prices for the models this project pins, used to fill
+ * `agent_tasks.cost_usd`. Override through `createCallModel({ pricing })` if
+ * Google changes them; the row records the cost this table produced.
+ *
+ * `gemini-4-hydrogen` is the evaluator's `explain_gap` pin (see `evaluate.ts`),
+ * not a general default. Its entry is the published Standard paid rate:
+ * $1.50 per million input tokens and $7.50 per million output tokens. Gemini
+ * bills thinking tokens at the output rate, and the SDK's `outputTokens` is
+ * the total output count, so thinking is included. This is an accounting
+ * estimate from published prices, not billing telemetry or a statement about
+ * the account's entitlement; the Standard free tier is not charged.
  */
 export const DEFAULT_PRICING: Readonly<Record<string, ModelPricing>> = {
   [DEFAULT_MODEL_ID]: {
     inputUsdPerMillionTokens: 0.3,
     outputUsdPerMillionTokens: 2.5,
+  },
+  'gemini-4-hydrogen': {
+    inputUsdPerMillionTokens: 1.5,
+    outputUsdPerMillionTokens: 7.5,
   },
 }
 
