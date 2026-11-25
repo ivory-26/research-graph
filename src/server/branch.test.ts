@@ -177,4 +177,24 @@ describe('branchWhatIf (Issue #27)', () => {
     })
     expect(store.experiments).toHaveLength(0)
   })
+
+  it('rejects changes to non-existent path segments or misspelled parameters', async () => {
+    const parentRun = makeCompletedParentRun()
+    const store = new MemoryWhatIfBranchStore()
+
+    await expect(
+      branchWhatIf(parentRun, { path: 'paramters.importance_method', value: 'permutation' }, { store }),
+    ).rejects.toMatchObject({
+      name: 'BranchValidationError',
+      code: 'INVALID_PATH',
+    })
+
+    await expect(
+      branchWhatIf(parentRun, { path: 'parameters.non_existent_leaf', value: 'permutation' }, { store }),
+    ).rejects.toMatchObject({
+      name: 'BranchValidationError',
+      code: 'INVALID_PATH',
+    })
+    expect(store.experiments).toHaveLength(0)
+  })
 })

@@ -136,7 +136,10 @@ export function applySingleLeafChange(
       cursor = cursor[idx]
     } else if (isPlainObject(cursor)) {
       if (!(seg in cursor)) {
-        cursor[seg] = {}
+        throw new BranchValidationError(
+          `Segment "${seg}" does not exist in path "${leafPath}"`,
+          'INVALID_PATH',
+        )
       }
       cursor = cursor[seg]
     } else {
@@ -158,6 +161,12 @@ export function applySingleLeafChange(
     }
     cursor[idx] = structuredClone(value)
   } else if (isPlainObject(cursor)) {
+    if (!(last in cursor)) {
+      throw new BranchValidationError(
+        `Leaf "${last}" does not exist in path "${leafPath}"`,
+        'INVALID_PATH',
+      )
+    }
     cursor[last] = structuredClone(value)
   } else {
     throw new BranchValidationError(
@@ -250,6 +259,10 @@ export function createDrizzleWhatIfBranchStore(
         throw new Error('runs insert returned no row')
       }
 
+      if (!run.parentRunId) {
+        throw new Error('runs insert failed to persist parentRunId')
+      }
+
       return {
         experiment: {
           id: exp.id,
@@ -262,7 +275,7 @@ export function createDrizzleWhatIfBranchStore(
         run: {
           id: run.id,
           experimentId: run.experimentId,
-          parentRunId: run.parentRunId ?? input.parentRunId,
+          parentRunId: run.parentRunId,
           attempt: run.attempt,
           status: run.status,
           spec: run.spec,
