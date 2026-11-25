@@ -9,7 +9,7 @@ import type {
   Verdict,
 } from '../shared/types'
 import { extractEntrypointFile } from './planner'
-import { SANDBOX_METRICS_PATH } from './runner'
+import { MAX_DATASET_BYTES, SANDBOX_METRICS_PATH } from './runner'
 
 export type NbformatOutput = {
   output_type: string
@@ -119,11 +119,17 @@ function formatReportedValue(reported: ReportedValue | null): string {
   if (!reported) {
     return 'None (qualitative claim; no reported numeric threshold)'
   }
-  const compStr = reported.comparator ? formatOp(reported.comparator) : ''
+  const compStr = reported.comparator ? formatOp(reported.comparator) : null
+  const comparisonSuffix =
+    reported.against !== null
+      ? compStr
+        ? ` (${compStr} ${reported.against})`
+        : ` (against ${reported.against})`
+      : ''
   const valueStr =
     reported.value === null
-      ? 'null (qualitative)'
-      : `${reported.value}${compStr && reported.against !== null ? ` (${compStr} ${reported.against})` : ''}`
+      ? `null (qualitative)${comparisonSuffix}`
+      : `${reported.value}${comparisonSuffix}`
   return `\`${reported.metric}\` = ${valueStr} — "${reported.quote}"`
 }
 
@@ -160,8 +166,59 @@ function buildMetadataMarkdownCell(input: BuildNotebookInput): NbformatMarkdownC
   }
 }
 
+const MODULE_TO_PYPI: Record<string, string> = {
+  sklearn: 'scikit-learn',
+  pil: 'pillow',
+  cv2: 'opencv-python',
+  yaml: 'pyyaml',
+  bs4: 'beautifulsoup4',
+  dateutil: 'python-dateutil',
+}
+
+function normalizePkgName(name: string): string {
+  return name.toLowerCase().replace(/_/g, '-')
+}
+
+function extractImportedPackageNames(
+  files: Record<string, string>,
+): Set<string> {
+  const imported = new Set<string>()
+  for (const content of Object.values(files)) {
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim()
+      const fromMatch = line.match(/^from\s+([a-zA-Z0-9_]+)/)
+      if (fromMatch) {
+        const mod = fromMatch[1]!.toLowerCase()
+        imported.add(normalizePkgName(MODULE_TO_PYPI[mod] ?? mod))
+        continue
+      }
+      const importMatch = line.match(/^import\s+([^#;]+)/)
+      if (importMatch) {
+        for (const part of importMatch[1]!.split(',')) {
+          const mod = part.trim().split(/[\s.]/)[0]?.toLowerCase()
+          if (mod) {
+            imported.add(normalizePkgName(MODULE_TO_PYPI[mod] ?? mod))
+          }
+        }
+      }
+    }
+  }
+  return imported
+}
+
+const PACKAGE_CLOSURE: Record<string, string[]> = {
+  sklearn: ['numpy', 'scipy', 'joblib', 'threadpoolctl'],
+  'scikit-learn': ['numpy', 'scipy', 'joblib', 'threadpoolctl'],
+  pandas: ['numpy', 'python-dateutil', 'pytz'],
+  seaborn: ['matplotlib', 'pandas', 'numpy'],
+  matplotlib: ['numpy', 'pillow', 'kiwisolver', 'cycler', 'fonttools', 'packaging'],
+  scipy: ['numpy'],
+  torch: ['typing-extensions', 'sympy', 'networkx', 'jinja2', 'fsspec'],
+}
+
 function buildPipInstallCell(
   packages: Record<string, string> | undefined,
+  files?: Record<string, string>,
 ): NbformatCodeCell {
   if (!packages || Object.keys(packages).length === 0) {
     throw new Error(
@@ -184,16 +241,49 @@ function buildPipInstallCell(
 
   if (Object.keys(filtered).length === 0) {
     throw new Error(
-      'Cannot build notebook dependencies install cell: no valid package versions found in environment.packages',
+      'Cannot build notebook dependencies install cell: no valid package versions found in environment.packages (if pip list failed during run execution, a valid reproducible notebook cannot be built)',
     )
   }
 
-  const pkgArgs = Object.entries(filtered)
-    .sort(([a], [b]) => a.localeCompare(b))
+  let selected = filtered
+  let narrowingNote: string | null = null
+  if (files) {
+    const imported = extractImportedPackageNames(files)
+    for (const pkg of Array.from(imported)) {
+      const closure = PACKAGE_CLOSURE[pkg]
+      if (closure) {
+        for (const dep of closure) {
+          imported.add(normalizePkgName(dep))
+        }
+      }
+    }
+    const narrowed: Record<string, string> = {}
+    for (const [pkg, ver] of Object.entries(filtered)) {
+      if (imported.has(normalizePkgName(pkg))) {
+        narrowed[pkg] = ver
+      }
+    }
+    const filteredCount = Object.keys(filtered).length
+    const narrowedCount = Object.keys(narrowed).length
+    if (narrowedCount > 0 && narrowedCount < filteredCount) {
+      selected = narrowed
+      narrowingNote =
+        '# Note: narrowed to packages imported in spec.files and their pinned runtime closure (dynamic imports via importlib may require manual installation)'
+    } else if (narrowedCount === 0) {
+      narrowingNote =
+        '# Note: no spec imports matched environment.packages; installing full pinned set'
+    }
+  }
+
+  const pkgArgs = Object.entries(selected)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([pkg, ver]) => `"${pkg}==${ver}"`)
     .join(' ')
 
   const codeLines = ['# Install pinned runtime dependencies from run environment']
+  if (narrowingNote) {
+    codeLines.push(narrowingNote)
+  }
   if (unknownPackages.length > 0) {
     codeLines.push(
       `# Note: omitted packages with unknown version: ${unknownPackages.sort().join(', ')}`,
@@ -211,31 +301,93 @@ function buildPipInstallCell(
   }
 }
 
-function buildDatasetDownloadCell(spec: ExperimentSpec): NbformatCodeCell {
+function buildDatasetDownloadCell(
+  spec: ExperimentSpec,
+  environment?: Partial<RunEnvironment> | null,
+): NbformatCodeCell {
   const lines: string[] = [
     '# Download datasets and verify SHA-256 checksums',
     'import hashlib',
+    'import ipaddress',
     'import pathlib',
+    'import time',
+    'import urllib.parse',
     'import urllib.request',
+    '',
+    'ALLOWED_DATASET_DOMAINS = (',
+    "    'openml.org', 'www.openml.org', 'archive.ics.uci.edu',",
+    "    'github.com', 'raw.githubusercontent.com', 'gist.githubusercontent.com', 'huggingface.co',",
+    ')',
+    '',
+    'def validate_dataset_url(url_str: str) -> None:',
+    '    parsed = urllib.parse.urlparse(url_str)',
+    "    if parsed.scheme not in ('http', 'https'):",
+    '        raise ValueError(f"Dataset URL protocol must be http or https, got {parsed.scheme!r}")',
+    '    host = (parsed.hostname or "").lower()',
+    '    if not host or host == "localhost" or host.endswith((".localhost", ".local", ".internal")):',
+    '        raise ValueError(f"Dataset URL host {host!r} is disallowed (SSRF protection)")',
+    '    try:',
+    '        ip = ipaddress.ip_address(host.strip("[]"))',
+    '    except ValueError:',
+    '        ip = None',
+    '    if ip is not None and (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_reserved):',
+    '        raise ValueError(f"Dataset URL IP {host!r} is forbidden (SSRF protection)")',
+    '    if not any(host == d or host.endswith("." + d) for d in ALLOWED_DATASET_DOMAINS):',
+    '        raise ValueError(f"Dataset host {host!r} is not in ALLOWED_DATASET_DOMAINS")',
+    '',
+    'class SafeDatasetRedirectHandler(urllib.request.HTTPRedirectHandler):',
+    '    def __init__(self, max_redirects: int = 3) -> None:',
+    '        self.max_redirects = max_redirects',
+    '        self._redirects = 0',
+    '    def redirect_request(self, req, fp, code, msg, headers, newurl):',
+    '        self._redirects += 1',
+    '        if self._redirects > self.max_redirects:',
+    '            raise ValueError(f"Exceeded maximum redirects ({self.max_redirects})")',
+    '        validate_dataset_url(newurl)',
+    '        return super().redirect_request(req, fp, code, msg, headers, newurl)',
     '',
   ]
 
   if (spec.datasets.length === 0) {
     lines.push('print("No external datasets configured for this experiment.")')
   } else {
+    const capMb = Math.round(MAX_DATASET_BYTES / (1024 * 1024))
+    lines.push(`MAX_DOWNLOAD_BYTES = ${MAX_DATASET_BYTES}  # ${capMb} MiB cap matching runner.ts`)
     lines.push('DATASETS = [')
     for (const ref of spec.datasets) {
+      const envSha =
+        environment?.datasets?.find((d) => d.name === ref.name)?.sha256 ?? null
+      const sha256ToUse = ref.sha256 ?? envSha
       lines.push(
-        `    {"name": ${JSON.stringify(ref.name)}, "url": ${JSON.stringify(ref.url)}, "path": ${JSON.stringify(ref.path)}, "sha256": ${ref.sha256 ? JSON.stringify(ref.sha256) : 'None'}},`,
+        `    {"name": ${JSON.stringify(ref.name)}, "url": ${JSON.stringify(ref.url)}, "path": ${JSON.stringify(ref.path)}, "sha256": ${sha256ToUse ? JSON.stringify(sha256ToUse) : 'None'}, "max_bytes": ${typeof ref.bytes === 'number' ? ref.bytes : 'MAX_DOWNLOAD_BYTES'}},`,
       )
     }
     lines.push(']')
     lines.push('')
     lines.push('for ds in DATASETS:')
+    lines.push('    validate_dataset_url(ds["url"])')
+    lines.push('    dataset_opener = urllib.request.build_opener(SafeDatasetRedirectHandler(max_redirects=3))')
     lines.push('    dest = pathlib.Path(ds["path"])')
+    lines.push('    if dest.is_absolute() or ".." in dest.parts:')
+    lines.push('        raise ValueError(f"Disallowed traversal or absolute dataset path: {ds[\'path\']!r}")')
     lines.push('    dest.parent.mkdir(parents=True, exist_ok=True)')
     lines.push('    if not dest.exists():')
-    lines.push('        urllib.request.urlretrieve(ds["url"], dest)')
+    lines.push('        limit = min(ds["max_bytes"], MAX_DOWNLOAD_BYTES)')
+    lines.push('        total = 0')
+    lines.push('        deadline = time.time() + 30')
+    lines.push('        with dataset_opener.open(ds["url"], timeout=30) as resp, dest.open("wb") as out:')
+    lines.push('            while True:')
+    lines.push('                if time.time() > deadline:')
+    lines.push('                    dest.unlink(missing_ok=True)')
+    lines.push('                    raise TimeoutError(f"Download exceeded 30s wall-clock deadline for {ds[\'name\']}")')
+    lines.push('                chunk = resp.read(65536)')
+    lines.push('                if not chunk:')
+    lines.push('                    break')
+    lines.push('                total += len(chunk)')
+    lines.push('                if total > limit:')
+    lines.push('                    dest.unlink(missing_ok=True)')
+    lines.push('                    raise ValueError(f"Download exceeded {limit} bytes cap for {ds[\'name\']}")')
+    lines.push('                out.write(chunk)')
     lines.push('    actual_sha256 = hashlib.sha256(dest.read_bytes()).hexdigest()')
     lines.push('    expected_sha256 = ds["sha256"]')
     lines.push('    if expected_sha256 is not None:')
@@ -280,6 +432,8 @@ function buildVerbatimScriptCell(spec: ExperimentSpec): NbformatCodeCell[] {
       `# Auxiliary file: ${filePath}`,
       'import pathlib',
       `target_path = pathlib.Path(${JSON.stringify(filePath)})`,
+      'if target_path.is_absolute() or ".." in target_path.parts:',
+      '    raise ValueError(f"Disallowed traversal or absolute path: {target_path}")',
       'target_path.parent.mkdir(parents=True, exist_ok=True)',
       `target_path.write_text(${safeContent}, encoding="utf-8")`,
       `print(f"Wrote {target_path} ({len(target_path.read_text())} characters)")`,
@@ -368,7 +522,7 @@ function buildCriteriaMarkdownCell(spec: ExperimentSpec): NbformatMarkdownCell {
     '### What the verdict means',
     '- **`match`**: Exit code is `0`, all required metrics are present in `/output/metrics.json`, and the criteria pass.',
     `- **\`mismatch\`**: Exit code is \`0\` and all required metrics are present, but ${spec.criteria.mode === 'any' ? 'no required criterion passed' : 'one or more required criteria failed'}.`,
-    '- **`inconclusive`**: Exit code is `0`, but a criterion references a metric missing from `/output/metrics.json`.',
+    '- **`inconclusive`**: `criteria.checks` is empty (regardless of exit code), or exit code is `0` and a criterion references a metric missing or non-finite (NaN/Infinity) from `/output/metrics.json`.',
     '- **`failed`**: Non-zero exit code, missing/unparseable `/output/metrics.json`, or sandbox timeout.',
   ]
 
@@ -382,7 +536,7 @@ function buildCriteriaMarkdownCell(spec: ExperimentSpec): NbformatMarkdownCell {
 
 /**
  * Builds an nbformat v4 document deterministically from the frozen ExperimentSpec
- * and run metadata (docs/04-experiment-runtime.md:211-223). Never calls a model.
+ * and run metadata (docs/04-experiment-runtime.md:236-249). Never calls a model.
  */
 export function buildNotebookDocument(
   input: BuildNotebookInput,
@@ -406,8 +560,8 @@ export function buildNotebookDocument(
     },
     cells: [
       buildMetadataMarkdownCell(input),
-      buildPipInstallCell(input.environment?.packages),
-      buildDatasetDownloadCell(input.spec),
+      buildPipInstallCell(input.environment?.packages, input.spec.files),
+      buildDatasetDownloadCell(input.spec, input.environment),
       ...buildVerbatimScriptCell(input.spec),
       buildMetricsDisplayCell(),
       buildCriteriaMarkdownCell(input.spec),
@@ -438,6 +592,16 @@ export function buildNotebookArtifact(
   }
 }
 
+/**
+ * Persists an exported notebook artifact into the `run_artifacts` table.
+ *
+ * Follow-up integration owned by ivory-26: tracked in issue #64
+ * (https://github.com/ivory-26/research-graph/issues/64) for docs/05-plan.md:75
+ * ("Server-side notebook export | —") to wire after verdict persistence in
+ * `src/server/pipeline-delivery/production-stages.ts:397` (owned by `ivory-26` per
+ * `CODEOWNERS` / `docs/07-workstreams.md:25`). Notebook generation errors
+ * must be logged and must not fail an otherwise successful run.
+ */
 export async function saveNotebookArtifact(
   db: Pick<Database, 'insert'>,
   runId: string,

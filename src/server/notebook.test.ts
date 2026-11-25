@@ -4,7 +4,13 @@ import {
   HERO_EXPERIMENT_SPEC_RUN_A,
   HERO_RECORDED_RUN_RESULT,
 } from '../../fixtures/hero-spec'
-import { buildNotebookArtifact, buildNotebookDocument } from './notebook'
+import type { Database } from '../db/client'
+import {
+  buildNotebookArtifact,
+  buildNotebookDocument,
+  saveNotebookArtifact,
+} from './notebook'
+import { MAX_DATASET_BYTES } from './runner'
 
 const HERO_CLAIM = {
   text: 'Gini importance favours high-cardinality features; permutation does not',
@@ -100,6 +106,8 @@ describe('buildNotebookDocument (Issue #28)', () => {
     const dsSrc = cell3.source.join('')
     expect(dsSrc).toContain(HERO_EXPERIMENT_SPEC_RUN_A.datasets[0]!.url)
     expect(dsSrc).toContain(HERO_EXPERIMENT_SPEC_RUN_A.datasets[0]!.sha256!)
+    expect(dsSrc).toContain('ALLOWED_DATASET_DOMAINS')
+    expect(dsSrc).toContain('SafeDatasetRedirectHandler')
     expect(dsSrc).toContain('hashlib.sha256')
     expect(dsSrc).toContain('SHA-256 mismatch')
 
@@ -223,5 +231,131 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(pipSrc).not.toContain('"wheel==')
     expect(pipSrc).toContain('# Note: omitted packages with unknown version: mystery_pkg')
     expect(pipSrc).toContain('"numpy==2.5.5"')
+  })
+
+  it('uses recorded dataset sha256 from environment when spec dataset sha256 is unpinned', () => {
+    const unpinnedSpec = structuredClone(HERO_EXPERIMENT_SPEC_RUN_A)
+    unpinnedSpec.datasets[0]!.sha256 = null
+
+    const nb = buildNotebookDocument({
+      spec: unpinnedSpec,
+      environment: HERO_RECORDED_RUN_RESULT.environment,
+      claim: HERO_CLAIM,
+      verdict: 'match',
+    })
+
+    const dsSrc = nb.cells[2]!.source.join('')
+    expect(dsSrc).toContain(HERO_RECORDED_RUN_RESULT.environment.datasets[0]!.sha256)
+  })
+
+  it('narrows pinned pip installs to packages imported by the spec plus their runtime closure', () => {
+    const nb = buildNotebookDocument({
+      spec: HERO_EXPERIMENT_SPEC_RUN_A,
+      environment: {
+        ...HERO_RECORDED_RUN_RESULT.environment,
+        packages: {
+          ...HERO_RECORDED_RUN_RESULT.environment.packages,
+          joblib: '1.4.2',
+          threadpoolctl: '3.5.0',
+          flask: '3.0.0',
+          pytest: '8.3.0',
+        },
+      },
+      claim: HERO_CLAIM,
+      verdict: 'match',
+    })
+
+    const pipSrc = nb.cells[1]!.source.join('')
+    expect(pipSrc).toContain('"numpy==2.5.5"')
+    expect(pipSrc).toContain('"pandas==2.3.3"')
+    expect(pipSrc).toContain('"scikit-learn==1.9.1"')
+    expect(pipSrc).toContain('"scipy==1.17.1"')
+    expect(pipSrc).toContain('"joblib==1.4.2"')
+    expect(pipSrc).toContain('"threadpoolctl==3.5.0"')
+    expect(pipSrc).not.toContain('"flask==')
+    expect(pipSrc).not.toContain('"pytest==')
+  })
+
+  it('validates subdomain allowlist and SSRF/redirect guards in cell 3 dataset download', () => {
+    const nb = buildNotebookDocument({
+      spec: HERO_EXPERIMENT_SPEC_RUN_A,
+      environment: HERO_RECORDED_RUN_RESULT.environment,
+      claim: HERO_CLAIM,
+      verdict: 'match',
+    })
+
+    const dsSrc = nb.cells[2]!.source.join('')
+    expect(dsSrc).toContain('validate_dataset_url')
+    expect(dsSrc).toContain('ipaddress.ip_address')
+    expect(dsSrc).toContain('host.endswith("." + d)')
+    expect(dsSrc).toContain('max_redirects=3')
+    expect(dsSrc).toContain(`MAX_DOWNLOAD_BYTES = ${MAX_DATASET_BYTES}`)
+  })
+
+  it('renders reported.against even when reported.comparator is null', () => {
+    const nb = buildNotebookDocument({
+      spec: HERO_EXPERIMENT_SPEC_RUN_A,
+      environment: HERO_RECORDED_RUN_RESULT.environment,
+      claim: {
+        ...HERO_CLAIM,
+        reported: {
+          metric: 'rank_impurity_noise_20',
+          value: 2,
+          comparator: null,
+          against: 5,
+          quote: HERO_CLAIM.quote,
+        },
+      },
+      verdict: 'match',
+    })
+
+    const md1 = nb.cells[0]!.source.join('')
+    expect(md1).toContain('`rank_impurity_noise_20` = 2 (against 5)')
+  })
+
+  it('persists notebook artifact via saveNotebookArtifact and throws if insert returns no row', async () => {
+    const inserted: Array<Record<string, unknown>> = []
+    let shouldReturn = true
+    const fakeDb = {
+      insert() {
+        return {
+          values(vals: Record<string, unknown>) {
+            inserted.push(vals)
+            return {
+              async returning() {
+                return shouldReturn ? [{ id: 'artifact-nb-1' }] : []
+              },
+            }
+          },
+        }
+      },
+    } as unknown as Pick<Database, 'insert'>
+
+    const saved = await saveNotebookArtifact(fakeDb, 'run-1', {
+      spec: HERO_EXPERIMENT_SPEC_RUN_A,
+      environment: HERO_RECORDED_RUN_RESULT.environment,
+      claim: HERO_CLAIM,
+      verdict: 'match',
+    })
+
+    expect(saved.id).toBe('artifact-nb-1')
+    expect(saved.kind).toBe('notebook')
+    expect(saved.path).toBe('reproducibility-record.ipynb')
+    expect(inserted[0]).toMatchObject({
+      runId: 'run-1',
+      kind: 'notebook',
+      path: 'reproducibility-record.ipynb',
+      sha256: saved.sha256,
+      bytes: saved.bytes,
+    })
+
+    shouldReturn = false
+    await expect(
+      saveNotebookArtifact(fakeDb, 'run-1', {
+        spec: HERO_EXPERIMENT_SPEC_RUN_A,
+        environment: HERO_RECORDED_RUN_RESULT.environment,
+        claim: HERO_CLAIM,
+      }),
+    ).rejects.toThrow('run_artifacts insert returned no row')
   })
 })
