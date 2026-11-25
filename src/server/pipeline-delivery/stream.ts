@@ -22,7 +22,7 @@
  * not only by the abort signal handed to the stages. A stage that ignores its
  * signal cannot keep heartbeats alive or keep the response open: when the
  * budget signal aborts, this module stops the heartbeat, appends the terminal
- * event itself (`run.timeout` when a run had started, then `pipeline.failed`),
+ * event itself (`run.timeout` when a run is still active, then `pipeline.failed`),
  * delivers it, and closes the writer without waiting for the stage promise.
  * `emit` refuses every event after the deadline, so a stage that returns late
  * cannot append `pipeline.completed` or anything else. The cooperative signal
@@ -126,7 +126,11 @@ type StreamState = {
   terminal: boolean
   /** True once the response is being finalized; no more work is accepted. */
   finalized: boolean
-  /** `runId` from the last delivered `run.started`, for `run.timeout`. */
+  /**
+   * `runId` from the last delivered `run.started`. Cleared by a delivered
+   * `run.succeeded`/`run.failed` so a later budget expiry cannot append a
+   * `run.timeout` for a run whose row already has a terminal status.
+   */
   activeRunId: string | null
 }
 
@@ -177,6 +181,16 @@ function writeEvent(
   if (event.seq <= state.cursor) return
   if (isTerminalEventType(event.type)) state.terminal = true
   if (event.type === 'run.started') state.activeRunId = event.runId
+  // A run-level terminal means the sandbox is done. Without this, a budget
+  // expiry during EVALUATE would append `run.timeout` after `run.succeeded`
+  // for the same runId, contradicting `runs.status` in the durable log. Match
+  // the id so a replayed terminal for an earlier run cannot clear a newer one.
+  if (
+    (event.type === 'run.succeeded' || event.type === 'run.failed') &&
+    event.runId === state.activeRunId
+  ) {
+    state.activeRunId = null
+  }
   state.cursor = event.seq
   writer.write(formatSseEvent(event))
 }
@@ -578,7 +592,7 @@ async function runOwner(
     if (error instanceof StreamCancelledError) return
 
     // The deadline supervisor owns the terminal event at expiry; it writes
-    // `run.timeout` (when a run had started) and `pipeline.failed`.
+    // `run.timeout` (when a run is still active) and `pipeline.failed`.
     if (context.budgetExpired()) return
 
     if (

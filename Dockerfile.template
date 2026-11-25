@@ -11,8 +11,8 @@ RUN pip install --no-cache-dir \
 
 # Pre-create the output directory and make it writable by the sandbox user.
 # E2B appends `USER user` after these steps, so a root-owned /output would make
-# `open('/output/metrics.json', 'w')` fail with EACCES. This mirrors the local
-# Docker hardening in docs/04 (chmod 0o777 on /output).
+# `open('/output/metrics.json', 'w')` fail with EACCES. The local Docker path in
+# docs/04 bind-mounts a host directory into /output instead and needs no chmod.
 # /etc/image-digest is populated by the build pipeline when the pinned template is published
 RUN mkdir -p /output && chmod 777 /output
 

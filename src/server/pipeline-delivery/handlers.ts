@@ -251,8 +251,9 @@ export function createPipelineHandlers(
 
           if (!existingClaim) {
             if (!deps.stages) {
-              // No stage provider on main. Refuse before claiming so the
-              // experiment is not burned by a pipeline that cannot run.
+              // This process has no stage provider configured. Refuse before
+              // claiming so the experiment is not burned by a pipeline that
+              // cannot run.
               throw new PipelineHttpError(
                 503,
                 'PIPELINE_STAGES_UNAVAILABLE',

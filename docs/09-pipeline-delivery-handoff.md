@@ -79,12 +79,13 @@ What the provider deliberately does not do:
 - **Rejection cancels.** A rejected decision emits `pipeline.cancelled`
   (`reason: 'rejected'`) and never calls `execute`.
 - **240 s budget, 15 s heartbeat.** Defaults are the #33 primitives; tests
-  inject shorter values. Budget expiry emits `run.timeout` when a run had
-  started, then `pipeline.failed`; the terminal append closes the claim.
+  inject shorter values. Budget expiry emits `run.timeout` when a run is still
+  active (started and not already `succeeded`/`failed`), then `pipeline.failed`;
+  the terminal append closes the claim.
 - **Caller-side deadline.** `openPipelineStream` races the stage runner against
   the budget/abort signal: when the budget fires it stops the heartbeat,
-  replays committed events, appends `run.timeout` (when a run had started) and
-  one `pipeline.failed`, delivers them, and closes the response without waiting
+  replays committed events, appends `run.timeout` (when a run is still active)
+  and one `pipeline.failed`, delivers them, and closes the response without waiting
   for a stage that ignores `signal`. `emit` refuses everything after the
   deadline.
 - **Terminal semantics.** Only the claim owner appends a terminal event. A
@@ -121,6 +122,11 @@ names a disposable Postgres server with `CREATEDB`:
   or `callModel` replacement: a real sandbox on the pinned template, then a
   real `explain_gap` call on `gemini-4-hydrogen`. It asserts the run row,
   metrics, verdict, `agent_tasks` row and `agent_task.recorded` linkage.
+  `gemini-4-hydrogen` is the evaluator's text model only: the verdict is
+  computed before the call, and every other call site uses `DEFAULT_MODEL_ID`
+  (`gemini-3.8-flash`). `DEFAULT_PRICING` costs the call at the published
+  Standard paid rate ($1.50 input / $7.50 output per million tokens, thinking
+  billed as output); that is an accounting estimate, not billing telemetry.
 
 `test-support/production-fixtures.ts` holds the valid plan, the deterministic
 runner and the recording model call. No production path imports it.
@@ -167,14 +173,54 @@ host must be loopback unless `TEST_DATABASE_ALLOW_REMOTE=1` is set explicitly
 for a disposable CI server. `test-support/pg.ts` holds the checks;
 `test-support/pg-safety.test.ts` covers them without a connection.
 
+## Live verification record (2026-11-25, head `c39b86b`)
+
+Both runs used the real services. They are recorded here because the live
+files are opt-in and are not part of CI.
+
+**Full pipeline smoke** — `live-smoke.integration.test.ts`, template build
+`3060b313`:
+
+- The mounted GET opens the stream, the approval POST commits in a separate
+  request, and `pipeline.completed` arrives.
+- `runs.status = succeeded`, `metrics = {"score": 0.9}`,
+  `verdict = match` (computed by `evaluateExperiment`).
+- One `agent_tasks` row: `explain_gap`, `gemini-4-hydrogen`, `succeeded`. It
+  is emitted as `agent_task.recorded` and linked as the EVALUATE `taskId`.
+- 47 s end to end.
+
+**Hero spec run** — an independent, bounded harness (not committed) ran
+`HERO_EXPERIMENT_SPEC_RUN_A` through the real `E2BRunner` on the same
+published template:
+
+- outcome `pass`, `exitCode 0`, deterministic `verdict = match`.
+- `metrics = {"rank_impurity_noise_20": 4, "rank_permutation_noise_20": 11}`.
+- One sandbox created, none left active, no retries, sandbox networking
+  disabled.
+- 13.7 s; estimated upper bound `$0.001035` (1 vCPU / 2 GiB × 45 s TTL, not
+  billing telemetry).
+
+Published evidence: full pipeline
+<https://github.com/ivory-26/research-graph/pull/52#issuecomment-7159593830>,
+hero <https://github.com/ivory-26/research-graph/pull/52#issuecomment-7159704869>.
+
+**Standalone Gemini probes did not pass uniformly.** One isolated boundary
+harness reported `API key not valid` at 15:56, while the same key completed
+the full-pipeline `explain_gap` call at 15:47. An immediate re-probe returned
+`NoOutputGeneratedError` (provider capacity). The cause of the differing
+errors is not established. The full-pipeline run is the passing Gemini
+evidence; no further live provider calls were made.
+
 ## What is still missing
 
 - **#7 graph write-back.** A completed run does not yet become result/run nodes
   plus the `produced` edge. That is the one integration seam #6 does not own.
-- **Live verification is opt-in, not CI.** `live-smoke.integration.test.ts`
-  ran green on 2026-11-25 against template build `3060b313` on
-  `gemini-4-hydrogen`, but it is skipped without credentials and is not part of
-  `pnpm test`.
+- **Live verification is opt-in, not CI.** The two runs recorded above passed
+  on 2026-11-25 against template build `3060b313`, but the files are skipped
+  without credentials and are not part of `pnpm test`.
+- **Standalone provider probes are unresolved.** The isolated Gemini boundary
+  runs failed with different errors (invalid key, then no output) while the
+  full pipeline succeeded minutes earlier; the cause is not established.
 - **Provider capacity is not retried.** A `high demand` response from Gemini is
   recorded as a failed `agent_tasks` row and the deterministic verdict still
   completes; the live smoke then fails because it requires the explanation.

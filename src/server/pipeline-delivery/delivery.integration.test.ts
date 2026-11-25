@@ -3,8 +3,10 @@
  *
  * These run the real `Request -> Response` handlers against a real Postgres
  * database (the committed migrations in `src/db/migrations`, real constraints,
- * real transactions). The stage provider is a disclosed test fixture because
- * the runtime workstream (#23/#24/#25) is not on main. The approval is written
+ * real transactions). The stage provider is a disclosed test fixture so the
+ * suite needs neither E2B nor Gemini credentials; the real provider is covered
+ * by `production-stages.integration.test.ts`, and `#7` remains the only
+ * integration seam outside this layer. The approval is written
  * by a separate handler call, which is the cross-request case #6 exists for.
  *
  * Skipped unless `TEST_DATABASE_URL` is set. The URL names a *server*; the
@@ -771,6 +773,69 @@ describeIntegration('pipeline delivery over real Postgres', () => {
       close_reason: 'failed',
     })
     expect(fixture.executeCalls).toBe(1)
+  })
+
+  it('does not append run.timeout when the budget expires after run.succeeded', async () => {
+    let releaseEvaluate: () => void = () => undefined
+    const evaluateGate = new Promise<void>((resolve) => {
+      releaseEvaluate = resolve
+    })
+
+    const fixture = createFixtureStages({
+      spec: seed.spec,
+      cooperative: false,
+      duringEvaluate: () => evaluateGate,
+    })
+    const handlers = handlersFor({
+      fixture,
+      timings: {
+        budgetMs: 600,
+        heartbeatIntervalMs: 60,
+        approvalPollIntervalMs: 20,
+        eventPollIntervalMs: 20,
+        claimTtlMs: 5_000,
+      },
+    })
+
+    const sse = consume(
+      await handlers.stream(streamRequest(seed.experimentId), {
+        experimentId: seed.experimentId,
+      }),
+    )
+    const requested = await sse.waitFor(
+      (event) => event.type === 'approval.requested',
+    )
+
+    await handlers.approve(
+      approveRequest(seed.experimentId, {
+        gateSeq: requested.seq,
+        decision: 'approved',
+      }),
+      { experimentId: seed.experimentId },
+    )
+
+    await sse.waitFor((event) => event.type === 'run.succeeded', 5_000)
+
+    const failed = (await sse.waitFor(
+      (event) => event.type === 'pipeline.failed',
+      5_000,
+    )) as Extract<PipelineEvent, { type: 'pipeline.failed' }>
+    expect(failed.error).toMatch(/budget/i)
+    await sse.waitForClose(5_000)
+
+    // The run already succeeded before the deadline. The budget terminal must
+    // not contradict `runs.status` by appending a timeout for that run.
+    expect(await countEvents(seed.experimentId, 'run.succeeded')).toBe(1)
+    expect(await countEvents(seed.experimentId, 'run.timeout')).toBe(0)
+    expect(await countEvents(seed.experimentId, 'pipeline.failed')).toBe(1)
+
+    releaseEvaluate()
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    expect(await countEvents(seed.experimentId, 'pipeline.failed')).toBe(1)
+    expect(await countEvents(seed.experimentId, 'pipeline.completed')).toBe(0)
+    expect(await getClaim(seed.experimentId)).toMatchObject({
+      close_reason: 'failed',
+    })
   })
 
   it('never publishes a raw provider exception in the terminal event', async () => {

@@ -2,11 +2,13 @@
  * TEST-ONLY stage provider.
  *
  * This is intentionally not production code and is never exported from the
- * delivery module. The real stage provider (`#23` planner, `#24` runner,
- * `#25` evaluator, `#7` integration seam) does not exist on main. These tests
- * exercise the transport, claim, gate, replay and terminal semantics against
- * a real Postgres database while supplying deterministic stage events through
- * the same `PipelineStages` port the real provider will implement.
+ * delivery module. It exists so the transport suites need neither E2B nor
+ * Gemini credentials; the real provider is exercised in
+ * `production-stages.integration.test.ts`, and `#7` remains the one
+ * integration seam outside this layer. These tests exercise the transport,
+ * claim, gate, replay and terminal semantics against a real Postgres database
+ * while supplying deterministic stage events through the same `PipelineStages`
+ * port the real provider implements.
  *
  * It writes no `runs`, `nodes` or `edges` rows. Those belong to the runtime
  * and to `#7`.
@@ -25,6 +27,11 @@ export type FixtureStageOptions = {
   duringPlan?: (context: PipelineStageContext) => Promise<void>
   /** Hook after `run.started`, before the result. Used to test aborts. */
   duringExecute?: (context: PipelineStageContext) => Promise<void>
+  /**
+   * Hook after the EVALUATE `stage.started`, which follows `run.succeeded`.
+   * Used to test a budget expiry after the run has already settled.
+   */
+  duringEvaluate?: (context: PipelineStageContext) => Promise<void>
   /**
    * Defaults to true. With false the fixture never inspects `signal`, which
    * simulates a provider that ignores cancellation so the transport's own
@@ -110,6 +117,7 @@ export function createFixtureStages(
       })
 
       await context.emit({ type: 'stage.started', stage: 'EVALUATE' })
+      await options.duringEvaluate?.(context)
       throwIfAborted(context)
       await context.emit({
         type: 'verdict.computed',
