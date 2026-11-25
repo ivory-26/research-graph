@@ -56,7 +56,7 @@ export const ProposedEdgeSchema = z.object({
   confidence: z.number().min(0).max(1),
   evidenceChunkId: z.string(),
   quote: z.string().max(400),
-  rationale: z.string().min(1).max(240),
+  rationale: z.string().describe('Brief justification under 240 characters'),
 })
 
 export const ProposeEdgesResultSchema = z.object({
@@ -96,6 +96,7 @@ export interface ExtractionOutcome {
   methods: ExtractionMethod[]
   codeUrls: string[]
   taskId?: string
+  taskIds?: string[]
 }
 
 export interface NodeSummary {
@@ -132,5 +133,6 @@ export interface ProposeEdgesOutcome {
   acceptedEdges: ValidatedEdge[]
   rejectedEdges: RejectedEdge[]
   storedRows?: EdgeRow[]
+  persisted: boolean
   taskId?: string
 }

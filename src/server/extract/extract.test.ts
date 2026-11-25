@@ -327,10 +327,382 @@ describe('extractClaims with model wrapper', () => {
         workspaceId: 'ws-test',
         sourceId: 'src-1',
         chunks,
-        strategy: 'sectioned',
+        strategy: 'unsupported_strategy' as any,
       }),
-    ).rejects.toThrow(/Extraction strategy 'sectioned' is not yet supported/)
+    ).rejects.toThrow(/Extraction strategy 'unsupported_strategy' is not supported/)
   })
+
+  it('sectioned strategy locates Methods/Results headings cleanly, ignores abstract sub-labels and Method column headers, and calls model sequentially', async () => {
+    const { partitionChunksBySection } = await import('./claims')
+    const syntheticChunks: ChunkRef[] = [
+      {
+        id: 'c-abs',
+        ordinal: 0,
+        page: 1,
+        text: 'Abstract\nBackground:\nVariable selection is subtle.\nResults:\nBias appears in Gini importance.\nConclusion:\nUse permutation importance.',
+      },
+      {
+        id: 'c-intro',
+        ordinal: 1,
+        page: 2,
+        text: '1 Background\nRandom forests combine classification trees.',
+      },
+      {
+        id: 'c-methods',
+        ordinal: 2,
+        page: 3,
+        text: '2 Methods\nWe simulated correlated and uncorrelated predictor variables.',
+      },
+      {
+        id: 'c-results',
+        ordinal: 3,
+        page: 4,
+        text: '3 Results\nMethod\nTable 1 compares accuracy.\nGini importance ranked the 20-category noise feature ahead of informative predictors.',
+      },
+      {
+        id: 'c-tail',
+        ordinal: 4,
+        page: 5,
+        text: '4 Conclusion\nUnbiased subsampling resolves variable selection bias.',
+      },
+    ]
+
+    const partitioned = partitionChunksBySection(syntheticChunks)
+    expect(partitioned.fallbackUsed).toBe(false)
+    expect(partitioned.methodsChunks.map((c) => c.id)).toEqual(['c-methods'])
+    expect(partitioned.resultsChunks.map((c) => c.id)).toEqual(['c-results'])
+
+    const callOrder: string[] = []
+    let activeRequests = 0
+    let maxConcurrency = 0
+
+    const mockCallModel = vi.fn(async (_schema: any, prompt: string, ctx: any) => {
+      activeRequests++
+      maxConcurrency = Math.max(maxConcurrency, activeRequests)
+      await Promise.resolve()
+      callOrder.push(ctx.inputRef.pass)
+
+      const isMethods = prompt.includes('c-methods')
+      activeRequests--
+      return {
+        output: isMethods
+          ? {
+              claims: [
+                {
+                  text: 'Simulated predictors with varying correlation structures',
+                  quote: 'We simulated correlated and uncorrelated predictor variables.',
+                  chunkId: 'c-methods',
+                },
+              ],
+              datasets: [{ name: 'Simulation benchmark' }],
+              methods: [{ name: 'Random Forest', summary: 'Ensemble tree classifier' }],
+              codeUrls: [],
+            }
+          : {
+              claims: [
+                {
+                  text: 'Gini importance favored high-cardinality noise',
+                  quote:
+                    'Gini importance ranked the 20-category noise feature ahead of informative predictors.',
+                  chunkId: 'c-results',
+                },
+              ],
+              datasets: [{ name: 'Simulation benchmark' }],
+              methods: [{ name: 'Random Forest', summary: 'Ensemble tree classifier' }],
+              codeUrls: ['https://example.com/rf-sim'],
+            },
+        task: { id: `task-${ctx.inputRef.pass}`, status: 'succeeded' as const },
+        attempts: [],
+      }
+    })
+
+    const outcome = await extractClaims({
+      workspaceId: 'ws-sec',
+      sourceId: 'src-sec',
+      chunks: syntheticChunks,
+      strategy: 'sectioned',
+      strategyId: '11111111-1111-4111-8111-111111111111',
+      callModelFn: mockCallModel as any,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(maxConcurrency).toBe(1)
+    expect(callOrder).toEqual(['methods', 'results'])
+    expect(outcome.acceptedClaims).toHaveLength(2)
+    expect(outcome.datasets).toHaveLength(1)
+    expect(outcome.methods).toHaveLength(1)
+    expect(outcome.codeUrls).toEqual(['https://example.com/rf-sim'])
+    expect(outcome.taskIds).toEqual(['task-methods', 'task-results'])
+  })
+
+  it('sectioned strategy marks only the empty/rejected section pass task row as rejected without discarding other section claims', async () => {
+    const chunks: ChunkRef[] = [
+      { id: 'c-m', ordinal: 0, page: 2, text: 'Methods\nSubsampling without replacement keeps scale invariance.' },
+      { id: 'c-r', ordinal: 1, page: 4, text: 'Results\nPermutation importance stayed calibrated across predictors.' },
+    ]
+    const rejectedCalls: Array<{ taskId: string; status: string }> = []
+
+    const mockCallModel = vi.fn(async (_schema: any, _prompt: string, ctx: any) => {
+      const isMethods = ctx.inputRef.pass === 'methods'
+      return {
+        output: {
+          claims: isMethods
+            ? [
+                {
+                  text: 'Subsampling without replacement preserves balance',
+                  quote: 'Subsampling without replacement keeps scale invariance.',
+                  chunkId: 'c-m',
+                },
+              ]
+            : [
+                {
+                  text: 'Hallucinated result claim',
+                  quote: 'Completely fabricated result quote not present in chunk.',
+                  chunkId: 'c-r',
+                },
+              ],
+          datasets: [],
+          methods: [],
+          codeUrls: [],
+        },
+        task: { id: `task-${ctx.inputRef.pass}`, status: 'succeeded' as const },
+        attempts: [],
+      }
+    })
+
+    const outcome = await extractClaims({
+      workspaceId: 'ws-sec-partial',
+      sourceId: 'src-sec-partial',
+      chunks,
+      strategy: 'sectioned',
+      callModelFn: mockCallModel as any,
+      updateTaskStatusFn: async (taskId, status) => {
+        rejectedCalls.push({ taskId, status })
+      },
+    })
+
+    expect(outcome.acceptedClaims).toHaveLength(1)
+    expect(outcome.rejectedClaims).toHaveLength(1)
+    expect(rejectedCalls).toEqual([{ taskId: 'task-results', status: 'rejected' }])
+  })
+
+  it('sectioned strategy falls back to balanced sequential halves when explicit Methods/Results headings are absent', async () => {
+    const chunks: ChunkRef[] = [
+      { id: 'c-0', ordinal: 0, page: 1, text: '1. Overview\nBoruta uses shadow variables.' },
+      { id: 'c-1', ordinal: 1, page: 2, text: '2. Evaluation\nShadow attributes detect noise cleanly.' },
+    ]
+    const seenPasses: any[] = []
+    const mockCallModel = vi.fn(async (_s: any, _p: string, ctx: any) => {
+      seenPasses.push(ctx.inputRef)
+      return {
+        output: {
+          claims: [
+            {
+              text: ctx.inputRef.pass === 'section_part_1' ? 'Boruta overview' : 'Shadow evaluation',
+              quote:
+                ctx.inputRef.pass === 'section_part_1'
+                  ? 'Boruta uses shadow variables.'
+                  : 'Shadow attributes detect noise cleanly.',
+              chunkId: ctx.inputRef.pass === 'section_part_1' ? 'c-0' : 'c-1',
+            },
+          ],
+          datasets: [],
+          methods: [],
+          codeUrls: [],
+        },
+        task: { id: `task-${ctx.inputRef.pass}` },
+        attempts: [],
+      }
+    })
+
+    const outcome = await extractClaims({
+      workspaceId: 'ws-fallback',
+      sourceId: 'src-fallback',
+      chunks,
+      strategy: 'sectioned',
+      callModelFn: mockCallModel as any,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(seenPasses.map((p) => p.pass)).toEqual(['section_part_1', 'section_part_2'])
+    expect(seenPasses.every((p) => p.sectionFallback === true)).toBe(true)
+    expect(outcome.acceptedClaims).toHaveLength(2)
+  })
+
+  it('sectioned strategy falls back on uncovered chunks when only one section heading is present', async () => {
+    const chunks: ChunkRef[] = [
+      { id: 'c-intro', ordinal: 0, page: 1, text: 'Background\nPermutation tests avoid bias.' },
+      { id: 'c-m', ordinal: 1, page: 2, text: 'Methods\nWe evaluated 100 trees.' },
+      { id: 'c-discussion', ordinal: 2, page: 3, text: 'Discussion\nBias disappears under subsampling.' },
+    ]
+    const seenPasses: any[] = []
+    const mockCallModel = vi.fn(async (_s: any, prompt: string, ctx: any) => {
+      seenPasses.push({ ...ctx.inputRef, prompt })
+      return {
+        output: {
+          claims: [
+            ctx.inputRef.pass === 'methods'
+              ? { text: '100 trees evaluated', quote: 'We evaluated 100 trees.', chunkId: 'c-m' }
+              : { text: 'Subsampling eliminates bias', quote: 'Bias disappears under subsampling.', chunkId: 'c-discussion' },
+          ],
+          datasets: [],
+          methods: [],
+          codeUrls: [],
+        },
+        task: { id: `task-${ctx.inputRef.pass}` },
+        attempts: [],
+      }
+    })
+
+    const outcome = await extractClaims({
+      workspaceId: 'ws-partial-sec',
+      sourceId: 'src-partial-sec',
+      chunks,
+      strategy: 'sectioned',
+      callModelFn: mockCallModel as any,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(seenPasses.map((p) => p.pass)).toEqual(['methods', 'complement_fallback'])
+    expect(seenPasses[1]?.sectionFallback).toBe(true)
+    expect(seenPasses[1]?.prompt).toContain('c-intro')
+    expect(seenPasses[1]?.prompt).toContain('c-discussion')
+    expect(outcome.acceptedClaims).toHaveLength(2)
+  })
+
+  it('table_first strategy partitions Markdown/numeric/captioned tables ahead of prose body and runs sequentially', async () => {
+    const { isTableChunk, partitionChunksTableFirst } = await import('./claims')
+
+    const chunks: ChunkRef[] = [
+      { id: 'c-prose-1', ordinal: 0, page: 1, text: 'Random forests generalize across classification tasks.' },
+      {
+        id: 'c-table-md',
+        ordinal: 1,
+        page: 2,
+        text: '| Predictor | Importance |\n|---|---|\n| Noise_20 | 0.42 |',
+      },
+      {
+        id: 'c-table-cap',
+        ordinal: 2,
+        page: 3,
+        text: 'Table 1: Mean misclassification rates\nGini 0.18 0.24 0.31',
+      },
+      { id: 'c-prose-2', ordinal: 3, page: 4, text: 'Conditional permutation reduces bias across correlated predictors.' },
+    ]
+
+    expect(isTableChunk(chunks[0]!.text)).toBe(false)
+    expect(isTableChunk(chunks[1]!.text)).toBe(true)
+    expect(isTableChunk(chunks[2]!.text)).toBe(true)
+    expect(isTableChunk(chunks[3]!.text)).toBe(false)
+
+    const { tableChunks, otherChunks } = partitionChunksTableFirst(chunks)
+    expect(tableChunks.map((c) => c.id)).toEqual(['c-table-md', 'c-table-cap'])
+    expect(otherChunks.map((c) => c.id)).toEqual(['c-prose-1', 'c-prose-2'])
+
+    const passOrder: string[] = []
+    let inFlight = 0
+    let maxInFlight = 0
+
+    const mockCallModel = vi.fn(async (_s: any, prompt: string, ctx: any) => {
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await Promise.resolve()
+      passOrder.push(ctx.inputRef.pass)
+
+      const isTablePass = ctx.inputRef.pass === 'tables'
+      if (isTablePass) {
+        expect(prompt).toContain('c-table-md')
+        expect(prompt).not.toContain('c-prose-1')
+      } else {
+        expect(prompt).toContain('c-prose-1')
+        expect(prompt).not.toContain('c-table-md')
+      }
+      inFlight--
+
+      return {
+        output: {
+          claims: [
+            isTablePass
+              ? {
+                  text: 'Noise_20 scored 0.42 Gini importance in Table',
+                  metric: 'Gini importance',
+                  reportedValue: 0.42,
+                  quote: '| Noise_20 | 0.42 |',
+                  chunkId: 'c-table-md',
+                }
+              : {
+                  text: 'Conditional permutation lowers bias',
+                  quote: 'Conditional permutation reduces bias across correlated predictors.',
+                  chunkId: 'c-prose-2',
+                },
+          ],
+          datasets: [],
+          methods: [],
+          codeUrls: [],
+        },
+        task: { id: `task-${ctx.inputRef.pass}` },
+        attempts: [],
+      }
+    })
+
+    const outcome = await extractClaims({
+      workspaceId: 'ws-table',
+      sourceId: 'src-table',
+      chunks,
+      strategy: 'table_first',
+      maxChars: 10_000,
+      callModelFn: mockCallModel as any,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(maxInFlight).toBe(1)
+    expect(passOrder).toEqual(['tables', 'body'])
+    expect(outcome.acceptedClaims).toHaveLength(2)
+    expect(outcome.acceptedClaims[0]?.reportedValue).toBe(0.42)
+  })
+
+  it.skipIf(!fs.existsSync(path.resolve(process.cwd(), 'fixtures/papers/strobl-2007.pdf')))(
+    'partitions real Strobl 2007 and Strobl 2008 PDFs accurately for sectioned and table_first strategies',
+    async () => {
+      const { partitionChunksBySection, partitionChunksTableFirst } = await import('./claims')
+      const strobl07 = await ingestPdf(
+        fs.readFileSync(path.resolve(process.cwd(), 'fixtures/papers/strobl-2007.pdf')),
+      )
+      const strobl08 = await ingestPdf(
+        fs.readFileSync(path.resolve(process.cwd(), 'fixtures/papers/strobl-2008.pdf')),
+      )
+
+      const refs07: ChunkRef[] = strobl07.chunks.map((c) => ({
+        id: `s07-${c.ordinal}`,
+        ordinal: c.ordinal,
+        page: c.page,
+        text: c.text,
+      }))
+      const refs08: ChunkRef[] = strobl08.chunks.map((c) => ({
+        id: `s08-${c.ordinal}`,
+        ordinal: c.ordinal,
+        page: c.page,
+        text: c.text,
+      }))
+
+      const sec07 = partitionChunksBySection(refs07)
+      expect(sec07.fallbackUsed).toBe(false)
+      expect(sec07.methodsChunks.length).toBeGreaterThanOrEqual(1)
+      expect(sec07.resultsChunks.length).toBeGreaterThanOrEqual(1)
+      // Abstract on page 1 must never pull Page 1 into Results section
+      expect(sec07.resultsChunks[0]?.page).toBeGreaterThanOrEqual(4)
+
+      const sec08 = partitionChunksBySection(refs08)
+      expect(sec08.fallbackUsed).toBe(false)
+      expect(sec08.methodsChunks.some((c) => c.page === 3 || c.page === 4)).toBe(true)
+      expect(sec08.resultsChunks.some((c) => (c.page ?? 0) >= 8)).toBe(true)
+
+      const tbl07 = partitionChunksTableFirst(refs07)
+      expect(tbl07.tableChunks.length).toBeGreaterThanOrEqual(1)
+      expect(tbl07.otherChunks.length).toBeGreaterThanOrEqual(1)
+      expect(tbl07.tableChunks.some((c) => /\bTable\s+\d+\b/i.test(c.text))).toBe(true)
+    },
+  )
 
   it('buildExtractionPrompt formats chunks cleanly', () => {
     const prompt = buildExtractionPrompt(

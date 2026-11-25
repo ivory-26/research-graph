@@ -387,3 +387,188 @@ describe('PDF Ingestion Integration with Fixtures', () => {
     expect(sparseIngest.chunks).toHaveLength(0)
   })
 })
+
+describe('ingestPdfSource (workspace-scoped persistent PDF ingestion)', () => {
+  const strobl2007Pdf = path.resolve(process.cwd(), 'fixtures/papers/strobl-2007.pdf')
+
+  it.skipIf(!fs.existsSync(strobl2007Pdf))(
+    'extracts reading order, generates 768d embeddings, and persists source + chunks inside one transaction',
+    async () => {
+      const { ingestPdfSource } = await import('./pdf')
+      const buffer = fs.readFileSync(strobl2007Pdf)
+      const sourceUuid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      const workspaceUuid = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+
+      let txCalled = 0
+      const insertedSources: any[] = []
+      const insertedChunks: any[] = []
+
+      const fakeDb: any = {
+        transaction: async (cb: any) => {
+          txCalled++
+          const tx: any = {
+            transaction: async (inner: any) => inner(tx),
+            insert: (table: any) => ({
+              values: (vals: any) => ({
+                returning: async () => {
+                  const arr = Array.isArray(vals) ? vals : [vals]
+                  if (arr[0]?.sha256 !== undefined) {
+                    const row = { id: sourceUuid, ...arr[0], createdAt: new Date() }
+                    insertedSources.push(row)
+                    return [row]
+                  }
+                  const rows = arr.map((c: any, idx: number) => ({
+                    id: `cccccccc-cccc-4ccc-8ccc-${String(insertedChunks.length + idx).padStart(12, '0')}`,
+                    ...c,
+                  }))
+                  insertedChunks.push(...rows)
+                  return rows
+                },
+              }),
+            }),
+          }
+          return cb(tx)
+        },
+      }
+
+      const embedCalls: any[] = []
+      const mockEmbedChunks = async (items: any[], opts: any) => {
+        embedCalls.push({ count: items.length, opts })
+        return items.map(() => new Array(768).fill(0.01))
+      }
+
+      const res = await ingestPdfSource(
+        buffer,
+        {
+          workspaceId: workspaceUuid,
+          title: 'Strobl et al. 2007',
+          doi: '10.1186/1471-2105-8-25',
+          strategyId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        },
+        { db: fakeDb, embedChunksFn: mockEmbedChunks as any },
+      )
+
+      expect(txCalled).toBe(1)
+      expect(res.needsOcr).toBe(false)
+      expect(res.source.id).toBe(sourceUuid)
+      expect(res.source.workspaceId).toBe(workspaceUuid)
+      expect(res.source.kind).toBe('paper')
+      expect(res.chunkCount).toBeGreaterThan(5)
+      expect(res.chunks).toHaveLength(res.chunkCount)
+      expect(embedCalls).toHaveLength(1)
+      expect(embedCalls[0].opts.workspaceId).toBe(workspaceUuid)
+      expect(embedCalls[0].opts.strategyId).toBe('dddddddd-dddd-4ddd-8ddd-dddddddddddd')
+      expect(insertedSources).toHaveLength(1)
+      expect(insertedChunks).toHaveLength(res.chunkCount)
+    },
+  )
+
+  it('records needsOcr source and stops before calling embeddings when PDF yields < 40 chars', async () => {
+    const { ingestPdfSource } = await import('./pdf')
+    const insertedSources: any[] = []
+    let txCalls = 0
+    const fakeDb: any = {
+      insert: () => ({
+        values: (vals: any) => ({
+          returning: async () => {
+            const row = { id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', ...vals, createdAt: new Date() }
+            insertedSources.push(row)
+            return [row]
+          },
+        }),
+      }),
+      transaction: async () => {
+        txCalls++
+        throw new Error('Should not open chunk transaction when needsOcr is true')
+      },
+    }
+
+    let embedCalled = false
+    const mockEmbedChunks = async () => {
+      embedCalled = true
+      return []
+    }
+
+    const res = await ingestPdfSource(
+      new Uint8Array(0),
+      { workspaceId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', title: 'Empty Scan.pdf' },
+      { db: fakeDb, embedChunksFn: mockEmbedChunks as any },
+    )
+
+    expect(res.needsOcr).toBe(true)
+    expect(res.chunkCount).toBe(0)
+    expect(res.chunks).toHaveLength(0)
+    expect(embedCalled).toBe(false)
+    expect(txCalls).toBe(0)
+    expect(insertedSources[0].meta.needsOcr).toBe(true)
+  })
+
+  it('aborts transaction cleanly without partial commit when chunk persistence throws', async () => {
+    const { ingestPdfSource } = await import('./pdf')
+    const streamBody = 'BT /F1 12 Tf 72 720 Td (' + 'Born digital scientific prose for atomic DB test. '.repeat(3) + ') Tj ET'
+    const objects = [
+      '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n',
+      '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n',
+      '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n',
+      `4 0 obj << /Length ${streamBody.length} >> stream\n${streamBody}\nendstream\nendobj\n`,
+      '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n',
+    ]
+    let pdfStr = '%PDF-1.4\n'
+    const offsets = [0]
+    for (const obj of objects) {
+      offsets.push(pdfStr.length)
+      pdfStr += obj
+    }
+    const xrefStart = pdfStr.length
+    pdfStr += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+    for (let i = 1; i <= objects.length; i++) {
+      pdfStr += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`
+    }
+    pdfStr += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`
+
+    let committed = false
+    const fakeDb: any = {
+      transaction: async (cb: any) => {
+        const tx: any = {
+          transaction: async (inner: any) => inner(tx),
+          insert: () => ({
+            values: (vals: any) => ({
+              returning: async () => {
+                if (!Array.isArray(vals)) {
+                  return [{ id: 'src-tx-test', ...vals }]
+                }
+                throw new Error('simulated chunk insert failure')
+              },
+            }),
+          }),
+        }
+        const out = await cb(tx)
+        committed = true
+        return out
+      },
+    }
+
+    await expect(
+      ingestPdfSource(
+        new TextEncoder().encode(pdfStr),
+        { workspaceId: 'ws-atomic', title: 'Atomic Test PDF' },
+        {
+          db: fakeDb,
+          embedChunksFn: (async (items: any[]) => items.map(() => new Array(768).fill(0.1))) as any,
+        },
+      ),
+    ).rejects.toThrow('simulated chunk insert failure')
+
+    expect(committed).toBe(false)
+  })
+
+  it('rejects empty workspaceId or title', async () => {
+    const { ingestPdfSource } = await import('./pdf')
+    await expect(
+      ingestPdfSource(new Uint8Array(0), { workspaceId: '   ', title: 'Valid' }),
+    ).rejects.toThrow(/workspaceId is required/)
+    await expect(
+      ingestPdfSource(new Uint8Array(0), { workspaceId: 'ws-1', title: '   ' }),
+    ).rejects.toThrow(/title is required/)
+  })
+})

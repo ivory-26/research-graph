@@ -1092,3 +1092,214 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
     30000,
   )
 })
+
+describe('Issue #13 contract hardening: RATIONALE_EMPTY reachability, persistence signalling, and node-pair retrieval', () => {
+  it('allows callModel schema.parse to pass blank or verbose rationales so validateProposedEdges rejects RATIONALE_EMPTY per edge without aborting sibling edges', async () => {
+    const { createCallModel } = await import('../model')
+    const validChunk = '11111111-1111-4111-8111-111111111111'
+    const longRationale = 'R'.repeat(300)
+
+    const baseCallModel = createCallModel({
+      generate: async () => ({
+        output: {
+          edges: [
+            {
+              fromNodeId: 'node-1',
+              toNodeId: 'node-2',
+              relation: 'supports',
+              confidence: 0.9,
+              evidenceChunkId: validChunk,
+              quote: 'Random forests measure variable importance accurately.',
+              rationale: '   ', // blank rationale must reject only this edge, not crash schema.parse
+            },
+            {
+              fromNodeId: 'node-2',
+              toNodeId: 'node-1',
+              relation: 'tests',
+              confidence: 0.85,
+              evidenceChunkId: validChunk,
+              quote: 'Simulation benchmarks verify permutation calibration.',
+              rationale: longRationale, // verbose rationale trimmed cleanly to <= 240
+            },
+          ],
+        },
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
+      now: () => 0,
+      sleep: async () => {},
+    })
+
+    const fakeCallModel: typeof baseCallModel = (schema, prompt, ctx) =>
+      baseCallModel(schema, prompt, {
+        ...ctx,
+        store: { insert: async () => ({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }) },
+      })
+
+    const outcome = await proposeEdges({
+      workspaceId: 'ws-rationale-edge-level',
+      nodes: [
+        { id: 'node-1', type: 'claim', title: 'Claim 1' },
+        { id: 'node-2', type: 'method', title: 'Method 2' },
+      ],
+      chunks: [
+        {
+          id: validChunk,
+          ordinal: 0,
+          page: 1,
+          text: 'Random forests measure variable importance accurately. Simulation benchmarks verify permutation calibration.',
+        },
+      ],
+      callModelFn: fakeCallModel,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(outcome.rejectedEdges).toHaveLength(1)
+    expect(outcome.rejectedEdges[0]?.reason).toBe('RATIONALE_EMPTY')
+    expect(outcome.acceptedEdges).toHaveLength(1)
+    expect(outcome.acceptedEdges[0]?.relation).toBe('tests')
+    expect(outcome.acceptedEdges[0]?.rationale.length).toBeLessThanOrEqual(240)
+    expect(outcome.persisted).toBe(false)
+  })
+
+  it('signals persisted explicitly and fails fast when requirePersistence is set without a db handle', async () => {
+    const validChunk = '11111111-1111-4111-8111-111111111111'
+    const callSpy = vi.fn()
+
+    await expect(
+      proposeEdges({
+        workspaceId: 'ws-req-db',
+        nodes: [
+          { id: 'n1', type: 'claim', title: 'Claim 1' },
+          { id: 'n2', type: 'method', title: 'Method 2' },
+        ],
+        chunks: [{ id: validChunk, ordinal: 0, page: 1, text: 'Verbatim text.' }],
+        requirePersistence: true,
+        callModelFn: callSpy as any,
+      }),
+    ).rejects.toThrow(/proposeEdges requires a database handle/)
+
+    expect(callSpy).not.toHaveBeenCalled()
+  })
+
+  it('retrieveCandidateChunksForNodes executes sequential pair queries prioritized cross-source and deduplicates by max similarity', async () => {
+    const { retrieveCandidateChunksForNodes } = await import('./edges')
+    let activeQueries = 0
+    let maxConcurrent = 0
+    const queries: string[] = []
+
+    const chunkA = 'aaaaaaaa-0000-4000-8000-000000000001'
+    const chunkB = 'bbbbbbbb-0000-4000-8000-000000000002'
+    const stratId = '77777777-7777-4777-8777-777777777777'
+    const seenEmbedOptions: any[] = []
+
+    const retrieved = await retrieveCandidateChunksForNodes(
+      {} as Database,
+      'ws-retrieve',
+      [
+        { id: 'n1', type: 'claim', title: 'Gini bias', sourceId: 'src-1' },
+        { id: 'n2', type: 'method', title: 'Permutation importance', sourceId: 'src-1' },
+        { id: 'n3', type: 'claim', title: 'Boruta wrapper', sourceId: 'src-2' },
+      ],
+      {
+        strategyId: stratId,
+        maxPairs: 2,
+        topKPerPair: 2,
+        maxChunks: 4,
+        embedQueryFn: async (query, opts) => {
+          activeQueries++
+          maxConcurrent = Math.max(maxConcurrent, activeQueries)
+          await Promise.resolve()
+          queries.push(query)
+          seenEmbedOptions.push(opts)
+          activeQueries--
+          return [0.1, 0.2]
+        },
+        searchSimilarChunksFn: async (_db, workspaceId) => {
+          expect(workspaceId).toBe('ws-retrieve')
+          return [
+            {
+              chunk: { id: chunkA, sourceId: 'src-1', ordinal: 0, page: 1, charStart: 0, charEnd: 10, text: 'Chunk A', embedding: null },
+              similarity: queries.length === 1 ? 0.65 : 0.91,
+            },
+            {
+              chunk: { id: chunkB, sourceId: 'src-2', ordinal: 0, page: 1, charStart: 0, charEnd: 10, text: 'Chunk B', embedding: null },
+              similarity: 0.72,
+            },
+          ]
+        },
+      },
+    )
+
+    expect(maxConcurrent).toBe(1)
+    expect(queries).toHaveLength(2)
+    expect(seenEmbedOptions.every((o) => o.strategyId === stratId && o.taskKind === 'propose_edges')).toBe(true)
+    // Cross-source pairs (n1+n3, n2+n3) prioritized ahead of same-source (n1+n2)
+    expect(queries[0]).toContain('Boruta wrapper')
+    expect(queries[1]).toContain('Boruta wrapper')
+    // Deduplicated to 2 chunks ordered by highest similarity seen across pairs (0.91 > 0.72)
+    expect(retrieved.map((c) => c.id)).toEqual([chunkA, chunkB])
+  })
+
+  it('proposeEdgesForWorkspace retrieves candidate chunks when omitted and persists accepted edges with persisted=true', async () => {
+    const { proposeEdgesForWorkspace } = await import('./edges')
+    const n1 = '11111111-0001-4000-8000-000000000001'
+    const n2 = '22222222-0002-4000-8000-000000000002'
+    const c1 = '33333333-0003-4000-8000-000000000003'
+    const wsId = '44444444-0004-4000-8000-000000000004'
+
+    const outcome = await proposeEdgesForWorkspace({} as Database, {
+      workspaceId: wsId,
+      nodes: [
+        { id: n1, type: 'claim', title: 'Claim 1', sourceId: 's1' },
+        { id: n2, type: 'method', title: 'Method 2', sourceId: 's2' },
+      ],
+      strategyId: '55555555-0005-4000-8000-000000000005',
+      retrieveChunksFn: async () => [
+        { id: c1, ordinal: 0, page: 1, text: 'Conditional permutation evaluates correlated features fairly.' },
+      ],
+      callModelFn: (async (_s: any, _p: string, ctx: any) => {
+        expect(ctx.strategyId).toBe('55555555-0005-4000-8000-000000000005')
+        return {
+          output: {
+            edges: [
+              {
+                fromNodeId: n1,
+                toNodeId: n2,
+                relation: 'supports',
+                confidence: 0.88,
+                evidenceChunkId: c1,
+                quote: 'Conditional permutation evaluates correlated features fairly.',
+                rationale: 'Supports claim using conditional permutation evidence',
+              },
+            ],
+          },
+          task: { id: 'task-ws-edge' },
+          attempts: [],
+        }
+      }) as any,
+      storeEdgesFn: async (_db, workspaceId, toStore) => {
+        expect(workspaceId).toBe(wsId)
+        expect(toStore).toHaveLength(1)
+        return [
+          {
+            id: '66666666-0006-4000-8000-000000000006',
+            workspaceId,
+            sourceNodeId: toStore[0]!.fromNodeId,
+            targetNodeId: toStore[0]!.toNodeId,
+            relation: toStore[0]!.relation,
+            evidenceChunkId: toStore[0]!.evidenceChunkId,
+            evidenceRunId: null,
+            confidence: toStore[0]!.confidence,
+            status: toStore[0]!.status,
+            createdAt: new Date(),
+          },
+        ]
+      },
+    })
+
+    expect(outcome.persisted).toBe(true)
+    expect(outcome.acceptedEdges).toHaveLength(1)
+    expect(outcome.storedRows).toHaveLength(1)
+  })
+})

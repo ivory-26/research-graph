@@ -7,6 +7,8 @@ import {
   sources as sourcesTable,
   type EdgeRow,
 } from '../../db/schema'
+import { embedQuery, type EmbedDeps } from '../ingest/embed'
+import { searchSimilarChunksForWorkspace } from '../ingest/store'
 import { callModel as defaultCallModel, type CallModel, agentTaskStore } from '../model'
 import { normalizeQuote, verifyVerbatimQuote } from './quote'
 import type { UpdateTaskStatusFn } from './claims'
@@ -120,6 +122,9 @@ export function validateProposedEdges(
       status = 'suggested'
     }
 
+    const boundedRationale =
+      rawRationale.length > 240 ? rawRationale.slice(0, 240).trimEnd() : rawRationale
+
     accepted.push({
       fromNodeId: edge.fromNodeId,
       toNodeId: edge.toNodeId,
@@ -128,7 +133,7 @@ export function validateProposedEdges(
       status,
       evidenceChunkId: targetChunk.id,
       matchedQuote: normalizeQuote(edge.quote),
-      rationale: (edge.rationale || '').trim(),
+      rationale: boundedRationale,
     })
   }
 
@@ -144,7 +149,7 @@ export function buildProposeEdgesPrompt(
   chunks: ChunkRef[],
   options?: { topKChunks?: number },
 ): string {
-  const topK = options?.topKChunks ?? 8
+  const topK = Math.max(1, options?.topKChunks ?? 8)
   const selectedChunks = chunks.slice(0, topK)
 
   const nodeList = nodes
@@ -186,12 +191,140 @@ export interface ProposeEdgesOptions {
   nodes: NodeSummary[]
   chunks: ChunkRef[]
   topKChunks?: number
+  strategyId?: string | null
+  /** Audit trail indicating how candidate evidence chunks were assembled for this call. */
+  evidenceSelection?: 'pair_retrieval' | 'caller_chunks' | 'fallback_slice'
   db?: Database
+  /** Fail fast if no database handle was supplied rather than returning unpersisted edges. */
+  requirePersistence?: boolean
   storeEdgesFn?: typeof storeEdges
   /** Injected callModel implementation (defaults to production callModel) */
   callModelFn?: CallModel
   /** Injected task updater (defaults to Neon direct update) */
   updateTaskStatusFn?: UpdateTaskStatusFn
+}
+
+export interface RetrieveNodePairChunksOptions {
+  strategyId?: string | null
+  topKPerPair?: number
+  maxPairs?: number
+  maxChunks?: number
+  minSimilarity?: number
+  embedDeps?: EmbedDeps
+  embedQueryFn?: typeof embedQuery
+  searchSimilarChunksFn?: typeof searchSimilarChunksForWorkspace
+}
+
+export interface ProposeEdgesForWorkspaceOptions
+  extends Omit<ProposeEdgesOptions, 'db' | 'chunks' | 'requirePersistence'> {
+  /** Optional explicit candidate chunks; when omitted, retrieves top-k chunks per node pair via pgvector. */
+  chunks?: ChunkRef[]
+  topKPerPair?: number
+  maxPairs?: number
+  minSimilarity?: number
+  embedDeps?: EmbedDeps
+  embedQueryFn?: typeof embedQuery
+  searchSimilarChunksFn?: typeof searchSimilarChunksForWorkspace
+  retrieveChunksFn?: typeof retrieveCandidateChunksForNodes
+}
+
+/**
+ * Selects distinct node pairs prioritizing cross-source pairs first so cross-paper
+ * relationships compete fairly within the `maxPairs` sequential query budget.
+ */
+function buildPrioritizedNodePairs(
+  nodes: NodeSummary[],
+  maxPairs: number,
+): Array<[NodeSummary, NodeSummary]> {
+  const crossSource: Array<[NodeSummary, NodeSummary]> = []
+  const sameSource: Array<[NodeSummary, NodeSummary]> = []
+
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i]!
+      const b = nodes[j]!
+      if (a.id === b.id) continue
+      if (a.sourceId && b.sourceId && a.sourceId !== b.sourceId) {
+        crossSource.push([a, b])
+      } else {
+        sameSource.push([a, b])
+      }
+    }
+  }
+
+  return [...crossSource, ...sameSource].slice(0, Math.max(1, maxPairs))
+}
+
+/**
+ * Retrieves top-k workspace-scoped evidence chunks for prioritized node pairs
+ * using pgvector similarity search (docs/03 PROPOSE_EDGES input contract).
+ * Executes sequential embedding + DB queries (never parallel calls).
+ */
+export async function retrieveCandidateChunksForNodes(
+  db: Database,
+  workspaceId: string,
+  nodes: NodeSummary[],
+  options: RetrieveNodePairChunksOptions = {},
+): Promise<ChunkRef[]> {
+  if (nodes.length < 2) return []
+
+  const topKPerPair = Math.max(1, options.topKPerPair ?? 3)
+  const maxPairs = Math.max(1, options.maxPairs ?? 6)
+  const maxChunks = Math.max(1, options.maxChunks ?? 8)
+  const embedFn = options.embedQueryFn ?? embedQuery
+  const searchFn = options.searchSimilarChunksFn ?? searchSimilarChunksForWorkspace
+
+  const validStrategyId =
+    options.strategyId && UUID_REGEX.test(options.strategyId) ? options.strategyId : null
+
+  const pairs = buildPrioritizedNodePairs(nodes, maxPairs)
+  const byChunkId = new Map<string, { chunk: ChunkRef; similarity: number }>()
+
+  // docs/03: Issue embedding calls strictly sequentially
+  for (const [a, b] of pairs) {
+    const queryText = [a.title, a.summary, b.title, b.summary]
+      .filter((part): part is string => Boolean(part && part.trim().length > 0))
+      .join(' — ')
+      .slice(0, 600)
+
+    if (!queryText.trim()) continue
+
+    const queryEmbedding = await embedFn(
+      queryText,
+      {
+        workspaceId,
+        taskKind: 'propose_edges',
+        strategyId: validStrategyId,
+      },
+      options.embedDeps ?? {},
+    )
+
+    const hits = await searchFn(db, workspaceId, {
+      queryEmbedding,
+      topK: topKPerPair,
+      minSimilarity: options.minSimilarity,
+    })
+
+    for (const hit of hits) {
+      const existing = byChunkId.get(hit.chunk.id)
+      if (!existing || hit.similarity > existing.similarity) {
+        byChunkId.set(hit.chunk.id, {
+          chunk: {
+            id: hit.chunk.id,
+            ordinal: hit.chunk.ordinal,
+            page: hit.chunk.page,
+            text: hit.chunk.text,
+          },
+          similarity: hit.similarity,
+        })
+      }
+    }
+  }
+
+  return [...byChunkId.values()]
+    .sort((x, y) => y.similarity - x.similarity)
+    .slice(0, maxChunks)
+    .map((entry) => entry.chunk)
 }
 
 /**
@@ -200,13 +333,17 @@ export interface ProposeEdgesOptions {
 export async function proposeEdges(
   options: ProposeEdgesOptions,
 ): Promise<ProposeEdgesOutcome> {
-  const { workspaceId, nodes, chunks, topKChunks, callModelFn = defaultCallModel } = options
+  const { workspaceId, nodes, chunks, callModelFn = defaultCallModel } = options
 
-  if (nodes.length < 2 || chunks.length === 0) {
-    return { acceptedEdges: [], rejectedEdges: [] }
+  if (options.requirePersistence && !options.db) {
+    throw new Error('proposeEdges requires a database handle when requirePersistence is true.')
   }
 
-  const topK = options.topKChunks ?? 8
+  if (nodes.length < 2 || chunks.length === 0) {
+    return { acceptedEdges: [], rejectedEdges: [], persisted: false }
+  }
+
+  const topK = Math.max(1, options.topKChunks ?? 8)
   const selectedChunks = chunks.slice(0, topK)
 
   // Enforce that rendered evidence chunks carry valid UUIDs so proposed edges can be persisted
@@ -218,6 +355,9 @@ export async function proposeEdges(
     }
   }
 
+  const validStrategyId =
+    options.strategyId && UUID_REGEX.test(options.strategyId) ? options.strategyId : null
+
   const prompt = buildProposeEdgesPrompt(nodes, selectedChunks, { topKChunks: topK })
 
   const result = await callModelFn<ProposeEdgesResult>(
@@ -226,8 +366,14 @@ export async function proposeEdges(
     {
       workspaceId,
       taskKind: 'propose_edges',
+      strategyId: validStrategyId,
       store: agentTaskStore,
-      inputRef: { nodeCount: nodes.length, chunkCount: selectedChunks.length },
+      inputRef: {
+        nodeCount: nodes.length,
+        chunkCount: selectedChunks.length,
+        evidenceSelection: options.evidenceSelection ?? 'caller_chunks',
+        ...(options.strategyId ? { strategy: options.strategyId } : {}),
+      },
     },
   )
 
@@ -261,17 +407,66 @@ export async function proposeEdges(
   }
 
   let storedRows: EdgeRow[] | undefined
+  let persisted = false
   const storeFn = options.storeEdgesFn ?? storeEdges
   if (options.db && accepted.length > 0) {
     storedRows = await storeFn(options.db, workspaceId, accepted)
+    persisted = true
   }
 
   return {
     acceptedEdges: accepted,
     rejectedEdges: rejected,
     storedRows,
+    persisted,
     taskId: result.task?.id,
   }
+}
+
+/**
+ * Production wrapper enforcing mandatory database persistence for workspace edge proposals
+ * and retrieving top-k candidate evidence chunks per node pair when chunks are omitted.
+ */
+export async function proposeEdgesForWorkspace(
+  db: Database,
+  options: ProposeEdgesForWorkspaceOptions,
+): Promise<ProposeEdgesOutcome> {
+  if (options.nodes.length < 2) {
+    return { acceptedEdges: [], rejectedEdges: [], persisted: false }
+  }
+
+  const retrieveFn = options.retrieveChunksFn ?? retrieveCandidateChunksForNodes
+  const candidateChunks =
+    options.chunks !== undefined
+      ? options.chunks
+      : await retrieveFn(db, options.workspaceId, options.nodes, {
+          strategyId: options.strategyId,
+          topKPerPair: options.topKPerPair,
+          maxPairs: options.maxPairs,
+          maxChunks: options.topKChunks ?? 8,
+          minSimilarity: options.minSimilarity,
+          embedDeps: options.embedDeps,
+          embedQueryFn: options.embedQueryFn,
+          searchSimilarChunksFn: options.searchSimilarChunksFn,
+        })
+
+  const evidenceSelection =
+    options.evidenceSelection ??
+    (options.chunks !== undefined ? 'caller_chunks' : 'pair_retrieval')
+
+  return proposeEdges({
+    workspaceId: options.workspaceId,
+    nodes: options.nodes,
+    chunks: candidateChunks,
+    topKChunks: options.topKChunks,
+    strategyId: options.strategyId,
+    evidenceSelection,
+    db,
+    requirePersistence: true,
+    storeEdgesFn: options.storeEdgesFn,
+    callModelFn: options.callModelFn,
+    updateTaskStatusFn: options.updateTaskStatusFn,
+  })
 }
 
 /**
