@@ -38,7 +38,12 @@ export type PipelineRouteParams = {
 export type PipelineHandlerDeps = {
   data: PipelineData
   readActor: ReadVerifiedActor
-  /** Null in production today: #23/#24/#25 are not on main. */
+  /**
+   * `./production` supplies the real provider in production. Null only for a
+   * caller that deliberately runs without stages; the GET then returns 503
+   * before claiming, so the experiment is not burned by a pipeline that
+   * cannot run.
+   */
   stages: PipelineStages | null
   /** Tests only. Production uses the docs/01 mandates. */
   timings?: Partial<PipelineTimings>

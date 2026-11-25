@@ -48,10 +48,14 @@ Rules the provider keeps:
   product-authored `safeMessage` for stage refusals.
 - **Cancellation reaches the sandbox.** The provider listens to the transport
   signal (client disconnect or the 240 s budget) and calls `runner.cancel` on
-  every live sandbox the E2B runner reports.
-- **Every model call is recorded.** The evaluator's `callModel` writes exactly
-  one `agent_tasks` row, success or failure. Tests inject a deterministic
-  `callModel` that still writes through the real store.
+  every live sandbox the E2B runner reports. The run row records why it
+  stopped: `timeout` only when the budget signal fired, `cancelled` when the
+  request or the stream consumer went away.
+- **Every model call is recorded.** The evaluator's `callModel` writes one
+  `agent_tasks` row per attempt, success or failure. The row it returns is
+  also emitted as `agent_task.recorded`, and its id is the `taskId` on
+  `stage.finished` for `EVALUATE`. A failed attempt is persisted and logged
+  but not emitted: `callModel` throws without returning that row.
 
 What the provider deliberately does not do:
 

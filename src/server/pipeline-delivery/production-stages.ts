@@ -45,8 +45,10 @@ import {
   createDrizzleAgentTaskStore,
   type CallModel,
   type CallModelContext,
+  type PersistedAgentTask,
 } from '../model'
 import { validateExperimentSpec } from '../planner'
+import { StreamBudgetExceededError } from '../pipeline-transport'
 import {
   E2BRunner,
   runnerErrorToFailedResult,
@@ -131,6 +133,21 @@ function failedResultFromRunnerError(
     durationMs: 0,
     environment: initialEnvironment(spec, startedAt),
   }
+}
+
+/**
+ * The durable status of a run that was aborted mid-EXECUTE.
+ *
+ * The stage signal is `AbortSignal.any` over the request signal, a consumer
+ * cancel and the stream budget. Only the budget is a timeout; the other two
+ * mean the caller went away. Recording both as `timeout` would persist a
+ * deadline that never fired and disagree with the event log, which appends no
+ * terminal at all for a disconnect (ADR 0003).
+ */
+function abortedRunStatus(signal: AbortSignal): 'timeout' | 'cancelled' {
+  return signal.reason instanceof StreamBudgetExceededError
+    ? 'timeout'
+    : 'cancelled'
 }
 
 export function createProductionPipelineStages(
@@ -266,16 +283,19 @@ export function createProductionPipelineStages(
       const finishedAt = now()
 
       if (context.signal.aborted) {
-        // The transport owns the timeout terminal; best-effort mark the row so
-        // a run killed by the deadline is not left looking alive.
+        // The transport owns any terminal event; best-effort mark the row so a
+        // run killed mid-EXECUTE is not left looking alive. The status must
+        // match why it stopped: budget expiry is `timeout`, a client
+        // disconnect is `cancelled`.
+        const status = abortedRunStatus(context.signal)
         try {
           await db
             .update(runs)
-            .set({ status: 'timeout', finishedAt })
+            .set({ status, finishedAt })
             .where(eq(runs.id, runId))
         } catch (error) {
           console.error(
-            '[pipeline-delivery] could not mark an aborted run as timeout',
+            `[pipeline-delivery] could not mark an aborted run as ${status}`,
             error,
           )
         }
@@ -330,17 +350,48 @@ export function createProductionPipelineStages(
         signal: context.signal,
       }
 
+      // `evaluateAndExplainExperiment` returns only the verdict and detail, so
+      // the rows its model call wrote are captured here and accounted for on
+      // the stream. `callModel` persists a failed attempt and then throws
+      // without returning the row; that row is still in `agent_tasks` and the
+      // server log, but it cannot be emitted from this seam.
+      const recordedTasks: PersistedAgentTask[] = []
+      const capturingCallModel: CallModel = async (schema, prompt, ctx) => {
+        const call = await callModelFn(schema, prompt, ctx)
+        recordedTasks.push(...call.attempts)
+        return call
+      }
+
       const evaluated = await evaluateAndExplainExperiment(
         spec,
         result,
         callContext,
-        { callModelFn },
+        { callModelFn: capturingCallModel },
       )
 
       if (context.signal.aborted) {
         throw context.signal.reason instanceof Error
           ? context.signal.reason
           : new Error('the pipeline was aborted')
+      }
+
+      for (const task of recordedTasks) {
+        await context.emit({
+          type: 'agent_task.recorded',
+          task: {
+            id: task.id,
+            taskKind: task.taskKind,
+            strategyId: task.strategyId,
+            model: task.model,
+            status: task.status,
+            promptTokens: task.promptTokens,
+            completionTokens: task.completionTokens,
+            // `numeric` is a string in Postgres; the event carries a number.
+            costUsd: task.costUsd === null ? null : Number(task.costUsd),
+            latencyMs: task.latencyMs,
+            error: task.error,
+          },
+        })
       }
 
       await db
@@ -362,7 +413,7 @@ export function createProductionPipelineStages(
         type: 'stage.finished',
         stage: 'EVALUATE',
         status: 'succeeded',
-        taskId: null,
+        taskId: recordedTasks.at(-1)?.id ?? null,
         error: null,
       })
 

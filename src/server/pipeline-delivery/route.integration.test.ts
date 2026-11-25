@@ -7,11 +7,15 @@
  * production ones: the real database adapter, the real identity path, the real
  * stage provider, the real E2B runner logic and the real evaluator.
  *
- * Two process boundaries are replaced, because they are external services and
- * this suite must run without credentials:
+ * Four boundaries are replaced, because they are external services or need a
+ * fixed identity and this suite must run without credentials:
  *
  * - `src/db/client` returns the disposable Postgres pool instead of Neon's
  *   WebSocket driver. The SQL, migrations and constraints are the real ones.
+ * - `auth.server` returns a fixed user and a hand-written membership check.
+ *   The routes therefore exercise the authorization call sites, not #4's real
+ *   guard; the real `enforceWorkspaceMembership` is covered by the transport
+ *   suites in `delivery.integration.test.ts`.
  * - `e2b` is a deterministic in-memory sandbox. The `E2BRunner` above it is
  *   the real implementation.
  * - `callModel` is deterministic and writes through the real agent_tasks
@@ -371,6 +375,18 @@ describeIntegration('mounted pipeline routes over real Postgres', () => {
       'SELECT task_kind FROM agent_tasks',
     )
     expect(tasks.rows).toEqual([{ task_kind: 'explain_gap' }])
+
+    // The stream accounts for the row it wrote and links it on the stage.
+    const taskRecorded = sse.events.find(
+      (event) => event.type === 'agent_task.recorded',
+    ) as Extract<PipelineEvent, { type: 'agent_task.recorded' }> | undefined
+    expect(taskRecorded?.task.taskKind).toBe('explain_gap')
+
+    const evaluateFinished = sse.events.find(
+      (event) =>
+        event.type === 'stage.finished' && event.stage === 'EVALUATE',
+    ) as Extract<PipelineEvent, { type: 'stage.finished' }> | undefined
+    expect(evaluateFinished?.taskId).toBe(taskRecorded?.task.id)
   })
 
   it('ends a mounted rejection as cancelled with no run row', async () => {
@@ -445,5 +461,18 @@ describeIntegration('mounted pipeline routes over real Postgres', () => {
     expect(
       sse.events.some((event) => event.type === 'pipeline.completed'),
     ).toBe(false)
+
+    // A disconnect is not a budget expiry: the durable row records that the
+    // client went away, not a timeout that never happened.
+    for (
+      let attempt = 0;
+      attempt < 100 && (await runRows())[0]?.status !== 'cancelled';
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    const rows = await runRows()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.status).toBe('cancelled')
   })
 })
