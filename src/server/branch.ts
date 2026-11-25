@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm'
 import type { Database } from '../db/client'
 import { experiments, runs } from '../db/schema'
 import type {
@@ -15,15 +16,20 @@ export type SpecLeafDiff = {
   after: unknown
 }
 
+export type BranchValidationErrorCode =
+  | 'PARENT_NOT_FOUND'
+  | 'PARENT_NOT_COMPLETED'
+  | 'PARENT_WORKSPACE_MISMATCH'
+  | 'NO_CHANGES'
+  | 'MULTIPLE_CHANGES'
+  | 'FILES_CHANGE_NOT_ALLOWED'
+  | 'INVALID_SPEC'
+  | 'INVALID_PATH'
+
 export class BranchValidationError extends Error {
   constructor(
     message: string,
-    public readonly code:
-      | 'PARENT_NOT_COMPLETED'
-      | 'NO_CHANGES'
-      | 'MULTIPLE_CHANGES'
-      | 'INVALID_SPEC'
-      | 'INVALID_PATH',
+    public readonly code: BranchValidationErrorCode,
     public readonly diffs: SpecLeafDiff[] = [],
   ) {
     super(message)
@@ -38,6 +44,36 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
     !Array.isArray(value) &&
     Object.getPrototypeOf(value) === Object.prototype
   )
+}
+
+function assertJsonSafe(val: unknown, path = ''): void {
+  if (val === undefined) {
+    throw new BranchValidationError(
+      `Value at "${path || 'root'}" cannot be undefined`,
+      'INVALID_SPEC',
+    )
+  }
+  if (typeof val === 'number' && !Number.isFinite(val)) {
+    throw new BranchValidationError(
+      `Numeric value at "${path || 'root'}" must be finite, got ${val}`,
+      'INVALID_SPEC',
+    )
+  }
+  if (typeof val === 'function' || typeof val === 'symbol' || typeof val === 'bigint') {
+    throw new BranchValidationError(
+      `Value at "${path || 'root'}" cannot be ${typeof val}`,
+      'INVALID_SPEC',
+    )
+  }
+  if (Array.isArray(val)) {
+    val.forEach((item, idx) =>
+      assertJsonSafe(item, path ? `${path}.${idx}` : String(idx)),
+    )
+  } else if (isPlainObject(val)) {
+    for (const [k, v] of Object.entries(val)) {
+      assertJsonSafe(v, path ? `${path}.${k}` : k)
+    }
+  }
 }
 
 function collectLeafDiffs(
@@ -109,6 +145,7 @@ export function applySingleLeafChange(
   leafPath: string,
   value: unknown,
 ): ExperimentSpec {
+  assertJsonSafe(value, leafPath)
   const trimmedPath = leafPath.trim()
   if (trimmedPath.startsWith('files.')) {
     const fileKey = trimmedPath.slice('files.'.length)
@@ -229,11 +266,11 @@ export type NewWhatIfBranchInput = {
   claimNodeId: string
   parentRunId: string
   spec: ExperimentSpec
-  approvalState?: ApprovalState
   environment: RunEnvironment
 }
 
 export interface WhatIfBranchStore {
+  getParentRun(runId: string): Promise<ParentRunSnapshot | null>
   createExperimentAndRun(input: NewWhatIfBranchInput): Promise<{
     experiment: BranchedExperimentRecord
     run: BranchedRunRecord
@@ -241,9 +278,26 @@ export interface WhatIfBranchStore {
 }
 
 export function createDrizzleWhatIfBranchStore(
-  db: Pick<Database, 'transaction'>,
+  db: Pick<Database, 'transaction' | 'select'>,
 ): WhatIfBranchStore {
   return {
+    async getParentRun(runId: string): Promise<ParentRunSnapshot | null> {
+      const [row] = await db
+        .select({
+          id: runs.id,
+          experimentId: runs.experimentId,
+          workspaceId: experiments.workspaceId,
+          status: runs.status,
+          spec: runs.spec,
+        })
+        .from(runs)
+        .innerJoin(experiments, eq(experiments.id, runs.experimentId))
+        .where(eq(runs.id, runId))
+
+      if (!row) return null
+      return row as ParentRunSnapshot
+    },
+
     async createExperimentAndRun(input: NewWhatIfBranchInput) {
       return db.transaction(async (tx) => {
         const [exp] = await tx
@@ -253,7 +307,7 @@ export function createDrizzleWhatIfBranchStore(
             claimNodeId: input.claimNodeId,
             spec: input.spec,
             mode: input.spec.mode,
-            approvalState: input.approvalState ?? 'pending',
+            approvalState: 'pending',
           })
           .returning()
 
@@ -261,8 +315,11 @@ export function createDrizzleWhatIfBranchStore(
           throw new Error('experiments insert returned no row')
         }
 
-        // Note: pipeline wiring must adopt this queued row (matching experimentId + attempt 1)
-        // when EXECUTE runs the branched experiment rather than inserting a duplicate row.
+        // Follow-up owned by ivory-26: tracked in issue #62
+        // (https://github.com/ivory-26/research-graph/issues/62) for docs/05-plan.md:73
+        // and docs/07-workstreams.md:25 to adopt this queued `runs` row in
+        // `src/server/pipeline-delivery/production-stages.ts:233-242` during EXECUTE.
+        // Keep `Related to #27` until wired.
         const [run] = await tx
           .insert(runs)
           .values({
@@ -309,15 +366,29 @@ export function createDrizzleWhatIfBranchStore(
   }
 }
 
+/**
+ * What-if branch modification input.
+ *
+ * Shape difference:
+ * - `path` requires the full dotted spec path (so `{ path: 'importance_method' }` is rejected as `INVALID_PATH`).
+ * - `parameterName` auto-prefixes `'parameters.'` when omitted, so `{ parameterName: 'importance_method' }`
+ *   and `{ path: 'parameters.importance_method' }` are equivalent.
+ */
 export type WhatIfBranchChange =
-  | { path: string; value: unknown }
-  | { parameterName: string; value: unknown }
+  | {
+      /** Full dot-separated spec path, e.g. `'parameters.importance_method'` (never bare leaf names). */
+      path: string
+      value: unknown
+    }
+  | {
+      /** Parameter leaf name (automatically prefixed with `'parameters.'` if not already present). */
+      parameterName: string
+      value: unknown
+    }
   | { candidateSpec: ExperimentSpec }
 
 export type BranchWhatIfOptions = {
   store: WhatIfBranchStore
-  approvalState?: ApprovalState
-  now?: () => Date
 }
 
 export type BranchWhatIfResult = {
@@ -326,6 +397,10 @@ export type BranchWhatIfResult = {
   diff: SpecLeafDiff
 }
 
+/**
+ * Local copy of `initialEnvironment` from `src/server/pipeline-delivery/production-stages.ts:92-105`
+ * (kept local per `docs/07-workstreams.md` file ownership; records empty placeholders while `status` is `'queued'`).
+ */
 function initialBranchEnvironment(spec: ExperimentSpec): RunEnvironment {
   return {
     imageDigest: 'unknown',
@@ -339,36 +414,73 @@ function initialBranchEnvironment(spec: ExperimentSpec): RunEnvironment {
 }
 
 /**
- * Clones a completed run's frozen spec, applies exactly one leaf change,
- * rejects any 0-leaf or multi-leaf diff, re-runs PLAN_EXPERIMENT validation,
+ * Clones a completed run's frozen spec, applies exactly one parameter leaf change,
+ * rejects any 0-leaf, multi-leaf, or non-`parameters.*` diff, re-runs PLAN_EXPERIMENT validation,
  * and creates a new experiment + child run with `parentRunId` set.
  * The parent run and experiment are never touched.
+ *
+ * `parentRun` provides the target parent run id and caller's asserted workspaceId.
+ * The parent's frozen spec, status, and workspace are structurally re-read from the
+ * store via `getParentRun` and verified before any branch is persisted.
  */
 export async function branchWhatIf(
   parentRun: ParentRunSnapshot,
   change: WhatIfBranchChange,
   options: BranchWhatIfOptions,
 ): Promise<BranchWhatIfResult> {
-  if (parentRun.status !== 'succeeded') {
+  const loaded = await options.store.getParentRun(parentRun.id)
+  if (!loaded) {
     throw new BranchValidationError(
-      `Cannot branch from run ${parentRun.id} with status "${parentRun.status}"; parent run must be completed ("succeeded")`,
+      `Parent run ${parentRun.id} not found in store`,
+      'PARENT_NOT_FOUND',
+    )
+  }
+  // Consistency guard comparing the stored parent workspace against the caller-supplied workspaceId
+  // (not an authorization boundary — callers must enforce auth before invoking branchWhatIf;
+  // persistence always writes into `activeParent.workspaceId`).
+  if (loaded.workspaceId !== parentRun.workspaceId) {
+    throw new BranchValidationError(
+      `Parent run ${parentRun.id} does not belong to workspace ${parentRun.workspaceId}`,
+      'PARENT_WORKSPACE_MISMATCH',
+    )
+  }
+  const activeParent = loaded
+
+  if (activeParent.status !== 'succeeded') {
+    throw new BranchValidationError(
+      `Cannot branch from run ${activeParent.id} with status "${activeParent.status}"; parent run must be completed ("succeeded")`,
       'PARENT_NOT_COMPLETED',
     )
   }
 
   let childSpec: ExperimentSpec
   if ('candidateSpec' in change) {
+    if (!isPlainObject(change.candidateSpec)) {
+      throw new BranchValidationError(
+        'Branched candidateSpec must be a non-null plain object',
+        'INVALID_SPEC',
+      )
+    }
+    assertJsonSafe(change.candidateSpec)
     childSpec = structuredClone(change.candidateSpec)
-  } else if ('path' in change) {
-    childSpec = applySingleLeafChange(parentRun.spec, change.path, change.value)
-  } else {
+  } else if ('path' in change && typeof change.path === 'string') {
+    childSpec = applySingleLeafChange(activeParent.spec, change.path, change.value)
+  } else if ('parameterName' in change && typeof change.parameterName === 'string') {
     const path = change.parameterName.startsWith('parameters.')
       ? change.parameterName
       : `parameters.${change.parameterName}`
-    childSpec = applySingleLeafChange(parentRun.spec, path, change.value)
+    childSpec = applySingleLeafChange(activeParent.spec, path, change.value)
+  } else {
+    throw new BranchValidationError(
+      'What-if branch change must specify candidateSpec, path, or parameterName',
+      'INVALID_SPEC',
+    )
   }
 
-  const diffs = diffSpecLeaves(parentRun.spec, childSpec)
+  // Ensure childSpec is round-tripped through JSON so in-memory diffs and JSONB persistence are strictly identical
+  childSpec = JSON.parse(JSON.stringify(childSpec)) as ExperimentSpec
+
+  const diffs = diffSpecLeaves(activeParent.spec, childSpec)
   if (diffs.length === 0) {
     throw new BranchValidationError(
       'What-if branch must change exactly one leaf of the spec; no changes were made',
@@ -386,10 +498,41 @@ export async function branchWhatIf(
     )
   }
 
-  if (childSpec.claimNodeId !== parentRun.spec.claimNodeId) {
+  if (childSpec.claimNodeId !== activeParent.spec.claimNodeId) {
     throw new BranchValidationError(
       'What-if branch cannot change claimNodeId',
       'INVALID_SPEC',
+      diffs,
+    )
+  }
+
+  if (childSpec.mode !== activeParent.spec.mode) {
+    throw new BranchValidationError(
+      'What-if branch cannot change execution mode',
+      'INVALID_SPEC',
+      diffs,
+    )
+  }
+
+  const changedLeaf = diffs[0]!
+  if (changedLeaf.path.startsWith('files.')) {
+    throw new BranchValidationError(
+      `What-if branch cannot modify script files ("${changedLeaf.path}"); script edits belong to the repair path`,
+      'FILES_CHANGE_NOT_ALLOWED',
+      diffs,
+    )
+  }
+  if (!changedLeaf.path.startsWith('parameters.')) {
+    throw new BranchValidationError(
+      `What-if branch can only modify parameters.* leaves, got "${changedLeaf.path}"`,
+      'INVALID_SPEC',
+      diffs,
+    )
+  }
+  if (changedLeaf.before === undefined) {
+    throw new BranchValidationError(
+      `What-if branch cannot introduce new parameter "${changedLeaf.path}" not present in parent spec`,
+      'INVALID_PATH',
       diffs,
     )
   }
@@ -404,11 +547,10 @@ export async function branchWhatIf(
   }
 
   const { experiment, run } = await options.store.createExperimentAndRun({
-    workspaceId: parentRun.workspaceId,
-    claimNodeId: parentRun.spec.claimNodeId,
-    parentRunId: parentRun.id,
+    workspaceId: activeParent.workspaceId,
+    claimNodeId: activeParent.spec.claimNodeId,
+    parentRunId: activeParent.id,
     spec: childSpec,
-    approvalState: options.approvalState ?? 'pending',
     environment: initialBranchEnvironment(childSpec),
   })
 
