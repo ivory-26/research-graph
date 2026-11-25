@@ -30,9 +30,15 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(nb.metadata.kernelspec.name).toBe('python3')
     expect(nb.metadata.language_info.version).toBe('3.12.16')
     expect(nb.cells).toHaveLength(6)
+    for (const cell of nb.cells) {
+      expect(cell.id).toBeDefined()
+      expect(typeof cell.id).toBe('string')
+      expect(cell.id.length).toBeGreaterThan(0)
+    }
 
     // Cell 1: Markdown metadata
     const cell1 = nb.cells[0]!
+    expect(cell1.id).toBe('cell-1-metadata')
     expect(cell1.cell_type).toBe('markdown')
     const md1 = cell1.source.join('')
     expect(md1).toContain('10.1186/1471-2105-8-25')
@@ -43,6 +49,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
 
     // Cell 2: Code - pinned pip installs
     const cell2 = nb.cells[1]!
+    expect(cell2.id).toBe('cell-2-dependencies')
     expect(cell2.cell_type).toBe('code')
     const pipSrc = cell2.source.join('')
     expect(pipSrc).toContain('!pip install -q')
@@ -51,6 +58,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
 
     // Cell 3: Code - dataset download + sha256 verification
     const cell3 = nb.cells[2]!
+    expect(cell3.id).toBe('cell-3-dataset')
     expect(cell3.cell_type).toBe('code')
     const dsSrc = cell3.source.join('')
     expect(dsSrc).toContain(HERO_EXPERIMENT_SPEC_RUN_A.datasets[0]!.url)
@@ -60,11 +68,13 @@ describe('buildNotebookDocument (Issue #28)', () => {
 
     // Cell 4: Code - verbatim script
     const cell4 = nb.cells[3]!
+    expect(cell4.id).toBe('cell-4-script')
     expect(cell4.cell_type).toBe('code')
     expect(cell4.source.join('')).toBe(HERO_EXPERIMENT_SPEC_RUN_A.files['main.py'])
 
     // Cell 5: Code - metrics display
     const cell5 = nb.cells[4]!
+    expect(cell5.id).toBe('cell-5-metrics')
     expect(cell5.cell_type).toBe('code')
     const metricsSrc = cell5.source.join('')
     expect(metricsSrc).toContain('/output/metrics.json')
@@ -72,6 +82,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
 
     // Cell 6: Markdown - criteria and pass/fail semantics
     const cell6 = nb.cells[5]!
+    expect(cell6.id).toBe('cell-6-criteria')
     expect(cell6.cell_type).toBe('markdown')
     const md6 = cell6.source.join('')
     expect(md6).toContain('rank_impurity_noise_20')

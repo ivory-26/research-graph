@@ -11,17 +11,24 @@ import type {
 import { extractEntrypointFile } from './planner'
 import { PINNED_IMAGE_PACKAGES, SANDBOX_METRICS_PATH } from './runner'
 
+export type NbformatOutput = {
+  output_type: string
+  [key: string]: unknown
+}
+
 export type NbformatMarkdownCell = {
   cell_type: 'markdown'
+  id: string
   metadata: Record<string, unknown>
   source: string[]
 }
 
 export type NbformatCodeCell = {
   cell_type: 'code'
+  id: string
   execution_count: null
   metadata: Record<string, unknown>
-  outputs: unknown[]
+  outputs: NbformatOutput[]
   source: string[]
 }
 
@@ -132,6 +139,7 @@ function buildMetadataMarkdownCell(input: BuildNotebookInput): NbformatMarkdownC
 
   return {
     cell_type: 'markdown',
+    id: 'cell-1-metadata',
     metadata: {},
     source: toNbformatLines(lines.join('\n')),
   }
@@ -140,10 +148,19 @@ function buildMetadataMarkdownCell(input: BuildNotebookInput): NbformatMarkdownC
 function buildPipInstallCell(
   packages: Record<string, string> | undefined,
 ): NbformatCodeCell {
-  const effectivePackages =
-    packages && Object.keys(packages).length > 0
-      ? packages
-      : PINNED_IMAGE_PACKAGES
+  // Filter out any pip error sentinels or empty values, and restrict to known valid pinned packages
+  const candidate = packages && Object.keys(packages).length > 0 ? packages : PINNED_IMAGE_PACKAGES
+  const filtered: Record<string, string> = {}
+
+  for (const [pkg, ver] of Object.entries(candidate)) {
+    if (pkg.startsWith('__') || !ver || ver === 'unknown') continue
+    // Only pin packages that match the pinned runtime libraries
+    if (pkg in PINNED_IMAGE_PACKAGES) {
+      filtered[pkg] = ver
+    }
+  }
+
+  const effectivePackages = Object.keys(filtered).length > 0 ? filtered : PINNED_IMAGE_PACKAGES
 
   const pkgArgs = Object.entries(effectivePackages)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -157,6 +174,7 @@ function buildPipInstallCell(
 
   return {
     cell_type: 'code',
+    id: 'cell-2-dependencies',
     execution_count: null,
     metadata: {},
     outputs: [],
@@ -202,6 +220,7 @@ function buildDatasetDownloadCell(spec: ExperimentSpec): NbformatCodeCell {
 
   return {
     cell_type: 'code',
+    id: 'cell-3-dataset',
     execution_count: null,
     metadata: {},
     outputs: [],
@@ -224,6 +243,7 @@ function buildVerbatimScriptCell(spec: ExperimentSpec): NbformatCodeCell {
 
   return {
     cell_type: 'code',
+    id: 'cell-4-script',
     execution_count: null,
     metadata: {},
     outputs: [],
@@ -233,7 +253,7 @@ function buildVerbatimScriptCell(spec: ExperimentSpec): NbformatCodeCell {
 
 function buildMetricsDisplayCell(): NbformatCodeCell {
   const lines = [
-    '# 4. Read and display measured metrics',
+    '# 5. Read and display measured metrics',
     'import json',
     'import pathlib',
     '',
@@ -249,6 +269,7 @@ function buildMetricsDisplayCell(): NbformatCodeCell {
 
   return {
     cell_type: 'code',
+    id: 'cell-5-metrics',
     execution_count: null,
     metadata: {},
     outputs: [],
@@ -281,6 +302,7 @@ function buildCriteriaMarkdownCell(spec: ExperimentSpec): NbformatMarkdownCell {
 
   return {
     cell_type: 'markdown',
+    id: 'cell-6-criteria',
     metadata: {},
     source: toNbformatLines(lines.join('\n')),
   }
