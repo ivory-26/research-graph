@@ -385,10 +385,22 @@ export async function repairAndRetryRun(
     }
   }
 
+  // The two-attempt ceiling is enforced against the total repair chain (initial run is attempt 1,
+  // so repairs are attempts 2 and 3; at attempt >= 3, ceiling is reached).
   const maxAttempts = Math.min(
-    Math.max(1, options.maxAttempts ?? MAX_REPAIR_ATTEMPTS),
-    MAX_REPAIR_ATTEMPTS,
+    Math.max(0, MAX_REPAIR_ATTEMPTS - (failedRun.attempt - 1)),
+    options.maxAttempts ?? MAX_REPAIR_ATTEMPTS,
   )
+
+  if (maxAttempts <= 0) {
+    return {
+      repaired: false,
+      status: 'exhausted',
+      attemptsUsed: 0,
+      runs: [failedRun],
+      finalRun: failedRun,
+    }
+  }
   const call = options.callModelFn ?? productionCallModel
   const now = options.now ?? (() => new Date())
   const onStdout = options.onStdout ?? (() => {})

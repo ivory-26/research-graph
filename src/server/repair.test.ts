@@ -269,6 +269,47 @@ describe('repairAndRetryRun (Issue #26)', () => {
     expect(callCount).toBe(2)
   })
 
+  it('refuses further repair attempts if a run at attempt 3 is passed', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedAttempt3Run: RepairRunRecord = {
+      ...makeFailedRun(brokenSpec, 'ImportError: broken'),
+      attempt: 3,
+      parentRunId: 'run-initial-2',
+    }
+
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedAttempt3Run)
+
+    const taskStore = new MemoryTaskStore()
+    const callModelFn = createCallModel({
+      generate: async () => ({
+        output: { script: '', summary: '' },
+        inputTokens: 0,
+        outputTokens: 0,
+      }),
+      sleep: async () => {},
+    })
+
+    const runner: ExperimentRunner = {
+      async run(): Promise<ExperimentResult> {
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+
+    const result = await repairAndRetryRun(failedAttempt3Run, {
+      runStore,
+      runner,
+      modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+      callModelFn,
+    })
+
+    expect(result.repaired).toBe(false)
+    expect(result.status).toBe('exhausted')
+    expect(result.attemptsUsed).toBe(0)
+    expect(result.runs).toEqual([failedAttempt3Run])
+  })
+
   it('re-opens approval gate when repair modifies non-import/path/column logic', async () => {
     const brokenSpec = makeBrokenImportSpec()
     const failedRun = makeFailedRun(brokenSpec, 'ValueError: bad n_estimators')
