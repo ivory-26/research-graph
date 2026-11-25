@@ -367,6 +367,33 @@ export type RepairRetryResult = {
   validationErrors?: string[]
 }
 
+function sanitizeRunnerError(
+  err: unknown,
+  spec: ExperimentSpec,
+  startedAt: string,
+): ExperimentResult {
+  const typed =
+    err instanceof Error &&
+    ['PackageVerificationError', 'MetricsExtractionError', 'SandboxTimeoutError'].includes(
+      err.name,
+    )
+
+  if (typed) {
+    return runnerErrorToFailedResult(err, spec, startedAt)
+  }
+
+  console.error('[repairAndRetryRun] experiment runner failed', err)
+  return {
+    exitCode: 1,
+    stdout: '',
+    stderr: 'The experiment runner failed before producing a result',
+    metrics: {},
+    artifacts: [],
+    durationMs: 0,
+    environment: initialRepairEnvironment(spec, startedAt),
+  }
+}
+
 /**
  * On a failed run, invokes REPAIR_SCRIPT up to two attempts maximum.
  * Each attempt creates a new `runs` row with `attempt` incremented and `parentRunId` chained.
@@ -522,7 +549,7 @@ export async function repairAndRetryRun(
     try {
       result = await options.runner.run(repairedSpec, onStdout)
     } catch (err) {
-      result = runnerErrorToFailedResult(
+      result = sanitizeRunnerError(
         err,
         repairedSpec,
         startedAt.toISOString(),
