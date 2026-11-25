@@ -9,7 +9,7 @@ import type {
   Verdict,
 } from '../shared/types'
 import { extractEntrypointFile } from './planner'
-import { PINNED_IMAGE_PACKAGES, SANDBOX_METRICS_PATH } from './runner'
+import { SANDBOX_METRICS_PATH } from './runner'
 
 export type NbformatOutput = {
   output_type: string
@@ -120,7 +120,7 @@ function buildMetadataMarkdownCell(input: BuildNotebookInput): NbformatMarkdownC
   const doi = input.doi?.trim() || 'N/A'
   const pageSuffix =
     typeof input.claim.page === 'number' ? ` (p. ${input.claim.page})` : ''
-  const verdict = input.verdict ?? 'pending'
+  const verdictStr = input.verdict ? `\`${input.verdict}\`` : 'not evaluated (specification preview)'
 
   const lines = [
     `# Reproducibility Record: ${title}`,
@@ -131,7 +131,7 @@ function buildMetadataMarkdownCell(input: BuildNotebookInput): NbformatMarkdownC
     `- **Claim Quote${pageSuffix}:** "${input.claim.quote}"`,
     `- **Reported Value:** ${formatReportedValue(input.claim.reported)}`,
     `- **Mode:** \`${input.spec.mode}\``,
-    `- **Verdict:** \`${verdict}\``,
+    `- **Verdict:** ${verdictStr}`,
   ]
 
   if (input.verdictExplanation) {
@@ -238,27 +238,54 @@ function buildDatasetDownloadCell(spec: ExperimentSpec): NbformatCodeCell {
   }
 }
 
-function buildVerbatimScriptCell(spec: ExperimentSpec): NbformatCodeCell {
+function buildVerbatimScriptCell(spec: ExperimentSpec): NbformatCodeCell[] {
   const entrypointFile = extractEntrypointFile(spec.entrypoint)
   if (!entrypointFile) {
     throw new Error(`Invalid entrypoint "${spec.entrypoint}" in ExperimentSpec`)
   }
 
-  const script = spec.files[entrypointFile]
-  if (typeof script !== 'string') {
+  const cells: NbformatCodeCell[] = []
+
+  // If there are auxiliary files besides the entrypoint, write them to disk in separate cells
+  const auxiliaryFiles = Object.entries(spec.files).filter(([p]) => p !== entrypointFile)
+  for (const [filePath, content] of auxiliaryFiles) {
+    const safeContent = JSON.stringify(content)
+    const writeScript = [
+      `# Auxiliary file: ${filePath}`,
+      'import pathlib',
+      `target_path = pathlib.Path(${JSON.stringify(filePath)})`,
+      'target_path.parent.mkdir(parents=True, exist_ok=True)',
+      `target_path.write_text(${safeContent}, encoding="utf-8")`,
+      `print(f"Wrote {target_path} ({len(target_path.read_text())} characters)")`,
+    ].join('\n')
+
+    cells.push({
+      cell_type: 'code',
+      id: `cell-aux-${filePath.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+      execution_count: null,
+      metadata: {},
+      outputs: [],
+      source: toNbformatLines(writeScript),
+    })
+  }
+
+  const mainScript = spec.files[entrypointFile]
+  if (typeof mainScript !== 'string') {
     throw new Error(
       `Entrypoint script "${entrypointFile}" not found in ExperimentSpec.files`,
     )
   }
 
-  return {
+  cells.push({
     cell_type: 'code',
     id: 'cell-4-script',
     execution_count: null,
     metadata: {},
     outputs: [],
-    source: toNbformatLines(script),
-  }
+    source: toNbformatLines(mainScript),
+  })
+
+  return cells
 }
 
 function buildMetricsDisplayCell(): NbformatCodeCell {
@@ -305,7 +332,7 @@ function buildCriteriaMarkdownCell(spec: ExperimentSpec): NbformatMarkdownCell {
     '',
     '### What the verdict means',
     '- **`match`**: Exit code is `0`, all required metrics are present in `/output/metrics.json`, and the criteria pass.',
-    '- **`mismatch`**: Exit code is `0` and all required metrics are present, but one or more required criteria failed.',
+    `- **\`mismatch\`**: Exit code is \`0\` and all required metrics are present, but ${spec.criteria.mode === 'any' ? 'no required criterion passed' : 'one or more required criteria failed'}.`,
     '- **`inconclusive`**: Exit code is `0`, but a criterion references a metric missing from `/output/metrics.json`.',
     '- **`failed`**: Non-zero exit code, missing/unparseable `/output/metrics.json`, or sandbox timeout.',
   ]
@@ -346,7 +373,7 @@ export function buildNotebookDocument(
       buildMetadataMarkdownCell(input),
       buildPipInstallCell(input.environment?.packages),
       buildDatasetDownloadCell(input.spec),
-      buildVerbatimScriptCell(input.spec),
+      ...buildVerbatimScriptCell(input.spec),
       buildMetricsDisplayCell(),
       buildCriteriaMarkdownCell(input.spec),
     ],
