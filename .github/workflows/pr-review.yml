@@ -3,6 +3,9 @@ name: PR review
 on:
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, ready_for_review, synchronize]
   workflow_dispatch:
     inputs:
       pr:
@@ -15,43 +18,75 @@ permissions:
   contents: read
 
 concurrency:
-  group: pr-review-${{ github.event.pull_request.number || inputs.pr }}
+  # The ineligible run from the other PR event must not cancel an eligible run.
+  group: pr-review-${{ ((github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.id == 1468841894) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.id == github.event.repository.id) || github.event_name == 'workflow_dispatch') && (github.event.pull_request.number || inputs.pr) || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  checks:
-    name: Run checks
+  target:
+    name: Resolve review target
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.draft == false &&
-       github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.user.type != 'Bot')
+       github.event.pull_request.user.type != 'Bot' &&
+       ((github.event_name == 'pull_request' &&
+         github.event.pull_request.head.repo.id == github.event.repository.id) ||
+        (github.event_name == 'pull_request_target' &&
+         github.event.pull_request.head.repo.id == 1468841894)))
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      head: ${{ steps.pr.outputs.head }}
+      fork: ${{ steps.pr.outputs.fork }}
+    steps:
+      - name: Validate the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+          BASE_REPO_ID: ${{ github.repository_id }}
+          # Stable repository ID for yashhh-23/research-graph.
+          REVIEW_FORK_ID: "1468841894"
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+          head=$(jq -r '.head.sha' <<< "$pr")
+          repo=$(jq -r '.head.repo.id' <<< "$pr")
+          [[ "$head" =~ ^[0-9a-f]{40}$ ]]
+          [[ -z "$EVENT_HEAD" || "$EVENT_HEAD" == "$head" ]]
+
+          if [[ "$repo" == "$BASE_REPO_ID" ]]; then
+            fork=false
+          elif [[ "$repo" == "$REVIEW_FORK_ID" && "$GITHUB_REF" == refs/heads/main ]] &&
+               jq -e '.base.ref == "main" and .state == "open" and .draft == false' <<< "$pr" > /dev/null; then
+            fork=true
+          else
+            echo "::error::This pull request is outside the allowed review scope."
+            exit 1
+          fi
+
+          printf 'head=%s\nfork=%s\n' "$head" "$fork" >> "$GITHUB_OUTPUT"
+
+  checks:
+    name: Run checks
+    needs: target
+    if: needs.target.outputs.fork == 'false' && github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: read
-    env:
-      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
     steps:
       - name: Check out
         uses: actions/checkout@v7
         with:
+          # Automatic checks exercise the merge commit; dispatch uses the resolved head.
+          ref: ${{ github.event_name == 'workflow_dispatch' && needs.target.outputs.head || github.sha }}
           fetch-depth: 1
-          persist-credentials: ${{ github.event_name == 'workflow_dispatch' }}
-
-      - name: Check out the dispatched PR
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          cross=$(gh pr view "$PR_NUMBER" --json isCrossRepository --jq .isCrossRepository)
-          if [[ "$cross" == "true" ]]; then
-            echo "::error::Fork pull requests are not checked by this workflow."
-            exit 1
-          fi
-          gh pr checkout "$PR_NUMBER"
+          persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@v7
@@ -143,14 +178,12 @@ jobs:
 
   review:
     name: Review PR
-    needs: checks
+    needs: [target, checks]
     if: |
-      always() &&
+      !cancelled() &&
+      needs.target.result == 'success' &&
       needs.checks.result != 'cancelled' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event.pull_request.draft == false &&
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        github.event.pull_request.user.type != 'Bot'))
+      (needs.target.outputs.fork == 'true' || needs.checks.result != 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -161,28 +194,25 @@ jobs:
       GH_REPO: ${{ github.repository }}
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
       BASE_REF: ${{ github.event.pull_request.base.ref }}
+      REVIEW_HEAD: ${{ needs.target.outputs.head }}
+      FORK_REVIEW: ${{ needs.target.outputs.fork }}
     steps:
-      - name: Check out
+      - name: Check out trusted base for fork review
+        if: needs.target.outputs.fork == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Check out same-repository PR
+        if: needs.target.outputs.fork == 'false'
         uses: actions/checkout@v7
         with:
           # The reviewer reads the PR head, not refs/pull/N/merge; the checks
           # job still exercises the merge result.
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ needs.target.outputs.head }}
           fetch-depth: 0
-          persist-credentials: ${{ github.event_name == 'workflow_dispatch' }}
-
-      - name: Check out the dispatched PR
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          cross=$(gh pr view "$PR_NUMBER" --json isCrossRepository --jq .isCrossRepository)
-          if [[ "$cross" == "true" ]]; then
-            echo "::error::Fork pull requests are not reviewed by this workflow."
-            exit 1
-          fi
-          gh pr checkout "$PR_NUMBER"
+          persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@v7
@@ -191,6 +221,7 @@ jobs:
           node-version: "26.13.1"
 
       - name: Use review rules and scripts from the base branch
+        if: needs.target.outputs.fork == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -278,10 +309,8 @@ jobs:
             fi
           fi
 
-          # The model step must not inherit a git credential.
-          git config --local --unset-all http.https://github.com/.extraheader || true
-
       - name: Download check results
+        if: needs.target.outputs.fork == 'false'
         continue-on-error: true
         uses: actions/download-artifact@v7
         with:
@@ -293,16 +322,22 @@ jobs:
           # Never trust a checks.md from the PR checkout. Only the artifact
           # directory can supply results; anything else means "not run".
           rm -f checks.md
-          if [[ -f "$RUNNER_TEMP/checks-artifact/checks.md" ]]; then
+          if [[ "$FORK_REVIEW" == false && -f "$RUNNER_TEMP/checks-artifact/checks.md" ]]; then
             cp "$RUNNER_TEMP/checks-artifact/checks.md" checks.md
           else
             printf '%s\n' '- install: NOT RUN' '- typecheck: NOT RUN' '- test: NOT RUN' '- db-check: NOT RUN' > checks.md
+            if [[ "$FORK_REVIEW" == true ]]; then
+              printf '\nThis workflow reviews the fork diff without running the fork code.\n' >> checks.md
+            fi
           fi
 
       - name: Build PR context
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node .github/scripts/pr-context.mjs "$PR_NUMBER"
+        run: |
+          set -euo pipefail
+          node .github/scripts/pr-context.mjs "$PR_NUMBER"
+          [[ "$(jq -r .headRefOid pr-context.json)" == "$REVIEW_HEAD" ]]
 
       - name: Test review scripts
         run: node --test .github/scripts/extract-review.test.mjs
@@ -469,6 +504,13 @@ jobs:
           author=$(node -p "require('./pr-context.json').author.login")
           short_sha=${head_sha:0:7}
 
+          # A queued or manually dispatched run must not overwrite a newer review.
+          current_head=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq 'select(.state == "open") | .head.sha')
+          if [[ "$current_head" != "$head_sha" ]]; then
+            echo "::notice::PR closed or head changed during review."
+            exit 0
+          fi
+
           {
             echo "## Automated PR review"
             echo
@@ -566,8 +608,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          author=$(gh pr view "$PR_NUMBER" --json author --jq .author.login)
-          sha=$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+          if [[ "$(jq -r 'select(.state == "open") | .head.sha' <<< "$pr")" != "$REVIEW_HEAD" ]]; then
+            exit 0
+          fi
+          author=$(jq -r .user.login <<< "$pr")
+          sha=$REVIEW_HEAD
           printf '@%s — the automated review did not complete for `%s`. See the Actions run: %s\n' \
             "$author" "${sha:0:7}" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > review-failed.md
           gh pr comment "$PR_NUMBER" --body-file review-failed.md
