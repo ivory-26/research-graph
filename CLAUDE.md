@@ -48,12 +48,13 @@ Gemini constrains our schemas: flat or one level of nesting, no recursive `$ref`
 
 ## Commands
 
-Scaffold (#31) and schema (#32) are merged. Database commands read `DATABASE_URL` from `.env`; see [src/db/README.md](./src/db/README.md).
+Ingestion, extraction, retrieval, the E2B runner, the deterministic evaluator and the SSE pipeline routes are merged. The graph write-back (#7), seed (#8), deploy (#9), sign-in screens (#16) and the browser→pipeline bridge are not. Database commands read `DATABASE_URL` from `.env`; see [src/db/README.md](./src/db/README.md).
 
 ```bash
 pnpm dev             # TanStack Start dev server
 pnpm build           # Vite client + SSR, Nitro server bundle
 pnpm typecheck
+pnpm verify:hero     # Docker-only hero-spec check; needs a running daemon
 pnpm db:generate     # after editing src/db/schema.ts: new SQL + snapshot
 pnpm db:migrate      # apply committed migrations (empty database included)
 pnpm db:push         # disposable branch only: pgvector bootstrap, then push
@@ -66,14 +67,21 @@ pnpm seed            # rebuild the recorded workspace — lands with #8, not on 
 
 ```
 src/
-  routes/            TanStack Start routes
-  server/            server functions, pipeline, runners, model calls
-  db/                schema, migrations, queries
+  routes/            TanStack Start routes (api/auth, api/pipeline, index)
+  server/            ingest, extract, retrieval, firecrawl, planner, runner,
+                     evaluate, model, auth, pipeline-delivery, pipeline-transport
+  db/                schema, migrations, pipeline event/claim/gate queries
   shared/            contracts frozen on day 0 — types, events
-  components/        canvas, panels, approval screen
+  components/        canvas, panels, approval screen (fixture-driven UI)
+  data/              demoWorkspace.ts — the recorded fixture the UI renders
+fixtures/            workspace.json, hero-spec.ts, papers, extract
 docs/                the documents above
 ```
+
+The UI reads `fixtures/workspace.json` and `fixtures/hero-spec.ts`. It does not call the pipeline endpoint or read Postgres yet; do not present fixture values as measured run output.
 
 ## Working style
 
 The deadline is 30 November and the deliverable is a five-minute recording. A feature that is not in that recording did not ship. Ask before building anything that is not on the spine in [docs/05-plan.md](./docs/05-plan.md).
+
+Documentation is refreshed manually; there is no CI gate. Before a milestone or after a change to schema, stages, routes, commands, auth or ownership, follow [docs/10-docs-maintenance.md](./docs/10-docs-maintenance.md). Do not state that a fixture value is measured run output.

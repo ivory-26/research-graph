@@ -16,27 +16,41 @@ Four people, seven days, one deadline. The split exists so that nobody waits for
 Two people never edit the same file. This is the whole trick.
 
 ```
-src/shared/**            ivory-26      contracts — changes need a heads-up in the group chat
-src/db/**                ivory-26
-src/server/model.ts      ivory-26      the one callModel wrapper
-src/server/pipeline.ts   ivory-26      the integration seam
-src/server/admin.ts      ivory-26
+src/shared/**                       ivory-26   contracts — heads-up before a change
+src/db/**                           ivory-26   schema, migrations, pipeline DB API
+src/server/model.ts                 ivory-26   the one callModel wrapper
+src/server/auth.ts                  ivory-26
+src/server/auth.server.ts           ivory-26
+src/server/auth/**                  ivory-26
+src/server/pipeline-delivery/**     ivory-26   SSE delivery, approval path, stages
+src/server/pipeline-transport/**    ivory-26   framing, heartbeat, budget, approval poll
+src/routes/api/**                   ivory-26   route adapters
+scripts/ .github/ docs/             ivory-26
 
-src/server/ingest/**     CyberCodezilla
-src/server/extract/**    CyberCodezilla
-src/server/retrieval.ts  CyberCodezilla
-src/server/firecrawl.ts  CyberCodezilla
+src/server/ingest/**                CyberCodezilla
+src/server/extract/**               CyberCodezilla
+src/server/retrieval.ts             CyberCodezilla
+src/server/firecrawl.ts             CyberCodezilla
 
-src/server/planner.ts    yashhh-23
-src/server/runner.ts     yashhh-23
-src/server/evaluate.ts   yashhh-23
-src/server/branch.ts     yashhh-23
-src/server/notebook.ts   yashhh-23
+src/server/planner.ts               yashhh-23
+src/server/runner.ts                yashhh-23
+src/server/evaluate.ts              yashhh-23
+src/server/evaluate-verdict.ts      yashhh-23
 
-src/routes/**            frag2win
-src/components/**        frag2win
-fixtures/**              frag2win
+src/routes/index.tsx, __root.tsx    frag2win
+src/components/**                   frag2win
+src/data/**                         frag2win
+fixtures/**                         frag2win
 ```
+
+Planned files with an owner but no file yet:
+
+| File | Owner | Issue |
+|---|---|---|
+| `src/server/pipeline.ts` — the run→node write-back | ivory-26 | #7 |
+| `src/server/branch.ts` — what-if branch | yashhh-23 | — |
+| `src/server/notebook.ts` — server-side notebook | yashhh-23 | — |
+| `scripts/seed*` — workspace rebuild | ivory-26 | #8 |
 
 Enforced in `.github/CODEOWNERS`. If you need a change in someone else's file, ask them; do not open a parallel edit.
 
@@ -52,18 +66,27 @@ These land on **day 0** and are then frozen. Everyone codes against them from da
 | `src/server/model.ts` | `callModel<T>(schema, prompt, ctx)` signature (body by ivory-26) |
 | `fixtures/workspace.json` | a complete fake workspace — sources, nodes, edges, two runs |
 
-Until the real pipeline exists, the UI renders `fixtures/workspace.json` and the runtime is exercised with a hand-written `ExperimentSpec`. Nobody is blocked by anybody.
+The UI still renders `fixtures/workspace.json`; the runtime is exercised with `HERO_EXPERIMENT_SPEC_RUN_A`. Nobody is blocked by anybody.
 
-## What you can start today, before anything exists
+## What each stream can pick up now
 
-- **CyberCodezilla** — download the three PDFs, run `unpdf` on them in a scratch script, and confirm the Strobl PDF's column order survives. If it does not, that is a day-one finding and the fallback is hand-authored chunk anchors.
-- **frag2win** — author `fixtures/workspace.json` from [02-data-model](./02-data-model.md) and [00-scope](./00-scope.md). It is the most useful single artifact for the UI and it is yours to define.
-- **yashhh-23** — run a Python snippet in E2B and confirm the base image has numpy, pandas, scikit-learn and matplotlib at the versions we pin. Hand-write the hero `ExperimentSpec` and get `metrics.json` out of a sandbox.
-- **ivory-26** — scaffold, contracts, schema, auth.
+- **CyberCodezilla** — wire `ingestPdf`/`ingestWebSource` → `extractClaims` → `proposeEdges` into one workspace-scoped call path, and add the `sectioned` and `table_first` strategies behind the existing interface.
+- **frag2win** — replace the fixture reads with the live pipeline and a thin read API; the approval modal should POST to the real gate. Until that lands, keep every fixture value labelled as recorded.
+- **yashhh-23** — build the what-if branch and the repair loop against the frozen `ExperimentResult`, then generate the notebook from `run_artifacts` rather than the fixture.
+- **ivory-26** — #7 graph write-back, #8 seed, #9 deploy, #16 sign-in screens.
 
-## Days
+## Where each stream stands — 25 November
 
-Two exam days are scheduled empty on purpose. Do not plan work into them.
+| Stream | Landed | Open |
+|---|---|---|
+| Foundation & Integration (ivory-26) | scaffold, schema, auth server, transport, pipeline persistence, SSE delivery, CI reviewer | #7 graph write-back, #8 seed, #9 deploy, #16 sign-in screens, browser→pipeline bridge |
+| Ingestion & Extraction (CyberCodezilla) | PDF reading order, chunking, embeddings, claim extraction, edge proposal, retrieval, Firecrawl | `sectioned` and `table_first` strategies; live end-to-end ingestion from the UI |
+| Canvas & UI (frag2win) | canvas, evidence, approval, comparison, dashboard, exports — all fixture-driven | reading live data, starting a real run, showing a real gate |
+| Runtime & Evaluation (yashhh-23) | planner validation, E2B runner, pinned-environment verification, hero run, deterministic verdict | what-if branch, repair loop, server-side notebook, plan generation |
+
+## The original day-by-day
+
+Two exam days were scheduled empty on purpose. The table is the plan as written on 23 November, not a completion record; [05-plan](./05-plan.md#landed) is the completion record.
 
 | Date | ivory-26 | CyberCodezilla | frag2win | yashhh-23 |
 |---|---|---|---|---|
@@ -80,7 +103,7 @@ Friday is the pivot. If the pipeline is not wired on Friday, Saturday becomes in
 
 ## The integration seam
 
-One function, one owner:
+One function, one owner — **not written yet** (#7):
 
 ```ts
 // src/server/pipeline.ts — ivory-26
@@ -89,14 +112,15 @@ async function onRunComplete(run: RunRow): Promise<void> {
 }
 ```
 
-Three streams push into it. It is written on Wednesday, before any of them needs it, against the frozen types. If you are working on a stage and need something this function does not provide, say so in the issue rather than editing the file.
+Today a completed run writes `runs` and emits durable events, but no result/run node and no `produced` edge. Three streams will push into this function; it should be written against the frozen types before the UI needs it. If you are working on a stage and need something it does not provide, say so in the issue rather than editing the file.
 
 ## Merge rules
 
-1. `main` is always deployable. If it is not, fixing it is the top priority for whoever broke it.
+1. `main` is always typecheck-clean and test-clean. If it is not, fixing it is the top priority for whoever broke it.
 2. Every PR touches files owned by one person, or says in the description that the owner agreed.
 3. No one merges their own PR after Friday. Ask for a one-line review.
-4. If your stream is blocked, pick up your demo segment or a deck slide instead of waiting.
+4. Every PR gets an automated read-only review comment with a `READY` or `FINDINGS` gate. A `READY` gate is not a human approval, and a workflow change always needs a human.
+5. If your stream is blocked, pick up your demo segment or a deck slide instead of waiting.
 
 ## Video segments
 

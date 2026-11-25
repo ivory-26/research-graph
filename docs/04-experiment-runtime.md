@@ -2,6 +2,19 @@
 
 One interface, one adapter, one story.
 
+## What exists on `main`
+
+| Piece | State |
+|---|---|
+| `ExperimentSpec`, `DatasetRef`, `Criteria`, `ExperimentResult`, `RunEnvironment` | Frozen in `src/shared/types.ts` |
+| `ExperimentRunner` interface | `src/server/runner.ts` |
+| E2B adapter | Built, with pinned-package verification and dataset pre-fetch |
+| Deterministic verdict | Built (`src/server/evaluate-verdict.ts`) |
+| `explain_gap` explanation | Built (`src/server/evaluate.ts`, `gemini-4-hydrogen`) |
+| Local Docker path | Built as `Dockerfile.template`; verified by `pnpm verify:hero` |
+| Server-side notebook generation | Not built; the UI builds a notebook from the fixture |
+| What-if branch | Not built; see [03](./03-agent-pipeline.md) |
+
 ## The contract
 
 ```ts
@@ -101,23 +114,24 @@ If `metrics.json` is absent or unparseable, the run is `failed` regardless of ex
 
 ```ts
 const MAX_BYTES = 50 * 1024 * 1024;
+const ALLOWED_DATASET_DOMAINS = [
+  'openml.org', 'www.openml.org', 'archive.ics.uci.edu',
+  'github.com', 'raw.githubusercontent.com', 'gist.githubusercontent.com', 'huggingface.co',
+];
 
 export async function fetchDataset(ref: DatasetRef) {
-  const res = await fetch(ref.url, { redirect: 'follow' });
-  if (!res.ok) throw new Error(`dataset fetch failed: ${res.status}`);
-  const bytes = Buffer.from(await res.arrayBuffer());
-  if (bytes.byteLength > MAX_BYTES) throw new Error('dataset too large');
-  const sha256 = createHash('sha256').update(bytes).digest('hex');
-
-  // First run pins the hash. Every later run must match it.
-  if (ref.sha256 && ref.sha256 !== sha256) {
-    throw new Error('dataset changed upstream — refusing to run against unpinned bytes');
-  }
-  return { bytes, sha256 };
+  // 1. validate the URL: http(s), host on the allowlist, no loopback,
+  //    private-range or link-local address (SSRF protection)
+  // 2. follow at most three redirects manually, validating every hop
+  // 3. stream the body under a hard 50 MB cap
+  // 4. hash the bytes
+  // 5. if ref.sha256 is already pinned and differs, throw
 }
 ```
 
 The refusal matters. A dataset URL that starts serving different bytes silently changes what "reproduced" means, and a research tool that does not notice is worse than one that fails.
+
+`DatasetRef.path` is sanitised before anything is written: absolute paths and `..` traversal are rejected, so a model-authored spec cannot write outside the sandbox workspace.
 
 ## E2B adapter
 
@@ -162,8 +176,10 @@ export class E2BRunner implements ExperimentRunner {
         }
       }
 
+      // Strict contract: absent, unparseable or non-numeric metrics fail the run.
       const metricsRaw = await sandbox.files.read('/output/metrics.json').catch(() => null);
-      const metrics = metricsRaw ? JSON.parse(metricsRaw) : {};
+      if (metricsRaw === null) throw new MetricsExtractionError('metrics.json missing');
+      const metrics = validateMetricsPayload(JSON.parse(metricsRaw));
 
       return {
         exitCode: proc.exitCode,
@@ -187,6 +203,15 @@ export class E2BRunner implements ExperimentRunner {
 
 Three things this deliberately does not do: mount the host filesystem, pass any secret into the sandbox, or leave the sandbox alive after the run.
 
+The shipped adapter (`src/server/runner.ts`) adds four things the sketch omits:
+
+- **Datasets are fetched before the sandbox exists.** The whole spec's bytes are resolved and hashed app-side first, so a refused dataset never creates a sandbox.
+- **The pinned environment is verified after the run.** `pip list` is compared with `PINNED_IMAGE_PACKAGES`; a missing or mismatched package raises `PackageVerificationError`, which preserves stdout, stderr, metrics and environment rather than discarding them.
+- **`cpuCount` is not passed to `Sandbox.create`.** The pinned template bakes 1 vCPU / 2048 MB; passing a count asks E2B to resize and fails on a team without resizable templates. The requested values stay in sandbox metadata for audit.
+- **Live sandboxes are tracked.** `cancel`/`getActiveSandboxes` let the pipeline's budget signal kill every live sandbox; the sandbox is also killed in `finally`.
+
+`readEnvironment` records the real Python version and `pip list`, and reads `/etc/image-digest` if it exists. The published template does not write that file, so `imageDigest` is `unknown` on E2B today; the template id and build id are the durable identity.
+
 ## The Docker story
 
 Shipped, documented, never on the demo path:
@@ -206,9 +231,11 @@ docker run --rm --network none --cpus=1 --memory=512m --pids-limit=64 \
   --entrypoint python researchgraph-python:locked main.py
 ```
 
-This is the "runs on a laptop CPU" claim, and the README should say plainly that it was verified once, on the author's machine, and that the demo itself used E2B.
+This is the "runs on a laptop CPU" claim. `Dockerfile.template` is the built image; `pnpm verify:hero` requires a running Docker daemon, fetches the dataset and checks its pinned sha256, runs the container with the flags above, validates `/output/metrics.json` through `evaluateExperiment`, and compares stdout, Python version and installed packages with `HERO_RECORDED_RUN_RESULT`. That recorded run produced `rank_impurity_noise_20 = 4` and `rank_permutation_noise_20 = 11`. The demo itself used E2B.
 
 ## Notebook export
+
+**Status on `main`: not built server-side.** `ExportModal.tsx` builds a similar nbformat document in the browser from `fixtures/hero-spec.ts` and `fixtures/workspace.json`. It does not read `run_artifacts`, so it is a demonstration of the format, not a reproducibility record of a particular run. The structure below is the target.
 
 `runArtifacts(kind='notebook')` is an nbformat v4 document built from the frozen spec, not from a model call. Cells:
 
@@ -231,3 +258,8 @@ Because the notebook is generated from the same spec the sandbox ran, "open in C
 | Criterion references an absent metric | criteria evaluation | `succeeded` | `inconclusive` |
 | Timeout | sandbox kill at `timeoutSeconds` | `timeout` | `failed` |
 | Dataset hash changed | `fetchDataset` throws | `failed` (not started) | `failed` |
+| Dataset host not allowed, or a private/loopback address | `validateDatasetUrl` | `failed` (not started) | `failed` |
+| Dataset larger than 50 MB | size cap while streaming | `failed` (not started) | `failed` |
+| Sandbox path is absolute or escapes the workspace | `sanitizeSandboxPath` | `failed` (not started) | `failed` |
+| Pinned package missing or wrong version | environment verification after the run | `failed` | `failed` |
+| 240 s stream budget expires while a run is active | transport signal | `timeout` | `failed` |

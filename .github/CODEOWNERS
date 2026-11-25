@@ -1,32 +1,42 @@
 # Ownership. Two people never edit the same file.
 # See docs/07-workstreams.md.
 
+# Canvas and UI
+/src/routes/              @frag2win
+/src/components/          @frag2win
+/src/data/                @frag2win
+/fixtures/                @frag2win
+
 # Contracts, database, integration seam
-/src/shared/            @ivory-26
-/src/db/                @ivory-26
-/src/server/pipeline.ts @ivory-26
-/src/server/model.ts    @ivory-26
-/src/server/admin.ts    @ivory-26
-/scripts/               @ivory-26
-/.github/               @ivory-26
-/.opencode/             @ivory-26
-/docs/                  @ivory-26
-/CLAUDE.md              @ivory-26
+# Later patterns win, so the API route adapters override /src/routes/ above.
+/src/routes/api/                 @ivory-26
+/src/shared/                     @ivory-26
+/src/db/                         @ivory-26
+/src/server/model.ts             @ivory-26
+/src/server/auth.ts              @ivory-26
+/src/server/auth.server.ts       @ivory-26
+/src/server/auth/                @ivory-26
+/src/server/pipeline-delivery/   @ivory-26
+/src/server/pipeline-transport/  @ivory-26
+/src/server/pipeline.ts          @ivory-26   # #7, not created yet
+/scripts/                        @ivory-26
+/.github/                        @ivory-26
+/.opencode/                      @ivory-26
+/docs/                           @ivory-26
+/CLAUDE.md                       @ivory-26
+/README.md                       @ivory-26
+/GLOSSARY.md                     @ivory-26
 
 # Ingestion and extraction
-/src/server/ingest/     @CyberCodezilla
-/src/server/extract/    @CyberCodezilla
-/src/server/retrieval.ts @CyberCodezilla
-/src/server/firecrawl.ts @CyberCodezilla
+/src/server/ingest/       @CyberCodezilla
+/src/server/extract/      @CyberCodezilla
+/src/server/retrieval.ts  @CyberCodezilla
+/src/server/firecrawl.ts  @CyberCodezilla
 
 # Runtime and evaluation
-/src/server/planner.ts  @yashhh-23
-/src/server/runner.ts   @yashhh-23
-/src/server/evaluate.ts @yashhh-23
-/src/server/branch.ts   @yashhh-23
-/src/server/notebook.ts @yashhh-23
-
-# Canvas and UI
-/src/routes/            @frag2win
-/src/components/        @frag2win
-/fixtures/              @frag2win
+/src/server/planner.ts          @yashhh-23
+/src/server/runner.ts           @yashhh-23
+/src/server/evaluate.ts         @yashhh-23
+/src/server/evaluate-verdict.ts @yashhh-23
+/src/server/branch.ts           @yashhh-23   # not created yet
+/src/server/notebook.ts         @yashhh-23   # not created yet

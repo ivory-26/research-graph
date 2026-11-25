@@ -9,3 +9,7 @@ The people judging this will be watching a recording or opening a link, on a mac
 - The "runs on a laptop CPU" requirement is satisfied by a documented command, not by a demonstrated one. That is a weaker claim, and the video should not imply otherwise.
 - Dataset downloads happen in the application, not the sandbox, so execution can run with networking disabled. The sandbox only ever sees bytes we already hashed.
 - We depend on a third party for the single most important step in the demo. Mitigation is a pre-warmed sandbox and a pre-recorded video, not a second cloud provider.
+
+## Update — 25 November 2026
+
+The Docker path is now demonstrated, not just documented. `Dockerfile.template` builds the pinned image, and `pnpm verify:hero` runs it with the hardening flags, checks the dataset hash, validates `metrics.json` through `evaluateExperiment`, and compares the output with `HERO_RECORDED_RUN_RESULT`. The E2B path also completed a real hero run on 25 November. The video may say the experiment was verified on a laptop CPU; it should not imply the recording used Docker.

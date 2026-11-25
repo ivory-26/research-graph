@@ -9,3 +9,7 @@ Edge proposal by embedding similarity was considered and rejected: two passages 
 - The embedding pipeline has one consumer, so it can stay simple: chunk, embed, store, top-k search with a source filter.
 - HNSW indexing on a workspace with a few hundred chunks is unnecessary; a sequential scan is faster than the index overhead at this size. Add the index only if a performance problem appears.
 - Similarity thresholds are a product decision, not a retrieval decision, and belong in one constant rather than scattered through queries.
+
+## Update — 25 November 2026
+
+The shipped schema does create the HNSW index on `source_chunks.embedding`, and retrieval also filters `embedding is not null` and applies the single `DEFAULT_MIN_SIMILARITY` constant (0.5). At the current scale the planner may still choose a sequential scan; the index is not the retrieval strategy, it is an option the database has. The "one consumer" consequence still holds: retrieval and edge proposal do not use embeddings to suggest edges.
