@@ -241,7 +241,9 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
 
     expect(mockWhere).toHaveBeenCalled()
   })
+})
 
+describe('agent_tasks accounting, retries, and usage fallback (ADR 0009)', () => {
   it('records agent_tasks rows when workspaceId is provided, estimates tokens when usage is undefined, and passes maxRetries: 0', async () => {
     const insertedTasks: any[] = []
     const fakeStore = {
@@ -284,6 +286,48 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
     // Estimated tokens from text length: ceil(43 / 4) = 11
     expect(insertedTasks[0].promptTokens).toBeGreaterThan(0)
     expect(insertedTasks[0].costUsd).toBeDefined()
+  })
+
+  it('falls back to estimated tokens and valid costUsd when AI SDK returns { tokens: NaN }', async () => {
+    const insertedTasks: any[] = []
+    const fakeStore = {
+      insert: vi.fn(async (task) => {
+        insertedTasks.push(task)
+        return { id: 'task-nan-1' }
+      }),
+    }
+
+    await embedChunks(
+      ['Sentence one for embedding estimation.'],
+      { workspaceId: 'ws-nan', taskStore: fakeStore },
+      {
+        embedManyFn: vi.fn(async () => ({
+          embeddings: [new Array(768).fill(0.1)],
+          usage: { tokens: Number.NaN },
+        })) as any,
+        resolveModel: () => ({ modelId: 'gemini-embedding-2' }) as any,
+      },
+    )
+
+    await embedQuery(
+      'query text',
+      { workspaceId: 'ws-nan', taskStore: fakeStore },
+      {
+        embedFn: vi.fn(async () => ({
+          embedding: new Array(768).fill(0.2),
+          usage: { tokens: Number.NaN },
+        })) as any,
+        resolveModel: () => ({ modelId: 'gemini-embedding-2' }) as any,
+      },
+    )
+
+    expect(insertedTasks).toHaveLength(2)
+    // 38 chars -> ceil(38 / 4) = 10 tokens; (10 * 0.15 / 1_000_000).toFixed(6) = '0.000002'
+    expect(insertedTasks[0].promptTokens).toBe(10)
+    expect(insertedTasks[0].costUsd).toBe('0.000002')
+    // 10 chars ('query text') -> ceil(10 / 4) = 3 tokens; (3 * 0.15 / 1_000_000).toFixed(6) = '0.000000'
+    expect(insertedTasks[1].promptTokens).toBe(3)
+    expect(insertedTasks[1].costUsd).toBe('0.000000')
   })
 
   it('records failed task row and throws when returned embedding has mismatched dimensions', async () => {
@@ -341,6 +385,7 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
         {
           dimensions: 768,
           workspaceId: 'ws-count-fail',
+          taskKind: 'ask_across_sources',
           taskStore: fakeStore,
         },
         {
@@ -352,6 +397,7 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
 
     expect(fakeStore.insert).toHaveBeenCalledTimes(1)
     expect(insertedTasks[0].status).toBe('failed')
+    expect(insertedTasks[0].taskKind).toBe('ask_across_sources')
     expect(insertedTasks[0].error).toContain('Embedding batch returned 1 vectors, expected 2')
   })
 
