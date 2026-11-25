@@ -38,15 +38,44 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 | Date | Landed | PR |
 |---|---|---|
 | 23 Nov | TanStack Start scaffold, shared contracts, `ExperimentRunner` interface | [#31](https://github.com/ivory-26/research-graph/pull/31) |
-| 23 Nov | Drizzle schema, 11 tables, evidence and self-loop checks, pgvector migration, Neon client | [#32](https://github.com/ivory-26/research-graph/pull/32) |
+| 23 Nov | Drizzle schema, evidence and self-loop checks, pgvector migration, Neon client | [#32](https://github.com/ivory-26/research-graph/pull/32) |
 | 23 Nov | SSE transport primitives: framing and `Last-Event-ID` parsing, 15 s heartbeat, abort-aware 500 ms approval polling, 240 s stream budget | [#33](https://github.com/ivory-26/research-graph/pull/33) |
 | 23 Nov | Gemini `callModel` wrapper: sequential queue, bounded 429 backoff, Zod validation, one `agent_tasks` row per physical attempt with latency, tokens and cost | [#34](https://github.com/ivory-26/research-graph/pull/34) |
 | 23 Nov | Neon Auth session verification, workspace membership guard and same-origin `/api/auth/$` proxy, with auth docs and a live-branch harness | [#36](https://github.com/ivory-26/research-graph/pull/36) |
 | 23 Nov | Pipeline runtime persistence: ordered event log and replay, one execution claim per experiment, and compare-and-set approval gates | [#37](https://github.com/ivory-26/research-graph/pull/37) |
-| 23 Nov | Dependency refresh: pnpm 12.23.0, `@xyflow/react` 13.0.3, `unpdf` 2.2.2; declared Node floor raised to 22.22.0 | [#38](https://github.com/ivory-26/research-graph/pull/38) |
-| 23 Nov | Runtime moved to Node 26 LTS (`26.x`); `.nvmrc` and `.node-version` pin 26.13.1, satisfying `unpdf`'s Node >= 24 requirement | [#41](https://github.com/ivory-26/research-graph/pull/41) |
+| 23 Nov | Dependency refresh: pnpm 12.23.0, `@xyflow/react` 13.0.3, `unpdf` 2.2.2; declared Node floor raised | [#38](https://github.com/ivory-26/research-graph/pull/38) |
+| 23 Nov | Runtime moved to Node 26 LTS (`26.x`); `.nvmrc` and `.node-version` pin 26.13.1 | [#41](https://github.com/ivory-26/research-graph/pull/41) |
+| 24 Nov | PDF coordinate reading order and ~800-token chunking (#10) | [#44](https://github.com/ivory-26/research-graph/pull/44) |
+| 24 Nov | Batch embeddings on `gemini-embedding-2` and pgvector storage (#11) | [#45](https://github.com/ivory-26/research-graph/pull/45) |
+| 24 Nov | `EXTRACT_CLAIMS` with verbatim quote validation (#12) | [#46](https://github.com/ivory-26/research-graph/pull/46) |
+| 24 Nov | `PROPOSE_EDGES` with evidence validation (#13) | [#47](https://github.com/ivory-26/research-graph/pull/47) |
+| 24 Nov | Cross-source retrieval and "ask across sources" with verified citations (#14) | [#48](https://github.com/ivory-26/research-graph/pull/48) |
+| 24 Nov | Firecrawl ingestion for project pages and repo READMEs (#15) | [#49](https://github.com/ivory-26/research-graph/pull/49) |
+| 24 Nov | `ExperimentSpec` rework, hero spec, E2B runner and `EVALUATE` (#23, #25); replaces the reverted #40 | [#43](https://github.com/ivory-26/research-graph/pull/43) |
+| 24 Nov | UI workstation: canvas, evidence, approval, comparison, dashboard, exports | [#51](https://github.com/ivory-26/research-graph/pull/51) |
+| 24 Nov | Pinned-environment verification and the real hero run (#24) | [#54](https://github.com/ivory-26/research-graph/pull/54) |
+| 24 Nov | Read-only OpenCode PR reviewer in GitHub Actions | [#50](https://github.com/ivory-26/research-graph/pull/50) |
+| 25 Nov | SSE delivery and cross-request approval: both routes mounted, real plan/execute/evaluate provider (#6) | [#52](https://github.com/ivory-26/research-graph/pull/52) |
+| 25 Nov | Guard against `NaN` embedding token usage from the AI SDK | [#55](https://github.com/ivory-26/research-graph/pull/55) |
+| 25 Nov | Review nits from #44–#49, including workspace isolation in `storeEdges` | [#56](https://github.com/ivory-26/research-graph/pull/56) |
+| 25 Nov | Review pull requests from the approved fork without executing fork code | [#60](https://github.com/ivory-26/research-graph/pull/60) |
 
-#33 is transport only and #37 is the persistence layer. Neither is the pipeline endpoint: `GET /api/pipeline/:experimentId`, the route mounts, #4 authorization at the route boundary, the approval write path wired to the verified actor, and the database-backed `ReadApproval` remain in #6's delivery. Approval state is read through an injected reader for exactly that reason.
+#33 is transport only and #37 is the persistence layer. #52 mounts them: `GET /api/pipeline/:experimentId`, the route adapters, #4 authorization at the route boundary, the approval write path wired to the verified actor, and the database-backed approval read. What #52 deliberately does not do is #7's graph write-back.
+
+### Not on `main` on 25 November
+
+| Gap | Owner issue | Blocks |
+|---|---|---|
+| Write a completed run back as result/run nodes and the `produced` edge | #7 | the graph beat showing a real result |
+| Rebuild the recorded workspace with `pnpm seed` | #8 | a repeatable recording from an empty database |
+| Production deploy | #9 | the deployed-link success criterion |
+| Sign-in screens | #16 | a user-facing auth flow |
+| What-if branch execution | — | Run B and a real comparison |
+| Repair loop and multi-strategy selection | — | the "learning" beat |
+| Server-side notebook export | — | a notebook generated from a real run |
+| Browser→pipeline bridge | — | every live UI beat |
+
+`pnpm typecheck` and `pnpm db:check` pass. `pnpm test` runs 27 `node:test` transport checks plus the Vitest suite: 303 passed and 29 skipped on 25 November. The skipped files are the opt-in Postgres, E2B and Gemini integration suites.
 
 ## Workstreams
 
@@ -59,11 +88,11 @@ Not assigned to people — assign on the day, by who is free. The seams are chos
 | C. Runtime | `PLAN_EXPERIMENT`, `EXECUTE`, `EVALUATE`, notebook export | writes `experiments`, `runs`, `run_artifacts` |
 | D. Demo | seed script, video, deck, deploy | reads everything |
 
-The integration seam — the point where four streams collide — is the write path from a completed run to its `result` node and `produced` edge. One person should own that function, and it should be written on day 5 before the UI needs it.
+The integration seam — the point where four streams collide — is the write path from a completed run to its `result` node and `produced` edge. One person should own that function (#7, ivory-26). It is still unwritten.
 
 ## The seed script
 
-`pnpm seed` must rebuild the recorded workspace from an empty database in under a minute: three sources, their chunks, the claim and method nodes, the accepted edges, and both runs with their artifacts. Everything in the video is reproducible by running one command, which is also the honest answer to "is this real?".
+**Not on `main` yet (#8).** `pnpm seed` must rebuild the recorded workspace from an empty database in under a minute: three sources, their chunks, the claim and method nodes, the accepted edges, and both runs with their artifacts. Everything in the video is reproducible by running one command, which is also the honest answer to "is this real?".
 
 The seed is not a mock. It runs the real ingestion and the real pipeline; it just does it ahead of time so the recording does not depend on a live network.
 
@@ -84,6 +113,8 @@ Five minutes, one take per section, assembled. Sections are recorded separately 
 | 4:35–5:00 | What it means: reproducible, traceable, and honest about its mode |
 
 The failure beat is recorded on day 6 or 7 from a **real** error encountered during development, not staged. If no real failure has occurred by day 7, that is itself a finding worth saying out loud in the deck.
+
+Two beats depend on unbuilt work. The plan is the hand-written `HERO_EXPERIMENT_SPEC_RUN_A`, not a model-generated script; the what-if comparison is rendered from the fixture. Either build them or say on camera what they are.
 
 ## Rules
 

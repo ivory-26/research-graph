@@ -79,3 +79,25 @@ _Avoid_: Step, call, invocation
 **Pipeline**:
 The fixed sequence of tasks from ingestion to verdict. The model fills in each task; the code decides the order.
 _Avoid_: Agent loop, workflow, orchestration
+
+**Stage**:
+One of the eight fixed steps in the pipeline. A deterministic stage has no model call and therefore no task.
+_Avoid_: Phase, step, node
+
+### Pipeline delivery
+
+**Execution claim**:
+The single permission to start a pipeline run for one experiment. It is not a run and not a status; it is closed by a terminal event.
+_Avoid_: Lock, lease, job token
+
+**Gate**:
+The human approval point for one execution claim, bound to the exact plan that was offered. A decision names its gate, so it cannot approve a different plan.
+_Avoid_: Checkpoint, review step, sign-off
+
+**Event**:
+One persisted, sequenced fact about a pipeline run: `stage.started`, `approval.requested`, `verdict.computed`. Events replay from a cursor; they are not free-text log lines.
+_Avoid_: Log, message, notification
+
+**Fixture**:
+Recorded demo data the UI renders before it is wired to the database. A fixture is not seed data and never stands in for a measured value.
+_Avoid_: Mock, sample data, seed

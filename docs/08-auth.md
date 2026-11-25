@@ -2,6 +2,17 @@
 
 Neon Auth (managed Better Auth) owns identities and sessions. The application's `workspace_members` table grants workspace access through explicit rows keyed by Neon Auth user ID and workspace ID. See [ADR 0008](./adr/0008-neon-auth.md).
 
+## What exists on `main`
+
+| Piece | State |
+|---|---|
+| Server-side session verification (`getCurrentUser`, `requireUser`) | Built |
+| Same-origin `/api/auth/$` proxy | Built |
+| Workspace membership guard (`requireWorkspaceAccess`, `enforceWorkspaceMembership`) | Built; the approval POST uses `enforceWorkspaceMembership` |
+| Local and production-build harness (`scripts/auth-harness.mjs`) | Built |
+| Sign-in / sign-up screens, route protection, sign-out UI | **Not built** (#16) |
+| User-facing session state | Not built; the UI runs without an authenticated identity |
+
 ## Setup
 
 Set the server environment variables listed in `.env.example`.
@@ -10,7 +21,7 @@ Set the server environment variables listed in `.env.example`.
 | --- | --- |
 | `NEON_AUTH_BASE_URL` | The managed Auth endpoint for the Neon branch, including its database path |
 | `NEON_AUTH_COOKIE_SECRET` | A persistent random secret of at least 32 characters. Generate one with `openssl rand -base64 32`. |
-| `DATABASE_URL` | The application Postgres connection string for the branch with the #3 migrations applied |
+| `DATABASE_URL` | The application Postgres connection string for the branch with the committed migrations applied |
 
 Allow the application's deployed origin in Neon Auth before using it there. The local smoke test uses Neon's existing localhost allowance.
 
@@ -18,7 +29,7 @@ Allow the application's deployed origin in Neon Auth before using it there. The 
 
 The TanStack route at `src/routes/api/auth/$.ts` forwards same-origin auth requests through the official `@neon/auth/server` proxy. The route mount and generated route entry are the only changes under the routing boundary; later changes there stay with the route owner.
 
-In the #16 sign-in screens, use the Neon React adapter against the same-origin route.
+When the #16 sign-in screens land, they should use the Neon React adapter against the same-origin route. Nothing in `src/routes` or `src/components` imports this client today.
 
 ```ts
 import { createAuthClient } from '@neon/auth'
@@ -31,7 +42,7 @@ export const authClient = createAuthClient('', {
 
 Use `signIn.email`, `signUp.email` and `signOut` from that client. Route loaders can call `getCurrentUser()` from `src/server/auth.ts`. It returns `{ id, email, name }` for a verified session and `null` for an anonymous request. The server verifies the session directly with Neon and forwards any refreshed cookies. `requireUser` middleware supplies the same identity as `context.user` for server functions that only require sign-in.
 
-## Workspace authorization for #6
+## Workspace authorization
 
 ```ts
 import { requireWorkspaceAccess } from '../server/auth/workspace.server'
@@ -42,9 +53,9 @@ const { userId, workspaceId, role } = await requireWorkspaceAccess(
 )
 ```
 
-Pass the raw TanStack server route `Request` and resolve the experiment's workspace ID on the server. The guard verifies the request's session and reads the matching row through #3's Drizzle schema. It returns the verified actor ID, the authorized workspace ID, and the stored role. Use the returned `userId` for the approval decision.
+Pass the raw TanStack server route `Request` and resolve the experiment's workspace ID on the server. The guard verifies the request's session and reads the matching row through the Drizzle schema. It returns the verified actor ID, the authorized workspace ID, and the stored role. Use the returned `userId` for the approval decision.
 
-The guard throws an error with status 401 for an anonymous request or 403 if membership cannot be confirmed. An auth service failure throws with status 502 and configuration errors use 500. Handle errors at the route boundary and send a private, uncached response. Request-origin checks for approval POST and any SSE GET that starts work belong at the #6 route boundary.
+The guard throws an error with status 401 for an anonymous request or 403 if membership cannot be confirmed. An auth service failure throws with status 502 and configuration errors use 500. Handle errors at the route boundary and send a private, uncached response. Same-origin checks for the approval POST and for an SSE GET that starts work are implemented in `src/server/pipeline-delivery/authorization.ts`.
 
 ## Verification
 
@@ -53,3 +64,5 @@ Run `pnpm test`, `pnpm typecheck`, `pnpm build`, and `node scripts/auth-harness.
 For a live identity check set `NEON_AUTH_BASE_URL`, `AUTH_HARNESS_EMAIL`, and `AUTH_HARNESS_PASSWORD` securely for an existing developer test account on a disposable Neon branch, then run `node scripts/auth-harness.mjs --real`. The harness signs in with that account and exercises the server user lookup and refresh.
 
 The #4 live membership check used the #3 migration on an expiring Neon branch. It verified that a signed-in user is denied before assignment, gets access as the same actor after an explicit row is inserted, is denied for another workspace, and loses access when the row is removed. An anonymous request received 401.
+
+On 25 November, `pnpm typecheck` and `pnpm test` pass with the auth unit tests included. The harness and the live membership check are opt-in; they are not part of CI because they need Neon credentials. The approval POST is the one production path that exercises the guard today; no page is protected because no page signs a user in.

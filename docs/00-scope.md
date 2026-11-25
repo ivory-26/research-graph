@@ -28,12 +28,15 @@ This claim has **no headline number** — it is simulation-based. That is delibe
 
 ### The experiment
 
-1. Load `breast-w` (OpenML 52350, 19 KB, 569 rows, 9 features (+ 3 noise cols = 12 total simulation features), verified reachable 2026-11-20).
-2. Append three uninformative categorical columns with 2, 5 and 20 levels.
-3. Fit a random forest. Report impurity importance ranks and permutation importance ranks for every column.
-4. Criterion: `rank_impurity(noise_20) <= 5` **and** `rank_permutation(noise_20) > 5`.
+The executable form is `HERO_EXPERIMENT_SPEC_RUN_A` in [`fixtures/hero-spec.ts`](../fixtures/hero-spec.ts).
 
-Measured in seconds on one CPU core.
+1. Load `breast-w` from OpenML 52350 (`breast-w.arff`, 19,177 bytes, 683 rows after dropping the 16 rows with missing values; sha256 `cb44e7f6…ee9b`, verified 2026-11-24).
+2. Draw the 120-row subsample Strobl's simulation uses and binarise each ordinal cytological feature at 5, keeping the predictors low-cardinality.
+3. Append three uninformative categorical columns with 2, 5 and 20 levels.
+4. Fit `RandomForestClassifier(n_estimators=100, random_state=42)` on a 70/30 split. Compute the Gini ranks and the test-set permutation ranks (`n_repeats=10`); the script writes the two noise_20 ranks, the two noise_20 importances, and the sample/feature counts to `/output/metrics.json`.
+5. Criterion: `rank_impurity_noise_20 <= 5` **and** `rank_permutation_noise_20 > 5`.
+
+Measured in seconds on one CPU core. The last verified run produced `rank_impurity_noise_20 = 4` and `rank_permutation_noise_20 = 11`, so both checks pass. The run was `adapted`, not `exact`.
 
 ### The runs
 
@@ -41,6 +44,8 @@ Measured in seconds on one CPU core.
 - **Run B** — what-if child of Run A, `importance_method = permutation`. Noise drops to the bottom. Verdict: the proposed fix holds, and the delta is attributable to exactly one parameter.
 
 The demo's climax is the comparison view of A and B, not the graph.
+
+The comparison view ships in the UI. The what-if branch that would produce Run B for real (`BRANCH_WHAT_IF`, one changed parameter, `parentRunId` lineage) is **not on `main` yet**; the current comparison is rendered from the recorded fixture.
 
 ## The six beats and what we actually show
 
@@ -52,6 +57,19 @@ The demo's climax is the comparison view of A and B, not the graph.
 | Experiment | Approval screen → generated script → sandbox run → result node |
 | Learn | What-if child run, comparison, and the strategy table showing which extraction strategy won |
 | Share | Notebook export, opened in Colab, plus a workspace JSON export |
+
+### Where the beats stand on 25 November
+
+| Beat | Backend on `main` | UI on `main` |
+|---|---|---|
+| Collect | PDF reading order, chunking, embeddings and Firecrawl ingestion all work | Chunk viewer renders fixture text; upload is a demo interaction |
+| Organise | Claims and edges are extracted and validated against quotes | Canvas renders the fixture graph |
+| Understand | Retrieval API with verified citations works | Ask page answers from fixture chunks |
+| Experiment | Planner validation, real E2B runner and deterministic verdict work; SSE delivery mounts | Approval and experiment pages render from the hero fixture |
+| Learn | No branch execution and no strategy selection yet | Comparison and dashboard render recorded values |
+| Share | No server-side notebook or workspace export | Both exports are built client-side from the fixture |
+
+The gap that matters for the recording is the bridge: the browser does not yet call the pipeline endpoint or read the database. Graph write-back (#7), the seed script (#8) and the deploy (#9) are the remaining spine work.
 
 ## Not building
 
@@ -71,3 +89,5 @@ In priority order. Stop at the first one that fails.
 3. The deployed link loads, signs in, and shows the recorded workspace with its graph intact.
 4. Every run in the demo declares its mode and its verdict, and no number shown as measured was typed by hand.
 5. The strategy table shows real task counts.
+
+On 25 November, criterion 4 is satisfiable today at the runner and evaluator level (the hero run is `adapted`, the verdict is arithmetic), but criteria 2 and 3 are not: the loop has not been wired to the browser, and there is no deploy. The strategy table still renders fixture rows because strategy selection and the seed are not implemented.
