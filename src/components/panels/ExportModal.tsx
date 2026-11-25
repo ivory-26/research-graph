@@ -1,36 +1,123 @@
 import React from 'react';
 import { X, Download } from 'lucide-react';
 import rawWorkspace from '../../../fixtures/workspace.json';
-import {
-  HERO_EXPERIMENT_SPEC_RUN_A,
-  HERO_RECORDED_RUN_RESULT,
-} from '../../../fixtures/hero-spec';
-import { buildNotebookDocument } from '../../shared/notebook';
+import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../../fixtures/hero-spec';
+import { PINNED_IMAGE_PACKAGES } from '../../data/demoWorkspace';
 
 function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
+  const scriptCode = spec.files['main.py'] || '';
+  const dataset = spec.datasets[0];
+  const checks = spec.criteria.checks;
+
   const claimNode = (rawWorkspace.nodes as any[]).find((n) => n.type === 'claim');
-  const claimText =
-    claimNode?.data?.text ||
-    'Gini importance favours high-cardinality features; permutation does not';
   const claimQuote = claimNode?.data?.locator?.quote || '';
-  const claimPage = claimNode?.data?.locator?.page ?? null;
+  const claimPage = claimNode?.data?.locator?.page;
+  const claimCharStart = claimNode?.data?.locator?.charStart;
+  const claimCharEnd = claimNode?.data?.locator?.charEnd;
 
-  const doc = buildNotebookDocument({
-    spec,
-    environment: HERO_RECORDED_RUN_RESULT.environment,
-    paperTitle:
-      'Bias in random forest variable importance measures: Illustrations, sources and a solution',
-    doi: '10.1186/1471-2105-8-25',
-    claim: {
-      text: claimText,
-      quote: claimQuote,
-      page: claimPage,
-      reported: claimNode?.data?.reported ?? null,
+  const pinnedPipPackages = Object.entries(PINNED_IMAGE_PACKAGES)
+    .map(([pkg, ver]) => `"${pkg}==${ver}"`)
+    .join(' ');
+
+  return JSON.stringify(
+    {
+      cells: [
+        {
+          cell_type: 'markdown',
+          metadata: {},
+          source: [
+            '# Reproducibility Record: Strobl et al. (2007)\n',
+            '**Paper:** Strobl et al. (2007) *Bias in random forest variable importance measures: Illustrations, sources and a solution*\n',
+            '**DOI:** `10.1186/1471-2105-8-25`\n',
+            `**Claim (Verbatim, p. ${claimPage}, chars ${claimCharStart}–${claimCharEnd}):** "${claimQuote}"\n`,
+            `**Mode:** ${spec.mode}\n`,
+            '**Verdict Status:** Specification Preview\n',
+          ],
+        },
+        {
+          cell_type: 'code',
+          execution_count: null,
+          metadata: {},
+          outputs: [],
+          source: [
+            '# 1. Pinned dependencies install\n',
+            `!pip install -q ${pinnedPipPackages}\n`,
+          ],
+        },
+        {
+          cell_type: 'code',
+          execution_count: null,
+          metadata: {},
+          outputs: [],
+          source: [
+            '# 2. Dataset retrieval and verification\n',
+            'import pathlib, urllib.request, hashlib\n',
+            `dest_path = pathlib.Path("${dataset?.path || 'data/breast-w.arff'}")\n`,
+            'dest_path.parent.mkdir(parents=True, exist_ok=True)\n',
+            `data_url = "${dataset?.url || 'https://www.openml.org/data/download/52350/breast-w.arff'}"\n`,
+            'if not dest_path.exists():\n',
+            '    urllib.request.urlretrieve(data_url, dest_path)\n',
+            'data_bytes = dest_path.read_bytes()\n',
+            'print(f"Cached {dest_path}: {len(data_bytes)} bytes, sha256={hashlib.sha256(data_bytes).hexdigest()[:16]}...")\n',
+          ],
+        },
+        {
+          cell_type: 'code',
+          execution_count: null,
+          metadata: {},
+          outputs: [],
+          source: scriptCode.split('\n').map((line) => line + '\n'),
+        },
+        {
+          cell_type: 'code',
+          execution_count: null,
+          metadata: {},
+          outputs: [],
+          source: [
+            '# 4. Display generated metrics\n',
+            'import json, pathlib\n',
+            'metrics_path = pathlib.Path("/output/metrics.json")\n',
+            'if not metrics_path.exists():\n',
+            '    metrics_path = pathlib.Path("metrics.json")\n',
+            'if metrics_path.exists():\n',
+            '    with open(metrics_path) as f:\n',
+            '        metrics = json.load(f)\n',
+            '    print(json.dumps(metrics, indent=2))\n',
+            'else:\n',
+            '    print("metrics.json not found")\n',
+          ],
+        },
+        {
+          cell_type: 'markdown',
+          metadata: {},
+          source: [
+            '### Evaluation Criteria\n',
+            ...checks.map((c) => {
+              const opMap: Record<string, string> = {
+                lte: '<=',
+                lt: '<',
+                gte: '>=',
+                gt: '>',
+                eq: '==',
+              };
+              const opSymbol = opMap[c.op] || c.op;
+              const explanation = c.metric.includes('impurity')
+                ? 'evaluates whether high-cardinality noise is artificially favored and ranked among top predictors under impurity importance.'
+                : 'evaluates whether permutation importance remedies the bias by dropping high-cardinality noise toward the bottom ranks.';
+              return `- Target check: \`${c.metric}\` ${opSymbol} ${c.value} -> ${explanation}\n`;
+            }),
+          ],
+        },
+      ],
+      metadata: {
+        language_info: { name: 'python' },
+      },
+      nbformat: 4,
+      nbformat_minor: 2,
     },
-    verdict: null,
-  });
-
-  return JSON.stringify(doc, null, 2);
+    null,
+    2
+  );
 }
 
 interface ExportModalProps {

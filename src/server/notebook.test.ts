@@ -197,7 +197,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(auxCell2!.id.length).toBeLessThanOrEqual(64)
   })
 
-  it('validates against the nbformat v4.5 schema, excludes pip/setuptools/wheel, and omits unknown python version', () => {
+  it('validates against the nbformat v4.5 schema, excludes pip/setuptools/wheel, notes unknown versions, and omits unknown python version', () => {
     const nb = buildNotebookDocument({
       spec: HERO_EXPERIMENT_SPEC_RUN_A,
       environment: {
@@ -207,6 +207,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
           pip: '24.3.1',
           setuptools: '75.1.0',
           wheel: '0.44.0',
+          mystery_pkg: 'unknown',
         },
       },
       claim: HERO_CLAIM,
@@ -220,6 +221,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(pipSrc).not.toContain('"pip==')
     expect(pipSrc).not.toContain('"setuptools==')
     expect(pipSrc).not.toContain('"wheel==')
+    expect(pipSrc).toContain('# Note: omitted packages with unknown version: mystery_pkg')
     expect(pipSrc).toContain('"numpy==2.5.5"')
   })
 })
