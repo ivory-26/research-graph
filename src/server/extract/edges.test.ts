@@ -684,12 +684,16 @@ describe('Integration test across 3 demo papers (verbatim quote verification and
 
       const insertedDbRows: any[] = []
       const ownedNodeRows = workspaceNodes.map((n) => ({ id: n.id }))
+      const ownedChunkRows = [c1, c2, c3, c4, c5, c6].map((c) => ({ id: c.id }))
       const fakeDb = {
         transaction: vi.fn(async (cb: any) => {
           const tx = {
             select: vi.fn(() => ({
               from: vi.fn(() => ({
                 where: vi.fn(async () => ownedNodeRows),
+                innerJoin: vi.fn(() => ({
+                  where: vi.fn(async () => ownedChunkRows),
+                })),
               })),
             })),
             insert: vi.fn(() => ({
@@ -753,6 +757,11 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
                 { id: '11111111-1111-4111-8111-111111111111' },
                 { id: '22222222-2222-4222-8222-222222222222' },
               ]),
+              innerJoin: vi.fn(() => ({
+                where: vi.fn(async () => [
+                  { id: '33333333-3333-4333-8333-333333333333' },
+                ]),
+              })),
             })),
           })),
           insert: vi.fn(() => ({
@@ -824,6 +833,44 @@ describe('storeEdges (Issue #13 persistence and foreign key enforcement)', () =>
 
     await expect(storeEdges(fakeDb, 'ws-owned', [crossWorkspaceEdge])).rejects.toThrow(
       'Cross-workspace or missing node in edge persistence',
+    )
+  })
+
+  it('throws if evidenceChunkId belongs to a source outside the target workspace', async () => {
+    const fakeDb = {
+      transaction: vi.fn(async (cb: any) => {
+        const fakeTx = {
+          select: vi.fn(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(async () => [
+                { id: '11111111-1111-4111-8111-111111111111' },
+                { id: '22222222-2222-4222-8222-222222222222' },
+              ]),
+              // Chunk belongs to another tenant workspace, so join with sources filters it out
+              innerJoin: vi.fn(() => ({
+                where: vi.fn(async () => []),
+              })),
+            })),
+          })),
+          insert: vi.fn(),
+        }
+        return await cb(fakeTx)
+      }),
+    } as unknown as Database
+
+    const crossWorkspaceChunkEdge: ValidatedEdge = {
+      fromNodeId: '11111111-1111-4111-8111-111111111111',
+      toNodeId: '22222222-2222-4222-8222-222222222222',
+      relation: 'supports',
+      confidence: 0.9,
+      status: 'accepted',
+      evidenceChunkId: '99999999-9999-4999-8999-999999999999',
+      matchedQuote: 'Verified evidence chunk text.',
+      rationale: 'Cross-workspace evidence chunk attempt',
+    }
+
+    await expect(storeEdges(fakeDb, 'ws-owned', [crossWorkspaceChunkEdge])).rejects.toThrow(
+      'Cross-workspace or missing evidence chunk in edge persistence',
     )
   })
 

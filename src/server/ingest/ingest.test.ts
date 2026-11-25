@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { chunkDocument, estimateTokens } from './chunker'
+import { chunkDocument, estimateTokens, findPageForCharOffset } from './chunker'
 import { extractPageReadingOrder } from './order'
 import { extractPdf, ingestPdf } from './pdf'
 import type { ExtractedPage, TextItem } from './types'
@@ -310,12 +310,13 @@ describe('PDF Ingestion Integration with Fixtures', () => {
   })
 
   it('clamps inter-page separator offsets to the nearest preceding page instead of the last page', () => {
-    const p1 = 'Page one content.'
-    const p2 = 'Page two content.'
-    const p3 = 'Page three content.'
-    const fullText = `${p1}\n\n${p2}\n\n${p3}`
+    const p1 = 'Page one content.' // 0..17
+    const sep = '\n\n' // 17..19
+    const p2 = 'Page two content.' // 19..36
+    const p3 = 'Page three content.' // 38..57
+    const fullText = `${p1}${sep}${p2}\n\n${p3}`
     const p1End = p1.length
-    const p2Start = p1End + 2
+    const p2Start = p1End + sep.length
     const p2End = p2Start + p2.length
     const p3Start = p2End + 2
 
@@ -325,17 +326,24 @@ describe('PDF Ingestion Integration with Fixtures', () => {
       { page: 3, text: p3, charStart: p3Start, charEnd: fullText.length },
     ]
 
-    // Force a split right before p1's '\n\n' separator so the next chunk overlaps starting inside '\n\n'
-    const chunks = chunkDocument(fullText, pages, {
-      targetTokens: 5,
-      overlapRatio: 0.4,
+    // 1. Offset 18 sits inside the '\n\n' separator between page 1 and page 2 (must clamp to 1, not page 3)
+    expect(findPageForCharOffset(18, pages)).toBe(1)
+
+    // 2. Through chunkDocument when a chunk starts inside a gap between page 1 (0..10) and page 2 (30..50)
+    const gapText = 'Page1Head.' + 'GAPGAPGAPGAPGAPGAPGA' + 'Page2Body text here.' + 'Page3Tail text here.'
+    const gapPages: ExtractedPage[] = [
+      { page: 1, text: 'Page1Head.', charStart: 0, charEnd: 10 },
+      { page: 2, text: 'Page2Body text here.', charStart: 30, charEnd: 50 },
+      { page: 3, text: 'Page3Tail text here.', charStart: 50, charEnd: gapText.length },
+    ]
+    const gapChunks = chunkDocument(gapText, gapPages, {
+      targetTokens: 3,
+      overlapRatio: 0,
       charsPerToken: 4,
     })
-
-    // None of the early chunks starting around page 1..2 boundary should be mislabelled as page 3
-    expect(chunks.length).toBeGreaterThanOrEqual(2)
-    expect(chunks[0]?.page).toBe(1)
-    expect(chunks[1]?.page).toBeLessThanOrEqual(2)
+    const gapChunk = gapChunks.find((c) => c.charStart > 10 && c.charStart < 30)
+    expect(gapChunk).toBeDefined()
+    expect(gapChunk!.page).toBe(1)
   })
 
   it('marks needsOcr when document is empty or a page yields fewer than 40 characters (docs/03)', async () => {
@@ -346,7 +354,7 @@ describe('PDF Ingestion Integration with Fixtures', () => {
     expect(ingestEmpty.result.needsOcr).toBe(true)
     expect(ingestEmpty.chunks).toHaveLength(0)
 
-    // Minimal valid single-page PDF containing only 12 non-whitespace characters ('Scanned stub')
+    // Minimal valid single-page PDF containing only 11 non-whitespace characters ('Scanned stub')
     const streamBody = 'BT /F1 12 Tf 72 720 Td (Scanned stub) Tj ET'
     const objects = [
       '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n',
@@ -371,6 +379,7 @@ describe('PDF Ingestion Integration with Fixtures', () => {
     const sparsePdf = new TextEncoder().encode(pdfStr)
     const sparseExtract = await extractPdf(sparsePdf)
     expect(sparseExtract.totalPages).toBe(1)
+    expect(sparseExtract.pages[0]?.text).toContain('Scanned stub')
     expect(sparseExtract.needsOcr).toBe(true)
 
     const sparseIngest = await ingestPdf(sparsePdf)

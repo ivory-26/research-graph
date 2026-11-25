@@ -157,6 +157,23 @@ describe('Firecrawl Web & Repo Ingestion (Issue #15)', () => {
         await expect(
           scrapeWithFirecrawl('https://example.com/blocked', { apiKey: 'fc-test-key' }),
         ).rejects.toThrow('Blocked by target site')
+        // 4. Strips query string when deriving fallback title from pathname
+        fetchMock.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                markdown: '# Page Content\nText body.',
+                metadata: { statusCode: 200 },
+              },
+            }),
+            { status: 200 },
+          ),
+        )
+        const cleanTitle = await scrapeWithFirecrawl('https://example.com/project-page?ref=x#sec', {
+          apiKey: 'fc-test-key',
+        })
+        expect(cleanTitle.title).toBe('project-page')
       } finally {
         vi.unstubAllGlobals()
       }

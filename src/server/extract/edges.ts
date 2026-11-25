@@ -1,6 +1,12 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import type { Database } from '../../db/client'
-import { edges, nodes as nodesTable, type EdgeRow } from '../../db/schema'
+import {
+  edges,
+  nodes as nodesTable,
+  sourceChunks as sourceChunksTable,
+  sources as sourcesTable,
+  type EdgeRow,
+} from '../../db/schema'
 import { callModel as defaultCallModel, type CallModel, agentTaskStore } from '../model'
 import { normalizeQuote, verifyVerbatimQuote } from './quote'
 import type { UpdateTaskStatusFn } from './claims'
@@ -280,6 +286,7 @@ export async function storeEdges(
   if (edgesToStore.length === 0) return []
 
   const uniqueNodeIds = new Set<string>()
+  const uniqueChunkIds = new Set<string>()
   for (const edge of edgesToStore) {
     if (
       !UUID_REGEX.test(edge.fromNodeId) ||
@@ -292,6 +299,7 @@ export async function storeEdges(
     }
     uniqueNodeIds.add(edge.fromNodeId)
     uniqueNodeIds.add(edge.toNodeId)
+    uniqueChunkIds.add(edge.evidenceChunkId)
   }
 
   return await db.transaction(async (tx) => {
@@ -310,6 +318,26 @@ export async function storeEdges(
       if (!ownedNodeIds.has(nodeId)) {
         throw new Error(
           `Cross-workspace or missing node in edge persistence: node ${nodeId} does not belong to workspace ${workspaceId}`,
+        )
+      }
+    }
+
+    const ownedChunks = await tx
+      .select({ id: sourceChunksTable.id })
+      .from(sourceChunksTable)
+      .innerJoin(sourcesTable, eq(sourceChunksTable.sourceId, sourcesTable.id))
+      .where(
+        and(
+          eq(sourcesTable.workspaceId, workspaceId),
+          inArray(sourceChunksTable.id, [...uniqueChunkIds]),
+        ),
+      )
+
+    const ownedChunkIds = new Set(ownedChunks.map((c) => c.id))
+    for (const chunkId of uniqueChunkIds) {
+      if (!ownedChunkIds.has(chunkId)) {
+        throw new Error(
+          `Cross-workspace or missing evidence chunk in edge persistence: chunk ${chunkId} does not belong to workspace ${workspaceId}`,
         )
       }
     }

@@ -5,9 +5,10 @@ import { sourceChunks, sources } from '../db/schema'
 import type { CallModel, CallModelContext } from './model'
 import { agentTaskStore, callModel as defaultCallModel } from './model'
 import { embedQuery, type EmbedDeps } from './ingest/embed'
+import { DEFAULT_MIN_SIMILARITY } from './ingest/store'
 import { verifyVerbatimQuote } from './extract/quote'
 
-export const DEFAULT_MIN_RETRIEVAL_SIMILARITY = 0.5
+export const DEFAULT_MIN_RETRIEVAL_SIMILARITY = DEFAULT_MIN_SIMILARITY
 
 /**
  * Zod schema for structured output from the LLM when synthesizing

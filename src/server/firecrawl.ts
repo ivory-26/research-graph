@@ -102,6 +102,20 @@ export function isPdfUrl(url: string, metadata?: Record<string, unknown>): boole
 }
 
 /**
+ * Derives a clean fallback title from a URL's pathname segment or hostname (ignoring query strings).
+ */
+function extractFallbackTitleFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const lastSegment = parsed.pathname.split('/').filter(Boolean).pop()?.trim()
+    return lastSegment || parsed.hostname || 'Web Source'
+  } catch {
+    const urlSegment = url.split(/[?#]/)[0]?.replace(/\/+$/, '').split('/').pop()?.trim()
+    return urlSegment || 'Web Source'
+  }
+}
+
+/**
  * Checks if a URL points to a hosted Git repository by inspecting its hostname rather than substring matching.
  */
 function isRepoHost(url: string): boolean {
@@ -231,9 +245,9 @@ export async function scrapeWithFirecrawl(
     const data = payload.data ?? {}
     const meta = data.metadata ?? {}
     const markdown = data.markdown ?? data.content ?? ''
-    const urlSegment = trimmed.replace(/\/+$/, '').split('/').pop()?.trim() || ''
     const resolvedTitle =
-      (typeof meta.title === 'string' ? meta.title.trim() : '') || urlSegment || 'Web Source'
+      (typeof meta.title === 'string' ? meta.title.trim() : '') ||
+      extractFallbackTitleFromUrl(trimmed)
 
     return validateScrapeResult(trimmed, {
       url: trimmed,
