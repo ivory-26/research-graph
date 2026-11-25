@@ -241,7 +241,9 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
 
     expect(mockWhere).toHaveBeenCalled()
   })
+})
 
+describe('agent_tasks accounting, retries, and usage fallback (ADR 0009)', () => {
   it('records agent_tasks rows when workspaceId is provided, estimates tokens when usage is undefined, and passes maxRetries: 0', async () => {
     const insertedTasks: any[] = []
     const fakeStore = {
@@ -320,12 +322,12 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
     )
 
     expect(insertedTasks).toHaveLength(2)
-    for (const row of insertedTasks) {
-      expect(Number.isFinite(row.promptTokens)).toBe(true)
-      expect(row.promptTokens).toBeGreaterThan(0)
-      expect(row.costUsd).not.toBe('NaN')
-      expect(Number.isFinite(Number(row.costUsd))).toBe(true)
-    }
+    // 38 chars -> ceil(38 / 4) = 10 tokens; (10 * 0.15 / 1_000_000).toFixed(6) = '0.000002'
+    expect(insertedTasks[0].promptTokens).toBe(10)
+    expect(insertedTasks[0].costUsd).toBe('0.000002')
+    // 10 chars ('query text') -> ceil(10 / 4) = 3 tokens; (3 * 0.15 / 1_000_000).toFixed(6) = '0.000000'
+    expect(insertedTasks[1].promptTokens).toBe(3)
+    expect(insertedTasks[1].costUsd).toBe('0.000000')
   })
 
   it('records failed task row and throws when returned embedding has mismatched dimensions', async () => {
