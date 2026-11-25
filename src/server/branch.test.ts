@@ -211,6 +211,17 @@ describe('branchWhatIf (Issue #27)', () => {
       code: 'INVALID_PATH',
     })
 
+    await expect(
+      branchWhatIf(
+        parentRun,
+        { path: 'parameters..importance_method', value: 'permutation' },
+        { store },
+      ),
+    ).rejects.toMatchObject({
+      name: 'BranchValidationError',
+      code: 'INVALID_PATH',
+    })
+
     const updated = await branchWhatIf(
       parentRun,
       {

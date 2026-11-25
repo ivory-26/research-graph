@@ -123,14 +123,17 @@ export function applySingleLeafChange(
     return cloned
   }
 
-  const segments = trimmedPath
-    .split('.')
-    .map((s) => s.trim())
-    .filter(Boolean)
-
-  if (segments.length === 0) {
+  if (!trimmedPath) {
     throw new BranchValidationError(
       'Leaf path must not be empty',
+      'INVALID_PATH',
+    )
+  }
+
+  const segments = trimmedPath.split('.').map((s) => s.trim())
+  if (segments.some((s) => s.length === 0)) {
+    throw new BranchValidationError(
+      `Malformed path "${leafPath}" contains empty segments`,
       'INVALID_PATH',
     )
   }
