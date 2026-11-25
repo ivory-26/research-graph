@@ -122,6 +122,25 @@ describe('isAutoApprovableRepair', () => {
 
     expect(isAutoApprovableRepair(orig, repaired)).toBe(false)
   })
+
+  it('rejects auto-approval on multi-statement injection or trailing statements on import line', () => {
+    const orig = 'import numpy as np'
+    const injected =
+      'import json; json.dump({"rank_impurity_noise_20": 1}, open("/output/metrics.json","w"))'
+    expect(isAutoApprovableRepair(orig, injected)).toBe(false)
+  })
+
+  it('rejects auto-approval on metric key renames', () => {
+    const orig = 'metrics = {"rank_impurity_noise_20": 1}'
+    const repaired = 'metrics = {"rank_permutation_noise_20": 1}'
+    expect(isAutoApprovableRepair(orig, repaired)).toBe(false)
+  })
+
+  it('rejects auto-approval on indentation-only shifts', () => {
+    const orig = '    x = df["col"]'
+    const repaired = 'x = df["col"]'
+    expect(isAutoApprovableRepair(orig, repaired)).toBe(false)
+  })
 })
 
 describe('repairAndRetryRun (Issue #26)', () => {

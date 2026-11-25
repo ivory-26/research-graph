@@ -129,23 +129,79 @@ export function createDrizzleRepairRunStore(
   }
 }
 
-function isImportOrBlankLine(line: string): boolean {
-  const trimmed = line.trim()
-  if (trimmed === '' || trimmed.startsWith('#')) return true
-  return /^(import\s+\S|from\s+\S+\s+import\s+\S)/.test(trimmed)
-}
-
 function maskQuotedLiterals(line: string): string {
   return line
     .replace(/"([^"\\]|\\.)*"/g, '"__STR__"')
     .replace(/'([^'\\]|\\.)*'/g, "'__STR__'")
 }
 
+function isCleanImportStatement(line: string): boolean {
+  const trimmed = line.trim()
+  if (trimmed === '' || trimmed.startsWith('#')) return true
+  // Reject multiple statements on one line (semicolons) or trailing comments/code that might disguise execution
+  if (trimmed.includes(';')) return false
+  // Strictly validate single clean import or from ... import ... statements
+  // e.g. "import numpy as np", "from sklearn.ensemble import RandomForestClassifier"
+  const importRegex = /^import\s+[a-zA-Z0-9_\.]+(\s+as\s+[a-zA-Z0-9_]+)?(,\s*[a-zA-Z0-9_\.]+(\s+as\s+[a-zA-Z0-9_]+)?)*$/
+  const fromImportRegex = /^from\s+[a-zA-Z0-9_\.]+\s+import\s+([a-zA-Z0-9_]+(\s+as\s+[a-zA-Z0-9_]+)?(,\s*[a-zA-Z0-9_]+(\s+as\s+[a-zA-Z0-9_]+)?)*|\*)$/
+  return importRegex.test(trimmed) || fromImportRegex.test(trimmed)
+}
+
+/**
+ * Checks if a line difference is an allowed column name indexing or dataset path literal change.
+ * Allows:
+ * - column access: obj['col'] or obj["col"]
+ * - path literals in dataset loading: Path("..."), open("...", ...) or read_csv("...")
+ * Disallows:
+ * - Metric keys (e.g. rank_impurity_noise_20)
+ * - Changes to indentation/control flow
+ * - General string substitutions or assignments
+ */
+function isAllowedColumnOrPathChange(origLine: string, nextLine: string): boolean {
+  // Indentation must match exactly
+  const origIndent = origLine.match(/^\s*/)?.[0] || ''
+  const nextIndent = nextLine.match(/^\s*/)?.[0] || ''
+  if (origIndent !== nextIndent) return false
+
+  const origTrimmed = origLine.trim()
+  const nextTrimmed = nextLine.trim()
+
+  // Disallow any changes on lines containing metrics.json, metric keys, or criteria
+  if (
+    /metrics\.json|rank_|impurity|permutation|criteria|verdict/i.test(origTrimmed) ||
+    /metrics\.json|rank_|impurity|permutation|criteria|verdict/i.test(nextTrimmed)
+  ) {
+    return false
+  }
+
+  // Must only differ in allowed positions (dataset file path or dictionary/dataframe column access)
+  const isPathAccess =
+    /(?:Path|open|read_csv|read_table|read_parquet|urllib|urlretrieve)\s*\([^)]*["']([^"']+)["'][^)]*\)/
+  const isColAccess =
+    /(?:\[\s*["']([^"']+)["']\s*\]|\.drop\(.*columns=\s*\[?["']([^"']+)["'])/
+
+  const origIsPath = isPathAccess.test(origTrimmed)
+  const nextIsPath = isPathAccess.test(nextTrimmed)
+  if (origIsPath && nextIsPath) {
+    // Both are path calls; verify code outside quotes is identical
+    return maskQuotedLiterals(origTrimmed) === maskQuotedLiterals(nextTrimmed)
+  }
+
+  const origIsCol = isColAccess.test(origTrimmed)
+  const nextIsCol = isColAccess.test(nextTrimmed)
+  if (origIsCol && nextIsCol) {
+    // Both are column access expressions; verify structure is identical
+    return maskQuotedLiterals(origTrimmed) === maskQuotedLiterals(nextTrimmed)
+  }
+
+  return false
+}
+
 function isOnlyStringOrImportChange(origLine: string, nextLine: string): boolean {
-  if (isImportOrBlankLine(origLine) && isImportOrBlankLine(nextLine)) {
+  if (isCleanImportStatement(origLine) && isCleanImportStatement(nextLine)) {
     return true
   }
-  return maskQuotedLiterals(origLine.trim()) === maskQuotedLiterals(nextLine.trim())
+  return isAllowedColumnOrPathChange(origLine, nextLine)
 }
 
 /**
@@ -213,10 +269,10 @@ export function isAutoApprovableRepair(
       }
     } else {
       for (const line of removed) {
-        if (!isImportOrBlankLine(line)) return false
+        if (!isCleanImportStatement(line)) return false
       }
       for (const line of added) {
-        if (!isImportOrBlankLine(line)) return false
+        if (!isCleanImportStatement(line)) return false
       }
     }
   }
