@@ -34,6 +34,27 @@ function backoffDelayMs(retryIndex: number): number {
   return Math.floor(jitter * ceiling)
 }
 
+/**
+ * Resolves finite token usage and cost for an embedding request.
+ * AI SDK 7's embed/embedMany can return `{ tokens: NaN }` when the provider omits usage metadata.
+ */
+function resolveEmbeddingUsage(
+  usage: { tokens?: number; inputTokens?: number } | undefined,
+  charCount: number,
+): { promptTokens: number; costUsd: string } {
+  const estimatedTokens = Math.ceil(charCount / 4)
+  const rawTokens = usage?.tokens
+  const rawInputTokens = usage?.inputTokens
+  const promptTokens =
+    typeof rawTokens === 'number' && Number.isFinite(rawTokens)
+      ? Math.round(rawTokens)
+      : typeof rawInputTokens === 'number' && Number.isFinite(rawInputTokens)
+        ? Math.round(rawInputTokens)
+        : estimatedTokens
+  const costUsd = ((promptTokens * DEFAULT_EMBEDDING_PRICE_PER_MILLION) / 1_000_000).toFixed(6)
+  return { promptTokens, costUsd }
+}
+
 // Shared process-wide sequential queue for all model calls (ADR 0009: sequential rate-limited execution)
 const enqueue = enqueueProcessTask
 
@@ -183,13 +204,10 @@ export async function embedChunks(
     }
 
     const latencyMs = successfulLatencyMs // Latency of successful final attempt
-    // Estimate tokens from text length since Google doEmbed returns usage: undefined
-    const estimatedTokens = Math.ceil(batch.reduce((sum, s) => sum + s.length, 0) / 4)
-    const promptTokens = result.usage?.tokens ?? result.usage?.inputTokens ?? estimatedTokens
-    const costUsd =
-      promptTokens !== null
-        ? ((promptTokens * DEFAULT_EMBEDDING_PRICE_PER_MILLION) / 1_000_000).toFixed(6)
-        : null
+    const { promptTokens, costUsd } = resolveEmbeddingUsage(
+      result.usage,
+      batch.reduce((sum, s) => sum + s.length, 0),
+    )
 
     // Validate embeddings count and dimensions BEFORE inserting success row
     if (result.embeddings.length !== batch.length) {
@@ -197,7 +215,7 @@ export async function embedChunks(
         await taskStore.insert({
           workspaceId: options.workspaceId,
           strategyId: options.strategyId ?? null,
-          taskKind: 'ingest',
+          taskKind,
           model: DEFAULT_EMBEDDING_MODEL_ID,
           status: 'failed',
           inputRef: { batchIndex: i / batchSize, itemCount: batch.length },
@@ -355,12 +373,7 @@ export async function embedQuery(
   }
 
   const latencyMs = successfulLatencyMs
-  const estimatedTokens = Math.ceil(trimmed.length / 4)
-  const promptTokens = result.usage?.tokens ?? result.usage?.inputTokens ?? estimatedTokens
-  const costUsd =
-    promptTokens !== null
-      ? ((promptTokens * DEFAULT_EMBEDDING_PRICE_PER_MILLION) / 1_000_000).toFixed(6)
-      : null
+  const { promptTokens, costUsd } = resolveEmbeddingUsage(result.usage, trimmed.length)
 
   // Validate dimensions BEFORE inserting success row
   if (result.embedding.length !== dimensions) {

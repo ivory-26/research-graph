@@ -286,6 +286,48 @@ describe('searchSimilarChunks (Vector search query builder)', () => {
     expect(insertedTasks[0].costUsd).toBeDefined()
   })
 
+  it('falls back to estimated tokens and valid costUsd when AI SDK returns { tokens: NaN }', async () => {
+    const insertedTasks: any[] = []
+    const fakeStore = {
+      insert: vi.fn(async (task) => {
+        insertedTasks.push(task)
+        return { id: 'task-nan-1' }
+      }),
+    }
+
+    await embedChunks(
+      ['Sentence one for embedding estimation.'],
+      { workspaceId: 'ws-nan', taskStore: fakeStore },
+      {
+        embedManyFn: vi.fn(async () => ({
+          embeddings: [new Array(768).fill(0.1)],
+          usage: { tokens: Number.NaN },
+        })) as any,
+        resolveModel: () => ({ modelId: 'gemini-embedding-2' }) as any,
+      },
+    )
+
+    await embedQuery(
+      'query text',
+      { workspaceId: 'ws-nan', taskStore: fakeStore },
+      {
+        embedFn: vi.fn(async () => ({
+          embedding: new Array(768).fill(0.2),
+          usage: { tokens: Number.NaN },
+        })) as any,
+        resolveModel: () => ({ modelId: 'gemini-embedding-2' }) as any,
+      },
+    )
+
+    expect(insertedTasks).toHaveLength(2)
+    for (const row of insertedTasks) {
+      expect(Number.isFinite(row.promptTokens)).toBe(true)
+      expect(row.promptTokens).toBeGreaterThan(0)
+      expect(row.costUsd).not.toBe('NaN')
+      expect(Number.isFinite(Number(row.costUsd))).toBe(true)
+    }
+  })
+
   it('records failed task row and throws when returned embedding has mismatched dimensions', async () => {
     const insertedTasks: any[] = []
     const fakeStore = {
