@@ -42,6 +42,8 @@ function resolveEmbeddingUsage(
   usage: { tokens?: number; inputTokens?: number } | undefined,
   charCount: number,
 ): { promptTokens: number; costUsd: string } {
+  // Heuristic uses ceil as a conservative upper bound when usage metadata is missing;
+  // provider-reported counts use round solely as a defensive integer cast for Postgres.
   const estimatedTokens = Math.ceil(charCount / 4)
   const rawTokens = usage?.tokens
   const rawInputTokens = usage?.inputTokens

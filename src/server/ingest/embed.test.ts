@@ -385,6 +385,7 @@ describe('agent_tasks accounting, retries, and usage fallback (ADR 0009)', () =>
         {
           dimensions: 768,
           workspaceId: 'ws-count-fail',
+          taskKind: 'ask_across_sources',
           taskStore: fakeStore,
         },
         {
@@ -396,6 +397,7 @@ describe('agent_tasks accounting, retries, and usage fallback (ADR 0009)', () =>
 
     expect(fakeStore.insert).toHaveBeenCalledTimes(1)
     expect(insertedTasks[0].status).toBe('failed')
+    expect(insertedTasks[0].taskKind).toBe('ask_across_sources')
     expect(insertedTasks[0].error).toContain('Embedding batch returned 1 vectors, expected 2')
   })
 
