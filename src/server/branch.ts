@@ -529,9 +529,11 @@ export async function branchWhatIf(
       diffs,
     )
   }
-  if (changedLeaf.before === undefined) {
+  if (changedLeaf.before === undefined || changedLeaf.after === undefined) {
     throw new BranchValidationError(
-      `What-if branch cannot introduce new parameter "${changedLeaf.path}" not present in parent spec`,
+      changedLeaf.before === undefined
+        ? `What-if branch cannot introduce new parameter "${changedLeaf.path}" not present in parent spec`
+        : `What-if branch cannot delete parameter "${changedLeaf.path}" present in parent spec`,
       'INVALID_PATH',
       diffs,
     )

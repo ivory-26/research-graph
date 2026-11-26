@@ -222,6 +222,20 @@ describe('branchWhatIf (Issue #27)', () => {
     })
   })
 
+  it('rejects candidateSpec deleting an existing parameter key with INVALID_PATH', async () => {
+    const parentRun = makeCompletedParentRun()
+    const store = new MemoryWhatIfBranchStore()
+    const withDeletedParam = structuredClone(parentRun.spec)
+    delete withDeletedParam.parameters.importance_method
+
+    await expect(
+      branchWhatIf(parentRun, { candidateSpec: withDeletedParam }, { store }),
+    ).rejects.toMatchObject({
+      name: 'BranchValidationError',
+      code: 'INVALID_PATH',
+    })
+  })
+
   it('rejects changes to non-existent path segments or misspelled parameters', async () => {
     const parentRun = makeCompletedParentRun()
     const store = new MemoryWhatIfBranchStore()
