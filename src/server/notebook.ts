@@ -9,7 +9,11 @@ import type {
   Verdict,
 } from '../shared/types'
 import { extractEntrypointFile } from './planner'
-import { MAX_DATASET_BYTES, SANDBOX_METRICS_PATH } from './runner'
+import {
+  ALLOWED_DATASET_DOMAINS,
+  MAX_DATASET_BYTES,
+  SANDBOX_METRICS_PATH,
+} from './runner'
 
 export type NbformatOutput = {
   output_type: string
@@ -249,11 +253,19 @@ function buildPipInstallCell(
   let narrowingNote: string | null = null
   if (files) {
     const imported = extractImportedPackageNames(files)
-    for (const pkg of Array.from(imported)) {
-      const closure = PACKAGE_CLOSURE[pkg]
-      if (closure) {
-        for (const dep of closure) {
-          imported.add(normalizePkgName(dep))
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const pkg of Array.from(imported)) {
+        const closure = PACKAGE_CLOSURE[pkg]
+        if (closure) {
+          for (const dep of closure) {
+            const normalized = normalizePkgName(dep)
+            if (!imported.has(normalized)) {
+              imported.add(normalized)
+              changed = true
+            }
+          }
         }
       }
     }
@@ -314,10 +326,7 @@ function buildDatasetDownloadCell(
     'import urllib.parse',
     'import urllib.request',
     '',
-    'ALLOWED_DATASET_DOMAINS = (',
-    "    'openml.org', 'www.openml.org', 'archive.ics.uci.edu',",
-    "    'github.com', 'raw.githubusercontent.com', 'gist.githubusercontent.com', 'huggingface.co',",
-    ')',
+    `ALLOWED_DATASET_DOMAINS = tuple(${JSON.stringify(ALLOWED_DATASET_DOMAINS)})`,
     '',
     'def validate_dataset_url(url_str: str) -> None:',
     '    parsed = urllib.parse.urlparse(url_str)',

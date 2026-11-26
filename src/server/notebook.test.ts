@@ -10,7 +10,7 @@ import {
   buildNotebookDocument,
   saveNotebookArtifact,
 } from './notebook'
-import { MAX_DATASET_BYTES } from './runner'
+import { ALLOWED_DATASET_DOMAINS, MAX_DATASET_BYTES } from './runner'
 
 const HERO_CLAIM = {
   text: 'Gini importance favours high-cardinality features; permutation does not',
@@ -290,6 +290,9 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(dsSrc).toContain('host.endswith("." + d)')
     expect(dsSrc).toContain('max_redirects=3')
     expect(dsSrc).toContain(`MAX_DOWNLOAD_BYTES = ${MAX_DATASET_BYTES}`)
+    for (const domain of ALLOWED_DATASET_DOMAINS) {
+      expect(dsSrc).toContain(`"${domain}"`)
+    }
   })
 
   it('renders reported.against even when reported.comparator is null', () => {
