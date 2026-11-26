@@ -170,59 +170,8 @@ function buildMetadataMarkdownCell(input: BuildNotebookInput): NbformatMarkdownC
   }
 }
 
-const MODULE_TO_PYPI: Record<string, string> = {
-  sklearn: 'scikit-learn',
-  pil: 'pillow',
-  cv2: 'opencv-python',
-  yaml: 'pyyaml',
-  bs4: 'beautifulsoup4',
-  dateutil: 'python-dateutil',
-}
-
-function normalizePkgName(name: string): string {
-  return name.toLowerCase().replace(/_/g, '-')
-}
-
-function extractImportedPackageNames(
-  files: Record<string, string>,
-): Set<string> {
-  const imported = new Set<string>()
-  for (const content of Object.values(files)) {
-    for (const rawLine of content.split(/\r?\n/)) {
-      const line = rawLine.trim()
-      const fromMatch = line.match(/^from\s+([a-zA-Z0-9_]+)/)
-      if (fromMatch) {
-        const mod = fromMatch[1]!.toLowerCase()
-        imported.add(normalizePkgName(MODULE_TO_PYPI[mod] ?? mod))
-        continue
-      }
-      const importMatch = line.match(/^import\s+([^#;]+)/)
-      if (importMatch) {
-        for (const part of importMatch[1]!.split(',')) {
-          const mod = part.trim().split(/[\s.]/)[0]?.toLowerCase()
-          if (mod) {
-            imported.add(normalizePkgName(MODULE_TO_PYPI[mod] ?? mod))
-          }
-        }
-      }
-    }
-  }
-  return imported
-}
-
-const PACKAGE_CLOSURE: Record<string, string[]> = {
-  sklearn: ['numpy', 'scipy', 'joblib', 'threadpoolctl'],
-  'scikit-learn': ['numpy', 'scipy', 'joblib', 'threadpoolctl'],
-  pandas: ['numpy', 'python-dateutil', 'pytz'],
-  seaborn: ['matplotlib', 'pandas', 'numpy'],
-  matplotlib: ['numpy', 'pillow', 'kiwisolver', 'cycler', 'fonttools', 'packaging'],
-  scipy: ['numpy'],
-  torch: ['typing-extensions', 'sympy', 'networkx', 'jinja2', 'fsspec'],
-}
-
 function buildPipInstallCell(
   packages: Record<string, string> | undefined,
-  files?: Record<string, string>,
 ): NbformatCodeCell {
   if (!packages || Object.keys(packages).length === 0) {
     throw new Error(
@@ -249,53 +198,12 @@ function buildPipInstallCell(
     )
   }
 
-  let selected = filtered
-  let narrowingNote: string | null = null
-  if (files) {
-    const imported = extractImportedPackageNames(files)
-    let changed = true
-    while (changed) {
-      changed = false
-      for (const pkg of Array.from(imported)) {
-        const closure = PACKAGE_CLOSURE[pkg]
-        if (closure) {
-          for (const dep of closure) {
-            const normalized = normalizePkgName(dep)
-            if (!imported.has(normalized)) {
-              imported.add(normalized)
-              changed = true
-            }
-          }
-        }
-      }
-    }
-    const narrowed: Record<string, string> = {}
-    for (const [pkg, ver] of Object.entries(filtered)) {
-      if (imported.has(normalizePkgName(pkg))) {
-        narrowed[pkg] = ver
-      }
-    }
-    const filteredCount = Object.keys(filtered).length
-    const narrowedCount = Object.keys(narrowed).length
-    if (narrowedCount > 0 && narrowedCount < filteredCount) {
-      selected = narrowed
-      narrowingNote =
-        '# Note: narrowed to packages imported in spec.files and their pinned runtime closure (dynamic imports via importlib may require manual installation)'
-    } else if (narrowedCount === 0) {
-      narrowingNote =
-        '# Note: no spec imports matched environment.packages; installing full pinned set'
-    }
-  }
-
-  const pkgArgs = Object.entries(selected)
+  const pkgArgs = Object.entries(filtered)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([pkg, ver]) => `"${pkg}==${ver}"`)
     .join(' ')
 
   const codeLines = ['# Install pinned runtime dependencies from run environment']
-  if (narrowingNote) {
-    codeLines.push(narrowingNote)
-  }
   if (unknownPackages.length > 0) {
     codeLines.push(
       `# Note: omitted packages with unknown version: ${unknownPackages.sort().join(', ')}`,
@@ -569,7 +477,7 @@ export function buildNotebookDocument(
     },
     cells: [
       buildMetadataMarkdownCell(input),
-      buildPipInstallCell(input.environment?.packages, input.spec.files),
+      buildPipInstallCell(input.environment?.packages),
       buildDatasetDownloadCell(input.spec, input.environment),
       ...buildVerbatimScriptCell(input.spec),
       buildMetricsDisplayCell(),

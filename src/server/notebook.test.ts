@@ -248,7 +248,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(dsSrc).toContain(HERO_RECORDED_RUN_RESULT.environment.datasets[0]!.sha256)
   })
 
-  it('narrows pinned pip installs to packages imported by the spec plus their runtime closure', () => {
+  it('installs full pinned packages from environment.packages per docs/04:243 excluding tooling and unknown versions', () => {
     const nb = buildNotebookDocument({
       spec: HERO_EXPERIMENT_SPEC_RUN_A,
       environment: {
@@ -258,7 +258,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
           joblib: '1.4.2',
           threadpoolctl: '3.5.0',
           flask: '3.0.0',
-          pytest: '8.3.0',
+          pip: '24.0',
         },
       },
       claim: HERO_CLAIM,
@@ -272,8 +272,8 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(pipSrc).toContain('"scipy==1.17.1"')
     expect(pipSrc).toContain('"joblib==1.4.2"')
     expect(pipSrc).toContain('"threadpoolctl==3.5.0"')
-    expect(pipSrc).not.toContain('"flask==')
-    expect(pipSrc).not.toContain('"pytest==')
+    expect(pipSrc).toContain('"flask==3.0.0"')
+    expect(pipSrc).not.toContain('"pip==')
   })
 
   it('validates subdomain allowlist and SSRF/redirect guards in cell 3 dataset download', () => {
