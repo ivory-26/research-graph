@@ -1073,12 +1073,18 @@ function initialRepairEnvironment(
   }
 }
 
+const NODE_ERRNO_CODES = new Set([
+  'EPIPE', 'EBUSY', 'EPERM', 'ELOOP', 'EROFS', 'EXDEV', 'ENXIO',
+  'EFBIG', 'ENOSPC', 'ESPIPE', 'EMLINK', 'EFAULT', 'ENODEV',
+  'EISDIR', 'ENOTDIR', 'EINVAL', 'EMFILE', 'ENFILE', 'ENOTTY', 'EAGAIN',
+])
+
 function isPersistenceError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
   if (err.constructor && /postgres|drizzle|neon/i.test(err.constructor.name)) return true
   if (err instanceof Error) {
     if (
-      /agent_tasks|runs|database|postgres|drizzle|neon|relation ".*"|syntax error at or near|violates.*constraint/i.test(
+      /agent_tasks|postgres|drizzle|neon|relation ".*"|syntax error at or near|violates.*constraint/i.test(
         err.message,
       )
     ) {
@@ -1087,8 +1093,8 @@ function isPersistenceError(err: unknown): boolean {
   }
   if ('code' in err && typeof (err as any).code === 'string') {
     const code = (err as any).code
-    // 5-character Postgres SQLSTATE codes (e.g. '23505', '42P01') excluding common Node errors like EPIPE
-    if (/^[0-9A-Z]{5}$/.test(code) && code !== 'EPIPE') return true
+    // 5-character Postgres SQLSTATE codes (e.g. '23505', '42P01') excluding Node errno codes
+    if (/^[0-9A-Z]{5}$/.test(code) && !NODE_ERRNO_CODES.has(code)) return true
   }
   return false
 }
@@ -1113,6 +1119,8 @@ export type RepairRetryOptions = {
   openApprovalGate?: (input: OpenApprovalGateInput) => Promise<OpenApprovalGateResult>
   /** Optional lifecycle event sink; `seq` allocation is left to the caller's experiment event log. */
   emitEvent?: (event: RepairPipelineEvent) => Promise<void> | void
+  /** Optional abort signal propagated to the sandbox runner. */
+  signal?: AbortSignal
   now?: () => Date
 }
 
@@ -1522,7 +1530,11 @@ async function executeChainedRepairRun(
         at: now().toISOString(),
       } as RepairPipelineEvent)
     } catch (err) {
-      console.error('[executeChainedRepairRun] emitEvent failed', err)
+      if (event.type === 'run.stdout') {
+        console.error('[executeChainedRepairRun] emitEvent stdout failed', err)
+        return
+      }
+      throw err
     }
   }
 
