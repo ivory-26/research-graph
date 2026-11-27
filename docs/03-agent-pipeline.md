@@ -157,7 +157,7 @@ The two-attempt ceiling is not a safety measure, it is a demo measure. An unboun
 
 ## Strategy selection
 
-**Status on `main`: not built.** `agent_strategies` and `agent_tasks` exist, `callModel` records every attempt, and `extractClaims` accepts an optional `strategyId` for the task row. Nothing implements `pickStrategy`, success scoring or the exploration floor. The dashboard renders recorded fixture rows, not a live `GROUP BY`.
+**Status:** `agent_strategies` and `agent_tasks` exist, `callModel` records every attempt, and `extractClaims` accepts an optional `strategyId` for the task row. Automated `pickStrategy` selection is not built; `GET /api/strategies` and `StrategyDashboard` aggregate `agent_tasks` when a database workspace UUID is active and render `DEMO_STRATEGIES` in demo fixture mode.
 
 This is the entire "evolving agents" mechanism.
 

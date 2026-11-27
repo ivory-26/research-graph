@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { DEMO_STRATEGIES } from '../../data/demoWorkspace';
 import {
   aggregateAgentTasks,
@@ -11,6 +11,7 @@ interface StrategyDashboardProps {
   isOpen?: boolean;
   onClose?: () => void;
   tasks?: AgentTaskRow[];
+  source?: 'api' | 'fixture' | 'error';
 }
 
 export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
@@ -18,13 +19,14 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
   isOpen = true,
   onClose,
   tasks,
+  source = 'fixture',
 }) => {
-  const hasLiveTasks = Boolean(tasks && tasks.length > 0);
+  const isDatabaseMode = source === 'api' || source === 'error';
   const liveTasks = tasks ?? [];
 
   const liveRows = useMemo(
-    () => (hasLiveTasks ? aggregateAgentTasks(liveTasks) : []),
-    [hasLiveTasks, liveTasks],
+    () => (isDatabaseMode ? aggregateAgentTasks(liveTasks) : []),
+    [isDatabaseMode, liveTasks],
   );
 
   const failedTasks = useMemo(
@@ -34,7 +36,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
 
   if (!isOpen) return null;
 
-  const rows = hasLiveTasks
+  const rows = isDatabaseMode
     ? liveRows.map((s) => ({
         key: s.key,
         taskKind: s.taskKind,
@@ -67,19 +69,19 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
         };
       });
 
-  const totalAttempts = hasLiveTasks
+  const totalAttempts = isDatabaseMode
     ? liveTasks.length
     : DEMO_STRATEGIES.reduce((sum, s) => sum + s.attempts, 0);
-  const totalFailures = hasLiveTasks
+  const totalFailures = isDatabaseMode
     ? failedTasks.length
     : DEMO_STRATEGIES.reduce((sum, s) => sum + Math.max(0, s.attempts - s.successes), 0);
 
-  const costValues = hasLiveTasks
+  const costValues = isDatabaseMode
     ? liveTasks.map((t) => t.costUsd).filter((c): c is number => c !== null && Number.isFinite(c))
     : DEMO_STRATEGIES.map((s) => s.totalCostUsd);
   const totalCost = costValues.length > 0 ? costValues.reduce((sum, c) => sum + c, 0) : null;
 
-  const latencyValues = hasLiveTasks
+  const latencyValues = isDatabaseMode
     ? liveTasks.map((t) => t.latencyMs).filter((l): l is number => l !== null && Number.isFinite(l))
     : DEMO_STRATEGIES.map((s) => s.avgLatencyMs);
   const avgLatency =
@@ -95,11 +97,11 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
           <div className="flex items-center gap-2 mb-1">
             <div className="l">Adaptive Agent Strategies</div>
             <span className="badge-orange-outline !text-[8px] rounded-none">
-              {hasLiveTasks ? 'LIVE AGENT_TASKS' : 'DEMO FIXTURE'}
+              {source === 'error' ? 'UNAVAILABLE' : isDatabaseMode ? 'LIVE AGENT_TASKS' : 'DEMO FIXTURE'}
             </span>
           </div>
           <div className="text-[22px] font-bold mt-1 text-[var(--text-primary)] font-mono tracking-tight">
-            {hasLiveTasks
+            {isDatabaseMode
               ? 'Autonomous Strategy Selection · Task Aggregation'
               : 'Autonomous Strategy Selection · Demo Fixture Preview'}
           </div>
@@ -120,7 +122,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
       {/* KPI Cards with Sharp Corners */}
       <div className="flex gap-4 flex-wrap">
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
-          <div className="l">{hasLiveTasks ? 'Tasks Recorded' : 'Fixture Tasks'}</div>
+          <div className="l">{isDatabaseMode ? 'Tasks Recorded' : 'Fixture Tasks'}</div>
           <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">
             {totalAttempts}
             {totalFailures > 0 && (
@@ -130,9 +132,11 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
             )}
           </div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">
-            {hasLiveTasks
-              ? 'Grouped from agent_tasks'
-              : 'Demo fixture preview (fixtures/workspace.json)'}
+            {source === 'error'
+              ? 'Database query failed'
+              : isDatabaseMode
+                ? 'Grouped from agent_tasks'
+                : 'Demo fixture preview (fixtures/workspace.json)'}
           </div>
         </div>
 
@@ -142,7 +146,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
             {totalCost !== null ? `$${totalCost.toFixed(3)}` : '—'}
           </div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">
-            {hasLiveTasks ? 'Measured task cost' : 'Demo fixture baseline'}
+            {isDatabaseMode ? 'Measured task cost' : 'Demo fixture baseline'}
           </div>
         </div>
 
@@ -152,7 +156,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
             {avgLatency !== null ? `${avgLatency} s` : '—'}
           </div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">
-            {hasLiveTasks ? 'Mean task duration' : 'Demo fixture baseline'}
+            {isDatabaseMode ? 'Mean task duration' : 'Demo fixture baseline'}
           </div>
         </div>
       </div>
@@ -174,7 +178,16 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
             </tr>
           </thead>
           <tbody>
-            {rows.map((strat) => {
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="p-6 text-center font-mono text-xs text-[var(--text-dim)]">
+                  {source === 'error'
+                    ? 'Failed to load agent_tasks from database.'
+                    : 'No agent_tasks recorded for this workspace yet.'}
+                </td>
+              </tr>
+            ) : (
+              rows.map((strat) => {
               const barColor = strat.preferred ? '#f97316' : 'var(--border-secondary)';
               const percent = Math.round(strat.score * 100);
 
@@ -221,13 +234,14 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
                   </td>
                 </tr>
               );
-            })}
+            })
+            )}
           </tbody>
         </table>
       </div>
 
       {/* Explicit Failed Task Rows (only when live agent_tasks are present) */}
-      {hasLiveTasks && failedTasks.length > 0 && (
+      {isDatabaseMode && failedTasks.length > 0 && (
         <div className="c p-4 bg-[var(--card-bg)] border border-red-500/30 rounded-none space-y-2.5">
           <div className="flex items-center gap-2 text-xs font-mono font-bold text-red-400 uppercase">
             <AlertTriangle className="h-3.5 w-3.5" />
@@ -261,9 +275,9 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
 
       {/* Footer Note */}
       <div className="text-[11px] text-[var(--text-dim)] font-mono">
-        {hasLiveTasks
+        {isDatabaseMode
           ? 'Strategy Evaluation: Aggregated by (task_kind, strategy_id) using Laplace-smoothed score (successes + 1) / (attempts + 2).'
-          : 'Strategy Evaluation (Demo Fixture): Displays illustrative fixture values from fixtures/workspace.json until live agent_tasks rows are recorded.'}
+          : 'Strategy Evaluation (Demo Fixture): Displays illustrative fixture values from fixtures/workspace.json until a database workspace is active.'}
       </div>
     </div>
   );

@@ -132,11 +132,17 @@ function WorkspacePage() {
   const [edges, setEdges] = useState<WorkspaceEdge[]>(DEMO_EDGES);
   const [workspaces, setWorkspaces] = useState(WORKSPACES);
   const [graphSource, setGraphSource] = useState<'api' | 'fixture' | 'error'>('fixture');
+  const [strategiesSource, setStrategiesSource] = useState<'api' | 'fixture' | 'error'>('fixture');
   const [agentTasks, setAgentTasks] = useState<AgentTaskRow[] | undefined>(undefined);
 
-  // URL-addressable active page and workspace
+  // URL-addressable active page and workspace (active id derived directly from search.workspace)
   const currentPage: PageId = search.page ?? 'graph';
-  const activeWorkspaceObj = workspaces.find((w) => w.id === search.workspace) ?? workspaces[0];
+  const activeWorkspaceId = search.workspace ?? WORKSPACES[0].id;
+  const activeWorkspaceObj = workspaces.find((w) => w.id === activeWorkspaceId) ?? {
+    id: activeWorkspaceId,
+    name: activeWorkspaceId,
+    subtitle: 'Database workspace',
+  };
 
   const setCurrentPage = (page: PageId) => {
     navigate({
@@ -216,6 +222,7 @@ function WorkspacePage() {
       setEdges(DEMO_EDGES);
       setAgentTasks(undefined);
       setGraphSource('fixture');
+      setStrategiesSource('fixture');
       return () => {
         active = false;
       };
@@ -250,12 +257,17 @@ function WorkspacePage() {
         if (!active) return;
         if (data && Array.isArray(data.tasks)) {
           setAgentTasks(data.tasks);
+          setStrategiesSource('api');
         } else {
           setAgentTasks([]);
+          setStrategiesSource('error');
         }
       })
       .catch(() => {
-        if (active) setAgentTasks([]);
+        if (active) {
+          setAgentTasks([]);
+          setStrategiesSource('error');
+        }
       });
 
     return () => {
@@ -601,7 +613,7 @@ function WorkspacePage() {
           )}
 
           {currentPage === 'strategies' && (
-            <StrategyDashboard tasks={agentTasks} />
+            <StrategyDashboard tasks={agentTasks} source={strategiesSource} />
           )}
 
           {currentPage === 'settings' && (
