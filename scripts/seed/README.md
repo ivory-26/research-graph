@@ -246,6 +246,13 @@ The recording is intentionally committed: it is the model-output baseline, not
 `fixtures/workspace.json`. Recapture only when the prompts, model or pin
 changes.
 
+**Embedding quota.** Replay removes the text-call delays, so a full replay seed
+issues all of its Gemini embedding requests in a short burst. The seed needs
+about 45k embedding tokens; Gemini's free tier allows 30k per minute. A replay
+run immediately after capture can therefore exhaust the free-tier embedding
+quota even though every text response is replayed. Use a billed Gemini key for
+replay, wait between runs, or extend the recording to embeddings.
+
 ## Canonical baseline: two live seeds
 
 Run two live end-to-end seeds on separate fresh databases and require them to
@@ -435,8 +442,13 @@ seed never resets it for you.
   four artifacts per seed verified, both gates approved and all five lineage
   edges written. `seed:compare` then returned `RESULT: DIFFERENCE` because
   live extraction varied (64 vs 61 nodes, 42 vs 39 edges). Recorded model-output
-  replay was added to make the graph deterministic; capture/replay verification
-  is the remaining live check. The live seeds took ~5 minutes each, so the
-  "under one minute" budget depends on replaying the text calls.
+  replay was added to make the graph deterministic. The live seeds took ~5
+  minutes each, so the "under one minute" budget depends on replaying the text
+  calls.
+- On `db87a16` the capture seed completed (5m29s, 7 records, 272,978 bytes, no
+  credentials) and replay reproduced paper 1 exactly in 6.5s with no Meta key.
+  Replay then hit the Gemini free-tier embedding quota on paper 2 (30k tokens
+  per minute; the seed needs ~45k). The replay pair and `seed:compare` are still
+  outstanding; a billed embedding key, spacing, or embedding replay is needed.
 - The live two-seed baseline remains the outstanding gate; the "under one
   minute" budget is not yet measured.
