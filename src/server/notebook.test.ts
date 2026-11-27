@@ -137,6 +137,22 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(md6).toContain('inconclusive')
   })
 
+  it('preserves CRLF line endings in spec scripts verbatim', () => {
+    const crlfSpec = structuredClone(HERO_EXPERIMENT_SPEC_RUN_A)
+    crlfSpec.files['main.py'] = 'import os\r\nprint("hello")\r\n'
+
+    const nb = buildNotebookDocument({
+      spec: crlfSpec,
+      environment: HERO_RECORDED_RUN_RESULT.environment,
+      claim: HERO_CLAIM,
+      verdict: 'match',
+    })
+
+    const scriptCell = nb.cells[3]!
+    expect(scriptCell.source.join('')).toBe('import os\r\nprint("hello")\r\n')
+    expect(scriptCell.source).toEqual(['import os\r\n', 'print("hello")\r\n'])
+  })
+
   it('builds a run_artifacts notebook payload with accurate sha256 and byte length', () => {
     const artifact = buildNotebookArtifact({
       spec: HERO_EXPERIMENT_SPEC_RUN_A,

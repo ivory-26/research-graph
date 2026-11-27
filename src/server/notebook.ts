@@ -90,14 +90,17 @@ const TOOLING_PACKAGES = new Set([
 ])
 
 /**
- * Normalizes CRLF to LF so exported notebooks use consistent Unix line endings
- * across Windows/POSIX hosts, formatted as nbformat's array of `\n`-terminated strings.
+ * Converts text into nbformat's array of newline-terminated strings, preserving
+ * the script's original line endings (CRLF or LF) verbatim to satisfy reproducibility.
  */
 function toNbformatLines(text: string): string[] {
   if (text.length === 0) return []
-  const normalized = text.replace(/\r\n/g, '\n')
-  const parts = normalized.split('\n')
-  return parts.map((line, idx) => (idx < parts.length - 1 ? `${line}\n` : line))
+  const matched = text.match(/[^\r\n]*(?:\r?\n|$)/g)
+  if (!matched) return [text]
+  if (matched.length > 0 && matched[matched.length - 1] === '') {
+    matched.pop()
+  }
+  return matched
 }
 
 function formatOp(op: CriteriaOp): string {
