@@ -116,6 +116,7 @@ export const MemoryNode: React.FC<NodeProps> = ({ id, data, selected }) => {
 
   const isDimmed = Boolean(data?.isDimmed);
   const isHighlighted = Boolean(data?.isHighlighted) || selected;
+  const clusterHighlighting = Boolean(data?.clusterHighlighting);
   const labelVisibility = (data?.labelVisibility as 'selective' | 'always' | 'off') || 'selective';
 
   // Controlled node sizing: 38–46px normal, 50–54px central/hub nodes.
@@ -215,14 +216,15 @@ export const MemoryNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         className="!w-0 !h-0 !opacity-0 !border-none !bg-transparent !top-1/2 !left-1/2 !-translate-x-1/2 !-translate-y-1/2 !pointer-events-none"
       />
 
-      {/* Atmospheric Ambient Glow for Selected / Hub Nodes (No physical size change) */}
-      {(isSelected || isHovered) && (
+      {/* Atmospheric Ambient Glow for Selected / Hub / Cluster Nodes (No physical size change) */}
+      {(isSelected || isHovered || (clusterHighlighting && !isDimmed)) && (
         <div
-          className="absolute rounded-full pointer-events-none"
+          className="absolute rounded-full pointer-events-none transition-all duration-300"
           style={{
-            width: diameter + 20,
-            height: diameter + 20,
-            background: `radial-gradient(circle, ${theme.ring} 0%, transparent 70%)`,
+            width: diameter + (clusterHighlighting ? 34 : 20),
+            height: diameter + (clusterHighlighting ? 34 : 20),
+            background: `radial-gradient(circle, ${clusterHighlighting ? theme.glow : theme.ring} 0%, transparent 72%)`,
+            opacity: isSelected || isHovered ? 0.9 : 0.45,
           }}
         />
       )}

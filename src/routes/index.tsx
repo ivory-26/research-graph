@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from '@tanstack/react-router';
+import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { useState, useEffect, useRef } from 'react';
 import { Sidebar, type PageId } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
@@ -25,7 +25,48 @@ import { getCurrentUser } from '../server/auth';
 import { sendPipelineApproval, subscribeToPipelineStream } from '../utils/pipelineClient';
 import { fetchWorkspaceGraph } from '../utils/graphClient';
 
+const VALID_PAGES: ReadonlySet<PageId> = new Set([
+  'overview',
+  'graph',
+  'sources',
+  'ask',
+  'agents',
+  'experiments',
+  'compare',
+  'strategies',
+  'settings',
+]);
+
+export interface WorkspaceSearchParams {
+  page?: PageId;
+  workspace?: string;
+  preview?: string;
+  redirect?: string;
+}
+
+const WORKSPACES = [
+  {
+    id: 'research-graph',
+    name: 'Research Graph',
+    subtitle: '3 sources · 1 claim · OpenML:52350',
+  },
+  {
+    id: 'strobl-repro',
+    name: 'Strobl 2007/2008 Repro',
+    subtitle: 'Hero experiment lineage · RF bias audit',
+  },
+];
+
 export const Route = createFileRoute('/')({
+  validateSearch: (search: Record<string, unknown>): WorkspaceSearchParams => {
+    const rawPage = typeof search.page === 'string' ? (search.page as PageId) : undefined;
+    return {
+      page: rawPage && VALID_PAGES.has(rawPage) ? rawPage : undefined,
+      workspace: typeof search.workspace === 'string' ? search.workspace : undefined,
+      preview: typeof search.preview === 'string' ? search.preview : undefined,
+      redirect: typeof search.redirect === 'string' ? search.redirect : undefined,
+    };
+  },
   beforeLoad: async ({ location }) => {
     try {
       const user = await getCurrentUser();
@@ -91,11 +132,30 @@ const PAGE_META: Record<PageId, { title: string; subtitle: string }> = {
 };
 
 function WorkspacePage() {
+  const navigate = useNavigate({ from: '/' });
+  const search = Route.useSearch();
+
   const [nodes, setNodes] = useState<WorkspaceNode[]>(DEMO_NODES);
   const [edges, setEdges] = useState<WorkspaceEdge[]>(DEMO_EDGES);
 
-  // Active view page matching the blueprint navigation
-  const [currentPage, setCurrentPage] = useState<PageId>('graph');
+  // URL-addressable active page and workspace
+  const currentPage: PageId = search.page ?? 'graph';
+  const activeWorkspaceObj = WORKSPACES.find((w) => w.id === search.workspace) ?? WORKSPACES[0];
+
+  const setCurrentPage = (page: PageId) => {
+    navigate({
+      search: (prev) => ({ ...prev, page }),
+    });
+  };
+
+  const handleSelectWorkspace = (workspaceId: string) => {
+    const target = WORKSPACES.find((w) => w.id === workspaceId);
+    if (!target) return;
+    navigate({
+      search: (prev) => ({ ...prev, workspace: target.id }),
+    });
+    showToast(`Switched workspace to ${target.name}`);
+  };
 
   // UI state
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
@@ -254,7 +314,9 @@ function WorkspacePage() {
       <div className="flex flex-1 flex-col overflow-hidden min-w-0 bg-[var(--bg-primary)]">
         {/* Top Navbar */}
         <Navbar
-          currentWorkspace="Research Graph"
+          currentWorkspace={activeWorkspaceObj.name}
+          workspaces={WORKSPACES}
+          onSelectWorkspace={handleSelectWorkspace}
           isInspectorOpen={isInspectorOpen}
           onToggleInspector={() => setIsInspectorOpen(!isInspectorOpen)}
           onOpenApproval={() => setIsApprovalOpen(true)}

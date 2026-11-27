@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { WorkspaceEdge, WorkspaceNode } from '../../data/demoWorkspace';
 import { NODE_CATEGORY_THEMES } from '../canvas/MemoryNode';
 import {
   Check,
+  Copy,
   X as XIcon,
   ArrowRight,
   ArrowLeft,
@@ -38,6 +39,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
   onUpdateStatus,
   onClose,
 }) => {
+  const [copiedQuote, setCopiedQuote] = useState(false);
   const datasetNode = allNodes.find((n) => n.type === 'dataset');
 
   // If neither node nor edge is provided, render the Workspace & Variables Inspector
@@ -512,18 +514,69 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         <span className="text-[var(--text-primary)] font-semibold">{targetName}</span>
       </div>
 
-      {/* Verbatim Cited Quote Card with Sharp Corners */}
+      {/* Verbatim Cited Quote Card or Run-Evidenced State with Sharp Corners */}
       {quote ? (
         <div className="c p-4 border-l-[3px] !border-l-[#f97316] !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)]">
           <div className="text-[13px] leading-relaxed text-[var(--text-primary)] font-serif italic">
             &ldquo;{quote}&rdquo;
           </div>
-          {page !== undefined && (
-            <div className="m text-[10px] text-[var(--text-dim)] mt-3 border-t border-[var(--border-primary)] pt-2">
-              PAGE {page}{chunkNumber !== undefined ? ` · CHUNK #${chunkNumber}` : ''}{charStart !== undefined ? ` · CHARS ${charStart}–${charEnd}` : ''}
-            </div>
-          )}
+          <div className="m text-[10px] text-[var(--text-dim)] mt-3 border-t border-[var(--border-primary)] pt-2 flex items-center justify-between gap-2">
+            <span>
+              {page !== undefined
+                ? `PAGE ${page}${chunkNumber !== undefined ? ` · CHUNK #${chunkNumber}` : ''}${charStart !== undefined ? ` · CHARS ${charStart}–${charEnd}` : ''}`
+                : 'VERBATIM QUOTE'}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText(quote);
+                setCopiedQuote(true);
+                setTimeout(() => setCopiedQuote(false), 1800);
+              }}
+              className="flex items-center gap-1 px-1.5 py-0.5 border border-[var(--border-primary)] bg-[var(--bg-surface)] hover:border-[#f97316] hover:text-[#f97316] transition text-[9px] font-mono uppercase cursor-pointer"
+              title="Copy quote to clipboard"
+            >
+              <Copy className="h-2.5 w-2.5" />
+              <span>{copiedQuote ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
         </div>
+      ) : edge?.evidenceRunId ? (
+        (() => {
+          const runNode = allNodes.find(
+            (n) => n.id === edge.evidenceRunId || n.data?.runId === edge.evidenceRunId,
+          );
+          return (
+            <div className="c p-4 border-l-[3px] !border-l-amber-400 !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)] space-y-2 font-mono">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase text-amber-500 flex items-center gap-1.5">
+                  <Play className="h-3 w-3 fill-current" />
+                  <span>Run-Evidenced Relation</span>
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 border border-amber-500/40 bg-amber-500/10 text-amber-500">
+                  {edge.evidenceRunId}
+                </span>
+              </div>
+              <div className="text-[11px] text-[var(--text-secondary)]">
+                Grounded in execution lineage of{' '}
+                <span className="text-[var(--text-primary)] font-semibold">
+                  {runNode ? runNode.title : edge.evidenceRunId}
+                </span>
+                .
+              </div>
+              {runNode && (
+                <button
+                  type="button"
+                  onClick={() => onSelectNode?.(runNode.id)}
+                  className="text-[10px] text-[#f97316] hover:underline flex items-center gap-1 pt-1"
+                >
+                  <span>Inspect run node</span>
+                  <ArrowRight className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          );
+        })()
       ) : (
         <div className="c p-4 !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)] text-xs text-[var(--text-dim)] font-mono">
           Structural relation without direct text quotation.

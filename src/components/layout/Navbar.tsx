@@ -14,8 +14,16 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 
+interface WorkspaceOption {
+  id: string;
+  name: string;
+  subtitle: string;
+}
+
 interface NavbarProps {
   currentWorkspace?: string;
+  workspaces?: WorkspaceOption[];
+  onSelectWorkspace?: (workspaceId: string) => void;
   isInspectorOpen?: boolean;
   onToggleInspector?: () => void;
   onOpenApproval: () => void;
@@ -26,6 +34,8 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({
   currentWorkspace = 'Research Graph',
+  workspaces,
+  onSelectWorkspace,
   isInspectorOpen = false,
   onToggleInspector,
   onOpenApproval,
@@ -99,22 +109,55 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Workspace Selection Popover */}
             {isWorkspaceMenuOpen && (
-              <div className="absolute left-0 top-10 z-50 w-64 bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] p-2 shadow-2xl backdrop-blur-2xl animate-fade-in text-xs font-mono space-y-1">
+              <div className="absolute left-0 top-10 z-50 w-72 bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] p-2 shadow-2xl backdrop-blur-2xl animate-fade-in text-xs font-mono space-y-1">
                 <div className="px-2 py-1 text-[9px] uppercase tracking-wider text-[var(--text-dim)] border-b border-[var(--border-primary)] flex justify-between items-center">
                   <span>Workspaces</span>
-                  <span className="text-emerald-400">Workspace</span>
+                  <span className="text-emerald-400">Switch</span>
                 </div>
-                <div className="p-2 bg-[var(--bg-surface-hover)] text-[var(--text-primary)] border border-[#f97316]/50 flex items-center justify-between">
-                  <div>
-                    <div className="font-bold flex items-center gap-1.5 text-xs">
-                      <span>{currentWorkspace}</span>
-                    </div>
-                    <div className="text-[10px] text-[var(--text-dim)] mt-0.5">
-                      {sourceCount} sources · {claimCount} claim (fixture)
-                    </div>
-                  </div>
-                  <span className="text-[9px] text-[#f97316] uppercase font-bold">Active</span>
-                </div>
+                {(workspaces && workspaces.length > 0
+                  ? workspaces
+                  : [
+                      {
+                        id: 'research-graph',
+                        name: currentWorkspace,
+                        subtitle: `${sourceCount} sources · ${claimCount} claim (fixture)`,
+                      },
+                      {
+                        id: 'strobl-repro',
+                        name: 'Strobl 2007/2008 Repro',
+                        subtitle: 'Hero experiment lineage · OpenML:52350',
+                      },
+                    ]
+                ).map((ws) => {
+                  const isActive = ws.name === currentWorkspace || ws.id === currentWorkspace;
+                  return (
+                    <button
+                      key={ws.id}
+                      type="button"
+                      onClick={() => {
+                        onSelectWorkspace?.(ws.id);
+                        setIsWorkspaceMenuOpen(false);
+                      }}
+                      className={`w-full text-left p-2 flex items-center justify-between transition border ${
+                        isActive
+                          ? 'bg-[var(--bg-surface-hover)] text-[var(--text-primary)] border-[#f97316]/50'
+                          : 'bg-transparent text-[var(--text-secondary)] border-transparent hover:bg-[var(--bg-surface-hover)] hover:border-[var(--border-primary)]'
+                      }`}
+                    >
+                      <div className="min-w-0 pr-2">
+                        <div className="font-bold flex items-center gap-1.5 text-xs truncate">
+                          <span>{ws.name}</span>
+                        </div>
+                        <div className="text-[10px] text-[var(--text-dim)] mt-0.5 truncate">
+                          {ws.subtitle}
+                        </div>
+                      </div>
+                      {isActive && (
+                        <span className="text-[9px] text-[#f97316] uppercase font-bold shrink-0">Active</span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

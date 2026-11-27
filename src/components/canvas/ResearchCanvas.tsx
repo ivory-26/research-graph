@@ -529,7 +529,7 @@ function CanvasInner({
         panOnDrag={!isLocked}
         zoomOnScroll={!isLocked}
         fitView
-        fitViewOptions={{ padding: viewMode === 'memory' ? 0.25 : 0.18 }}
+        fitViewOptions={{ padding: viewMode === 'memory' ? 0.38 : 0.2 }}
         minZoom={0.2}
         maxZoom={2.4}
         proOptions={{ hideAttribution: true }}

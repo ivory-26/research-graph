@@ -15,20 +15,37 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
 }) => {
   if (isModal && !isOpen) return null;
 
+  const runA = DEMO_NODES.find((n) => n.id === 'run-a');
+  const runB = DEMO_NODES.find((n) => n.id === 'run-b');
   const resA = DEMO_NODES.find((n) => n.id === 'result-a');
   const resB = DEMO_NODES.find((n) => n.id === 'result-b');
+
+  // Derive changed parameters dynamically from the two run specs
+  const paramA = (runA?.data?.parameter ?? {}) as Record<string, unknown>;
+  const paramB = (runB?.data?.parameter ?? {}) as Record<string, unknown>;
+  const changedParams = Object.keys({ ...paramA, ...paramB })
+    .filter((k) => paramA[k] !== paramB[k])
+    .map((k) => ({
+      key: k,
+      from: String(paramA[k] ?? 'unset'),
+      to: String(paramB[k] ?? 'unset'),
+    }));
 
   const rankA = resA?.data?.metrics?.rank_impurity_noise_20 ?? '—';
   const rankB = resB?.data?.metrics?.rank_permutation_noise_20 ?? '—';
   const criteriaA = resA?.data?.criteria ?? '';
   const criteriaB = resB?.data?.criteria ?? '';
-  const verdictA = (resA?.data?.verdict as string) || 'preview';
-  const verdictB = (resB?.data?.verdict as string) || 'preview';
+  const rawVerdictA = resA?.data?.verdict as string | null | undefined;
+  const rawVerdictB = resB?.data?.verdict as string | null | undefined;
+  const verdictLabelA = rawVerdictA ? rawVerdictA.toUpperCase() : 'not yet evaluated';
+  const verdictLabelB = rawVerdictB ? rawVerdictB.toUpperCase() : 'not yet evaluated';
   const delta = typeof rankA === 'number' && typeof rankB === 'number' ? rankB - rankA : null;
 
   const datasetNode = DEMO_NODES.find((n) => n.type === 'dataset');
+  const sampleCount = (datasetNode?.data?.rows as number) || 569;
+  const featureCount = (datasetNode?.data?.features as number) || 9;
   const noiseCount = ((datasetNode?.data?.noiseColumns as string) || '').split(',').filter(Boolean).length || 3;
-  const maxRank = ((datasetNode?.data?.features as number) || 9) + noiseCount;
+  const maxRank = featureCount + noiseCount;
   const barWidthA = typeof rankA === 'number' ? `${Math.max(5, Math.min(100, Math.round((1 - (rankA - 1) / maxRank) * 100)))}%` : '50%';
   const barWidthB = typeof rankB === 'number' ? `${Math.max(5, Math.min(100, Math.round((1 - (rankB - 1) / maxRank) * 100)))}%` : '50%';
 
@@ -55,13 +72,23 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
         )}
       </div>
 
-      {/* 1 Parameter Changed Banner with Sharp Corners */}
+      {/* Derived Changed Parameter Banner with Sharp Corners */}
       <div className="c px-5 py-3.5 flex items-center gap-4 flex-wrap bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
-        <span className="badge-solid-white rounded-none">1 PARAMETER CHANGED</span>
-        <span className="m text-[13px] text-[var(--text-primary)] font-semibold">importance_method</span>
-        <span className="m text-[13px] text-[#f97316] font-semibold">impurity</span>
-        <ArrowRight className="h-4 w-4 text-[var(--text-dim)]" />
-        <span className="m text-[13px] text-[var(--text-primary)] font-semibold">permutation</span>
+        <span className="badge-solid-white rounded-none">
+          {changedParams.length} PARAMETER{changedParams.length === 1 ? '' : 'S'} CHANGED
+        </span>
+        {changedParams.length > 0 ? (
+          changedParams.map((diff) => (
+            <div key={diff.key} className="flex items-center gap-2.5">
+              <span className="m text-[13px] text-[var(--text-primary)] font-semibold">{diff.key}</span>
+              <span className="m text-[13px] text-[#f97316] font-semibold">{diff.from}</span>
+              <ArrowRight className="h-4 w-4 text-[var(--text-dim)]" />
+              <span className="m text-[13px] text-[var(--text-primary)] font-semibold">{diff.to}</span>
+            </div>
+          ))
+        ) : (
+          <span className="m text-[12px] text-[var(--text-dim)]">No parameter differences detected</span>
+        )}
       </div>
 
       {/* Side-by-Side Run Cards with Sharp Corners */}
@@ -77,10 +104,10 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
             </div>
             <div className="flex gap-2">
               <span className="badge-orange-outline rounded-none">
-                adapted
+                {runA?.data?.mode ?? 'adapted'}
               </span>
               <span className="badge-solid-white rounded-none uppercase">
-                {verdictA}
+                {verdictLabelA}
               </span>
             </div>
           </div>
@@ -96,12 +123,16 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               </div>
               <span className="m text-[12px] text-[#f97316] w-9 text-right font-bold">#{rankA}</span>
             </div>
+            <div className="flex items-center justify-between text-[11px] font-mono text-[var(--text-dim)] pt-1">
+              <span>Dataset: {sampleCount} samples · {featureCount} base + {noiseCount} noise</span>
+              <span>Method: {String(paramA.importance_method ?? 'impurity')}</span>
+            </div>
           </div>
 
           {/* Assertion Footer */}
           <div className="border-t border-[var(--border-primary)] pt-3.5 text-[12px] flex justify-between gap-2 flex-wrap items-center mt-2 font-mono">
             <span className="text-[var(--text-dim)]">{criteriaA}</span>
-            <span className="text-[#f97316] font-bold">Rank #{rankA} · {verdictA.toUpperCase()}</span>
+            <span className="text-[#f97316] font-bold">Rank #{rankA} · {verdictLabelA}</span>
           </div>
         </div>
 
@@ -116,10 +147,10 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
             </div>
             <div className="flex gap-2">
               <span className="badge-orange-outline rounded-none">
-                adapted
+                {runB?.data?.mode ?? 'adapted'}
               </span>
               <span className="badge-solid-white rounded-none uppercase">
-                {verdictB}
+                {verdictLabelB}
               </span>
             </div>
           </div>
@@ -135,12 +166,16 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               </div>
               <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-bold">#{rankB}</span>
             </div>
+            <div className="flex items-center justify-between text-[11px] font-mono text-[var(--text-dim)] pt-1">
+              <span>Dataset: {sampleCount} samples · {featureCount} base + {noiseCount} noise</span>
+              <span>Method: {String(paramB.importance_method ?? 'permutation')}</span>
+            </div>
           </div>
 
           {/* Assertion Footer */}
           <div className="border-t border-[var(--border-primary)] pt-3.5 text-[12px] flex justify-between gap-2 flex-wrap items-center mt-2 font-mono">
             <span className="text-[var(--text-dim)]">{criteriaB}</span>
-            <span className="text-[var(--text-primary)] font-bold">Rank #{rankB} · {verdictB.toUpperCase()}</span>
+            <span className="text-[var(--text-primary)] font-bold">Rank #{rankB} · {verdictLabelB}</span>
           </div>
         </div>
       </div>
