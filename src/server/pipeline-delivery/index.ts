@@ -46,6 +46,25 @@ export type {
   PipelineStages,
 } from './stages'
 
+export {
+  MAX_INLINE_ARTIFACT_BYTES,
+  RunArtifactError,
+  classifyArtifactKind,
+  prepareRunArtifacts,
+  saveRunArtifacts,
+} from './artifacts'
+export type {
+  ArtifactContentOmissionReason,
+  ArtifactKind,
+  PersistedRunArtifact,
+  PreparedRunArtifact,
+  RunArtifactContentEncoding,
+  RunArtifactErrorCode,
+  RunArtifactInput,
+  RunArtifactOmission,
+  SaveRunArtifactsResult,
+} from './artifacts'
+
 export type { VerifiedActor, ReadVerifiedActor } from './authorization'
 
 export {

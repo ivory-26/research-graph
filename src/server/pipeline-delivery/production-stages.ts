@@ -62,6 +62,7 @@ import {
   runnerErrorToFailedResult,
   type ExperimentRunner,
 } from '../runner'
+import { saveRunArtifacts } from './artifacts'
 import {
   PipelineStageError,
   type PipelineStageContext,
@@ -493,6 +494,19 @@ export function createProductionPipelineStages(
       // other exit and never masks the original error.
       let graphProjected = false
       try {
+        if (result.artifacts.length > 0) {
+          try {
+            await saveRunArtifacts(db, runId, result.artifacts)
+          } catch (error) {
+            // Keep the measured run and project its verdict even if saving an
+            // artifact fails. The seed separately verifies its required files.
+            console.error('[pipeline-delivery] could not persist run artifacts', {
+              runId,
+              name: error instanceof Error ? error.name : 'UnknownError',
+            })
+          }
+        }
+
         if (runnerThrew) {
           await context.emit({
             type: 'run.failed',

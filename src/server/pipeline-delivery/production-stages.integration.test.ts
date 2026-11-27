@@ -10,6 +10,7 @@
  * Skipped unless `TEST_DATABASE_URL` is set. See `test-support/pg.ts` for the
  * disposable-database rules.
  */
+import { createHash } from 'node:crypto'
 import {
   afterAll,
   afterEach,
@@ -360,6 +361,15 @@ describeIntegration('production pipeline stages over real Postgres', () => {
 
   it('executes the approved plan and persists the measured run and computed verdict', async () => {
     const runner = createStubRunner('succeed')
+    const run = runner.run.bind(runner)
+    const output = Buffer.from('feature,rank\nnoise_20,4\n')
+    const artifact = {
+      path: '/output/importance.csv',
+      sha256: createHash('sha256').update(output).digest('hex'),
+      bytes: output.byteLength,
+      content: output.toString('base64'),
+    }
+    runner.run = async (...args) => ({ ...(await run(...args)), artifacts: [artifact] })
     const handlers = handlersFor(runner)
 
     const sse = consume(
@@ -406,6 +416,11 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       (event) => event.type === 'run.succeeded',
     )) as Extract<PipelineEvent, { type: 'run.succeeded' }>
     expect(succeeded.result.metrics).toEqual({ score: 0.9 })
+    const artifacts = await testDb.pool.query(
+      'SELECT kind, path, sha256, bytes, content FROM run_artifacts WHERE run_id = $1',
+      [completed.runId],
+    )
+    expect(artifacts.rows).toEqual([{ ...artifact, kind: 'table' }])
 
     const verdict = (await sse.waitFor(
       (event) => event.type === 'verdict.computed',
