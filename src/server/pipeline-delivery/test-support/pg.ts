@@ -50,10 +50,23 @@ import type { ExperimentSpec } from '../../../shared/types'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const MIGRATIONS_DIR = resolve(HERE, '../../../db/migrations')
 
-const MIGRATION_FILES = [
-  '0000_initial_schema.sql',
-  '0001_pipeline_foundation.sql',
-] as const
+type MigrationJournal = {
+  entries: { tag: string }[]
+}
+
+/**
+ * The harness applies the committed migrations, exactly as `pnpm db:migrate`
+ * does. The journal is the source of truth rather than a hand-maintained list,
+ * so a new migration cannot silently be absent from the disposable schema.
+ */
+async function committedMigrationFiles(): Promise<string[]> {
+  const raw = await readFile(
+    resolve(MIGRATIONS_DIR, 'meta/_journal.json'),
+    'utf8',
+  )
+  const journal = JSON.parse(raw) as MigrationJournal
+  return journal.entries.map(({ tag }) => `${tag}.sql`)
+}
 
 /** Every database this harness creates is named after this prefix. */
 export const DISPOSABLE_DATABASE_PREFIX = 'rg_test_'
@@ -199,7 +212,7 @@ function quoteIdentifier(databaseName: string): string {
 }
 
 async function applyMigrations(pool: Pool): Promise<void> {
-  for (const file of MIGRATION_FILES) {
+  for (const file of await committedMigrationFiles()) {
     const sql = await readFile(resolve(MIGRATIONS_DIR, file), 'utf8')
     await pool.query(sql)
   }
