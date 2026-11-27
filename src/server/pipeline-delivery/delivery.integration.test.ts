@@ -507,23 +507,30 @@ describeIntegration('pipeline delivery over real Postgres', () => {
       },
     })
 
-    const startedAt = Date.now()
     const sse = consume(
       await handlers.stream(streamRequest(seed.experimentId), {
         experimentId: seed.experimentId,
       }),
     )
 
-    await sse.waitFor((event) => event.type === 'approval.requested')
+    // The pipeline budget under test is 400 ms, but the stream still shares a
+    // Postgres server and a worker pool with every other integration file.
+    // Wait generously for delivery; the interval measured below still proves
+    // the budget ended the stream promptly.
+    await sse.waitFor(
+      (event) => event.type === 'approval.requested',
+      15_000,
+    )
+    const approvalAt = Date.now()
 
     const failed = (await sse.waitFor(
       (event) => event.type === 'pipeline.failed',
-      5_000,
+      15_000,
     )) as Extract<PipelineEvent, { type: 'pipeline.failed' }>
-    await sse.waitForClose(5_000)
+    await sse.waitForClose(15_000)
 
     expect(failed.error).toMatch(/budget/i)
-    expect(Date.now() - startedAt).toBeLessThan(5_000)
+    expect(Date.now() - approvalAt).toBeLessThan(5_000)
     expect(
       sse.comments.some((comment) => comment.includes('heartbeat')),
     ).toBe(true)

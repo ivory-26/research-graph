@@ -335,6 +335,7 @@ describe('E2BRunner with mocked sandbox', () => {
   it('respects cwd option by writing files into cwd and passing cwd to commands.run', async () => {
     const writtenFiles = new Map<string, string | Buffer>()
     let receivedCwd: string | undefined
+    let receivedParameters: string | undefined
 
     const fakeSandbox = {
       sandboxId: 'test-sandbox-cwd',
@@ -354,6 +355,7 @@ describe('E2BRunner with mocked sandbox', () => {
         run: vi.fn(async (cmd: string, opts?: any) => {
           if (cmd.includes('main.py')) {
             receivedCwd = opts?.cwd
+            receivedParameters = opts?.envs?.RESEARCHGRAPH_PARAMETERS
             return { exitCode: 0, stdout: 'Done', stderr: '' }
           }
           if (cmd.includes('python --version')) {
@@ -393,6 +395,7 @@ describe('E2BRunner with mocked sandbox', () => {
     expect(writtenFiles.has('/workspace/data/breast-w.arff')).toBe(true)
     expect(writtenFiles.has('/workspace/main.py')).toBe(true)
     expect(receivedCwd).toBe('/workspace')
+    expect(receivedParameters).toBe(JSON.stringify(HERO_EXPERIMENT_SPEC_RUN_A.parameters))
   })
 
   it('throws PackageVerificationError during runner.run when sandbox packages are mismatched', async () => {

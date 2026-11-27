@@ -23,9 +23,9 @@ import type { ExperimentResult, ExperimentSpec } from '../src/shared/types'
  * 2. Samples n=120 rows (matching Strobl 2007's empirical simulation size).
  * 3. Binarizes cytological features into low-cardinality predictors (<= 5 vs > 5).
  * 4. Appends 3 uninformative noise variables: noise_2 (2 levels), noise_5 (5 levels), noise_20 (20 levels).
- * 5. Fits RandomForestClassifier(n_estimators=100, random_state=42).
+ * 5. Fits RandomForestClassifier(n_estimators=100, random_state=seed).
  * 6. Computes Gini impurity feature importances on the fit model.
- * 7. Computes test-set / out-of-bag Permutation importance (n_repeats=10, random_state=42).
+ * 7. Computes test-set / out-of-bag Permutation importance (n_repeats=10, random_state=seed).
  * 8. Writes metrics as json.dump to /output/metrics.json.
  *
  * Honest measured values (regression fixture):
@@ -44,7 +44,8 @@ export const HERO_EXPERIMENT_SPEC_RUN_A: ExperimentSpec = {
   image: 'researchgraph-python:locked',
   entrypoint: 'python main.py',
   files: {
-    'main.py': `import json
+    'main.py': `import csv
+import json
 import os
 import pathlib
 import io
@@ -54,12 +55,18 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.inspection import permutation_importance
 from sklearn.model_selection import train_test_split
 
+parameters = json.loads(os.environ["RESEARCHGRAPH_PARAMETERS"])
+method = parameters.get("importance_method")
+if method not in ("impurity", "permutation"):
+    raise ValueError("importance_method must be impurity or permutation")
+seed = int(parameters["seed"])
+
 # 1. Output directory - strictly writes to /output
 out_dir = pathlib.Path("/output")
 out_dir.mkdir(parents=True, exist_ok=True)
 
 # 2. Seed for reproducibility
-np.random.seed(42)
+np.random.seed(seed)
 
 # 3. Load dataset: breast-w pre-fetched and verified from OpenML 52350
 data_path = pathlib.Path("data/breast-w.arff")
@@ -93,10 +100,10 @@ n_total_features = X_augmented.shape[1]
 noise_20_index = n_total_features - 1  # Last column is noise with 20 levels
 
 # 6. Train/test split (70% train, 30% test) for honest permutation evaluation
-X_train, X_test, y_train, y_test = train_test_split(X_augmented, y, test_size=0.3, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(X_augmented, y, test_size=0.3, random_state=seed)
 
 # 7. Fit Random Forest
-rf = RandomForestClassifier(n_estimators=100, random_state=42)
+rf = RandomForestClassifier(n_estimators=int(parameters["n_estimators"]), random_state=seed)
 rf.fit(X_train, y_train)
 
 # 8. Compute impurity-based feature importances (Gini importance)
@@ -105,15 +112,29 @@ ranked_impurity = np.argsort(-impurity_importances)
 rank_impurity_noise_20 = int(np.where(ranked_impurity == noise_20_index)[0][0] + 1)
 
 # 9. Compute permutation-based feature importances on test set
-perm_result = permutation_importance(rf, X_test, y_test, n_repeats=10, random_state=42)
+perm_result = permutation_importance(rf, X_test, y_test, n_repeats=10, random_state=seed)
 perm_importances = perm_result.importances_mean
 ranked_perm = np.argsort(-perm_importances)
 rank_permutation_noise_20 = int(np.where(ranked_perm == noise_20_index)[0][0] + 1)
 
-# 10. Write metrics as json.dump to /output/metrics.json
+# 10. Write the selected ranking and the evaluator's metrics.
+if method == "impurity":
+    ranking, importances, noise_rank = ranked_impurity, impurity_importances, rank_impurity_noise_20
+else:
+    ranking, importances, noise_rank = ranked_perm, perm_importances, rank_permutation_noise_20
+
+feature_names = [f"feature_{index + 1}" for index in range(X_raw.shape[1])]
+feature_names += ["noise_2", "noise_5", "noise_20"]
+with open(out_dir / "importance.csv", "w", newline="") as f:
+    writer = csv.writer(f, lineterminator="\\n")
+    writer.writerow(["method", "feature", "rank", "importance"])
+    for rank, index in enumerate(ranking, start=1):
+        writer.writerow([method, feature_names[index], rank, float(importances[index])])
+
 metrics = {
     "rank_impurity_noise_20": float(rank_impurity_noise_20),
     "rank_permutation_noise_20": float(rank_permutation_noise_20),
+    "rank_noise_20": float(noise_rank),
     "n_features": float(n_total_features),
     "n_samples": float(n_samples),
     "noise_20_gini_importance": float(impurity_importances[noise_20_index]),

@@ -645,6 +645,33 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     ).toHaveLength(0)
   })
 
+  it('refuses to adopt a queued branch when another run exists', async () => {
+    const branch = await seedQueuedWhatIfChild({ queuedSeed: 7, approvedSeed: 7 })
+    await testDb.pool.query(
+      `INSERT INTO runs (experiment_id, attempt, status, spec, parameters, environment)
+       SELECT experiment_id, 2, 'running', spec, parameters, environment
+       FROM runs WHERE id = $1`,
+      [branch.queuedRunId],
+    )
+
+    const runner = createStubRunner('succeed')
+    const handlers = handlersFor(runner)
+    const sse = consume(
+      await handlers.stream(streamRequest(branch.childExperimentId), {
+        experimentId: branch.childExperimentId,
+      }),
+    )
+    await approveRequested(handlers, sse, 'approved', branch.childExperimentId)
+    const failed = await sse.waitFor((event) => event.type === 'pipeline.failed')
+    await sse.waitForClose()
+
+    expect(failed).toMatchObject({ error: 'The experiment already has a run' })
+    expect(runner.runCalls).toBe(0)
+    const rows = await runRows(branch.childExperimentId)
+    expect(rows).toHaveLength(2)
+    expect(rows.find((row) => row.id === branch.queuedRunId)?.status).toBe('queued')
+  })
+
   it('fails before opening a gate when the stored plan violates the planner rules', async () => {
     const invalid = { ...seed.spec, mode: 'exact' as const }
     await testDb.pool.query(

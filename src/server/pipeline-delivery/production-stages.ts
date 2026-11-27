@@ -37,7 +37,7 @@
  *   the durable event log, so per-chunk stdout would create one row per line.
  *   `runs.stdout` remains the durable record.
  */
-import { and, eq, isNotNull } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import type { Database } from '../../db/client'
 import { experiments, runs } from '../../db/schema'
@@ -233,30 +233,25 @@ async function startExecutionRun(
       )
     }
 
-    const queuedRuns = await tx
-      .select({ id: runs.id, attempt: runs.attempt })
+    const existingRuns = await tx
+      .select({
+        id: runs.id,
+        attempt: runs.attempt,
+        status: runs.status,
+        parentRunId: runs.parentRunId,
+      })
       .from(runs)
-      .where(
-        and(
-          eq(runs.experimentId, input.experimentId),
-          eq(runs.status, 'queued'),
-          eq(runs.attempt, 1),
-          isNotNull(runs.parentRunId),
-        ),
-      )
+      .where(eq(runs.experimentId, input.experimentId))
+      .limit(2)
       .for('update')
 
-    if (queuedRuns.length > 1) {
-      // A branch creates exactly one child run. Two would make the lineage
-      // ambiguous; refuse rather than pick one and leave the other queued.
-      throw new PipelineStageError(
-        `experiment ${input.experimentId} has ${queuedRuns.length} queued branch runs`,
-        'The experiment has more than one queued branch run',
-      )
-    }
-
-    const queued = queuedRuns[0]
-    if (queued) {
+    const [existing] = existingRuns
+    if (
+      existingRuns.length === 1 &&
+      existing?.status === 'queued' &&
+      existing.attempt === 1 &&
+      existing.parentRunId !== null
+    ) {
       const [adopted] = await tx
         .update(runs)
         .set({
@@ -267,24 +262,18 @@ async function startExecutionRun(
           environment: initialEnvironment(input.spec, input.startedAt),
           startedAt: new Date(input.startedAt),
         })
-        .where(and(eq(runs.id, queued.id), eq(runs.status, 'queued')))
+        .where(and(eq(runs.id, existing.id), eq(runs.status, 'queued')))
         .returning({ id: runs.id, attempt: runs.attempt })
 
       if (!adopted) {
         throw new PipelineStageError(
-          `queued branch run ${queued.id} could not be adopted`,
+          `queued branch run ${existing.id} could not be adopted`,
           'The queued branch run could not be started',
         )
       }
 
       return { runId: adopted.id, attempt: adopted.attempt }
     }
-
-    const [existing] = await tx
-      .select({ id: runs.id })
-      .from(runs)
-      .where(eq(runs.experimentId, input.experimentId))
-      .limit(1)
 
     if (existing) {
       throw new PipelineStageError(

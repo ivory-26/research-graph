@@ -640,6 +640,7 @@ export class E2BRunner implements ExperimentRunner {
       try {
         proc = await sandbox.commands.run(updatedSpec.entrypoint, {
           timeoutMs: updatedSpec.timeoutSeconds * 1000,
+          envs: { RESEARCHGRAPH_PARAMETERS: JSON.stringify(updatedSpec.parameters) },
           onStdout,
           ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
         })
