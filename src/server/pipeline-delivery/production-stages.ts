@@ -37,7 +37,7 @@
 import { and, eq } from 'drizzle-orm'
 
 import type { Database } from '../../db/client'
-import { experiments, runs } from '../../db/schema'
+import { experiments, nodes, runs, sources } from '../../db/schema'
 import type {
   ExperimentResult,
   ExperimentSpec,
@@ -59,6 +59,7 @@ import {
   type CallModelContext,
   type PersistedAgentTask,
 } from '../model'
+import { saveNotebookArtifact } from '../notebook'
 import { projectRunToGraph } from '../pipeline'
 import { validateExperimentSpec } from '../planner'
 import { StreamBudgetExceededError } from '../pipeline-transport'
@@ -523,6 +524,53 @@ export function createProductionPipelineStages(
           .where(eq(runs.id, runId))
           .returning()
         if (!terminalRun) throw new Error('the terminal run could not be read back')
+
+        if (runStatus === 'succeeded') {
+          try {
+            const [claim] = await db
+              .select({
+                data: nodes.data,
+                paperTitle: sources.title,
+                doi: sources.doi,
+              })
+              .from(nodes)
+              .leftJoin(
+                sources,
+                and(
+                  eq(sources.id, nodes.sourceId),
+                  eq(sources.workspaceId, nodes.workspaceId),
+                ),
+              )
+              .where(
+                and(
+                  eq(nodes.id, spec.claimNodeId),
+                  eq(nodes.workspaceId, context.workspaceId),
+                  eq(nodes.type, 'claim'),
+                ),
+              )
+
+            if (claim?.data.type !== 'claim') {
+              throw new Error('the run claim could not be loaded')
+            }
+
+            await saveNotebookArtifact(db, runId, {
+              spec,
+              environment: result.environment,
+              paperTitle: claim.paperTitle,
+              doi: claim.doi,
+              claim: {
+                text: claim.data.text,
+                quote: claim.data.locator.quote,
+                page: claim.data.locator.page,
+                reported: claim.data.reported,
+              },
+              verdict: evaluated.verdict,
+              verdictExplanation: evaluated.detail.explanation,
+            })
+          } catch (error) {
+            console.error('[pipeline-delivery] could not save the run notebook', error)
+          }
+        }
 
         if (context.signal.aborted) {
           throw context.signal.reason instanceof Error
