@@ -45,7 +45,7 @@ Measured in seconds on one CPU core. The last verified run produced `rank_impuri
 
 The demo's climax is the comparison view of A and B, not the graph.
 
-The comparison view ships in the UI. The what-if branch that would produce Run B for real (`BRANCH_WHAT_IF`, one changed parameter, `parentRunId` lineage) is **not on `main` yet**; the current comparison is rendered from the recorded fixture.
+The comparison view ships in the UI. The what-if branch that creates Run B (`BRANCH_WHAT_IF`, one changed parameter, `parentRunId` lineage) is built in `src/server/branch.ts`; EXECUTE adoption of the queued run is tracked in #62, so the current comparison is still rendered from the recorded fixture.
 
 ## The six beats and what we actually show
 

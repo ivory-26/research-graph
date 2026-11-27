@@ -70,8 +70,8 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 | Rebuild the recorded workspace with `pnpm seed` | #8 | a repeatable recording from an empty database |
 | Production deploy | #9 | the deployed-link success criterion |
 | Sign-in screens | #16 | a user-facing auth flow |
-| What-if branch execution | — | Run B and a real comparison |
-| Repair loop and multi-strategy selection | — | the "learning" beat |
+| What-if branch execution | #62 | adopt the queued Run B for a real comparison; the branch module is built |
+| Repair loop and multi-strategy selection | #26 | the repair loop is built; strategy selection remains unbuilt |
 | Server-side notebook export | Built into production run evaluation | a notebook generated from a real run |
 | Browser→pipeline bridge | — | every live UI beat |
 

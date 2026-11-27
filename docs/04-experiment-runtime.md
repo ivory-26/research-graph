@@ -13,7 +13,7 @@ One interface, one adapter, one story.
 | `explain_gap` explanation | Built (`src/server/evaluate.ts`, `gemini-4-hydrogen`) |
 | Local Docker path | Built as `Dockerfile.template`; verified by `pnpm verify:hero` |
 | Server-side notebook generation | Successful pipeline runs store an nbformat 4.5 notebook in `run_artifacts` |
-| What-if branch | Not built; see [03](./03-agent-pipeline.md) |
+| What-if branch | Built in `src/server/branch.ts`; queued Run B adoption is #62 |
 
 ## The contract
 
