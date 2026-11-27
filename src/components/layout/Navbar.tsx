@@ -4,13 +4,11 @@ import {
   Play,
   Terminal,
   PanelRight,
-  Plus,
   Sun,
   Moon,
-  MoreVertical,
+  MoreHorizontal,
   Download,
   ChevronDown,
-  Sparkles,
   LogOut,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
@@ -26,12 +24,12 @@ interface NavbarProps {
   activeWorkspaceId?: string;
   workspaces?: WorkspaceOption[];
   onSelectWorkspace?: (workspaceId: string) => void;
+  showInspectorToggle?: boolean;
   isInspectorOpen?: boolean;
   onToggleInspector?: () => void;
   onOpenApproval: () => void;
   onOpenExport: () => void;
   onToggleConsole: () => void;
-  onAddSource?: () => void;
   onSignOut?: () => void;
 }
 
@@ -40,21 +38,22 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeWorkspaceId,
   workspaces,
   onSelectWorkspace,
+  showInspectorToggle = false,
   isInspectorOpen = false,
   onToggleInspector,
   onOpenApproval,
   onOpenExport,
   onToggleConsole,
-  onAddSource,
   onSignOut,
 }) => {
   const { theme, toggleTheme } = useTheme();
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
 
-  // Close menus on outside click
+  // Close menus on outside click or Escape
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
@@ -64,9 +63,53 @@ export const Navbar: React.FC<NavbarProps> = ({
         setIsWorkspaceMenuOpen(false);
       }
     };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isMoreMenuOpen) {
+          setIsMoreMenuOpen(false);
+          moreButtonRef.current?.focus();
+        }
+        if (isWorkspaceMenuOpen) {
+          setIsWorkspaceMenuOpen(false);
+        }
+      }
+    };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMoreMenuOpen, isWorkspaceMenuOpen]);
+
+  const handleMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(
+      e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    );
+    if (items.length === 0) return;
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      items[(currentIndex + 1) % items.length]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(currentIndex - 1 + items.length) % items.length]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      items[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      items[items.length - 1]?.focus();
+    }
+  };
+
+  useEffect(() => {
+    if (isMoreMenuOpen) {
+      const firstItem = moreMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]');
+      firstItem?.focus();
+    }
+  }, [isMoreMenuOpen]);
 
   const sourceCount = rawWorkspace.nodes.filter((n) => n.type === 'source').length;
   const claimCount = rawWorkspace.nodes.filter((n) => n.type === 'claim').length;
@@ -164,142 +207,131 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          {/* Workspace State / Variables Badges */}
-          <div className="hidden lg:flex items-center gap-1.5">
-            <span
-              className="badge-orange-outline text-[10px] tracking-wide cursor-default select-none"
-              title="Execution Mode: Adapted Scikit-learn Pipeline"
-            >
-              MODE: ADAPTED
-            </span>
-            <span
-              className="b border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-muted)] text-[10px] tracking-wide cursor-default select-none"
-              title="Pinned Dataset: OpenML 52350 (breast-w + 3 noise columns: noise_2, noise_5, noise_20)"
-            >
-              DATA: OPENML:52350
-            </span>
-          </div>
         </div>
 
-        {/* RIGHT SECTION: Ready Status, Plan & Run, Terminal, Inspector, Add Source, Theme, More Actions */}
+        {/* RIGHT SECTION: Plan & Run + Overflow Menu */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* 1. Ready Status */}
-          <div
-            className="flex items-center gap-1.5 px-2.5 py-1 border border-emerald-500/25 bg-emerald-500/10 text-emerald-400 select-none mr-1 font-mono text-xs"
-            title="Workspace Workstation (Canvas)"
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" />
-            <span className="font-semibold text-[11px] tracking-wide">Workstation</span>
-          </div>
-
-          {/* 2. Plan & Run (Primary Hero Action) */}
           <button
+            type="button"
             onClick={onOpenApproval}
-            className="flex items-center gap-1.5 h-8 px-3 rounded-none bg-[#f97316] text-black font-mono font-bold text-xs hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.35)] active:scale-95"
+            className="flex items-center gap-1.5 h-9 px-3.5 rounded-[6px] bg-[#f97316] text-black font-medium text-[14px] hover:bg-[#ea580c] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f97316]"
             title="Review experiment plan and execute reproducible run"
           >
             <Play className="h-3.5 w-3.5 fill-current" />
-            <span>PLAN & RUN</span>
+            <span>Plan &amp; Run</span>
           </button>
 
-          {/* 3. Terminal (Icon-only) */}
-          <button
-            onClick={onToggleConsole}
-            className="w-8 h-8 rounded-none border border-[var(--border-primary)] bg-transparent text-[var(--text-muted)] hover:text-[#f97316] hover:border-[#f97316]/50 flex items-center justify-center transition"
-            title="Terminal"
-            aria-label="Terminal"
-          >
-            <Terminal className="h-4 w-4" />
-          </button>
-
-          {/* 4. Inspector (Icon-only) */}
-          {onToggleInspector && (
-            <button
-              onClick={onToggleInspector}
-              className={`w-8 h-8 rounded-none border flex items-center justify-center transition ${isInspectorOpen
-                ? 'border-[#f97316] text-[#f97316] bg-[#f97316]/10'
-                : 'border-[var(--border-primary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]'
-                }`}
-              title="Inspector"
-              aria-label="Inspector"
-            >
-              <PanelRight className="h-4 w-4" />
-            </button>
-          )}
-
-          {/* 5. Add Source (Icon-only) */}
-          {onAddSource && (
-            <button
-              onClick={onAddSource}
-              className="w-8 h-8 rounded-none border border-[var(--border-primary)] bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] flex items-center justify-center transition"
-              title="Add source"
-              aria-label="Add source"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-          )}
-
-          {/* 6. Theme Switcher (Icon-only) */}
-          <button
-            onClick={toggleTheme}
-            className="w-8 h-8 rounded-none border border-[var(--border-primary)] bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] flex items-center justify-center transition"
-            title="Switch theme"
-            aria-label="Switch theme"
-          >
-            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </button>
-
-          {/* 7. More Actions (Three-dot overflow menu) */}
+          {/* Overflow Menu */}
           <div className="relative" ref={moreMenuRef}>
             <button
+              ref={moreButtonRef}
+              type="button"
               onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
-              className={`w-8 h-8 rounded-none border flex items-center justify-center transition ${isMoreMenuOpen
+              aria-expanded={isMoreMenuOpen}
+              aria-haspopup="menu"
+              aria-label="More actions"
+              className={`w-9 h-9 rounded-[6px] border flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f97316] ${isMoreMenuOpen
                 ? 'border-[var(--border-secondary)] text-[var(--text-primary)] bg-[var(--bg-surface-hover)]'
                 : 'border-[var(--border-primary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]'
                 }`}
               title="More actions"
-              aria-label="More actions"
             >
-              <MoreVertical className="h-4 w-4" />
+              <MoreHorizontal className="h-4 w-4" />
             </button>
 
-            {/* Overflow Dropdown Menu */}
             {isMoreMenuOpen && (
-              <div className="absolute right-0 top-10 z-50 w-52 bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] p-1.5 shadow-2xl backdrop-blur-2xl animate-fade-in text-xs font-mono space-y-1">
+              <div
+                role="menu"
+                onKeyDown={handleMenuKeyDown}
+                className="absolute right-0 top-11 z-50 w-52 rounded-[10px] bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] p-1.5 shadow-xl space-y-0.5 text-[14px]"
+              >
                 <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setIsMoreMenuOpen(false);
+                    onToggleConsole();
+                  }}
+                  className="w-full flex items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f97316]"
+                >
+                  <Terminal className="h-4 w-4 text-[var(--text-muted)]" />
+                  <span>Terminal</span>
+                </button>
+
+                {showInspectorToggle && onToggleInspector && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onToggleInspector();
+                    }}
+                    className="w-full flex items-center justify-between rounded-[6px] px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f97316]"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <PanelRight className="h-4 w-4 text-[var(--text-muted)]" />
+                      <span>Inspector</span>
+                    </span>
+                    {isInspectorOpen && (
+                      <span className="text-xs text-[var(--text-muted)]">On</span>
+                    )}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  role="menuitem"
                   onClick={() => {
                     setIsMoreMenuOpen(false);
                     onOpenExport();
                   }}
-                  className="w-full flex items-center gap-2 px-2.5 py-2 text-left text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition"
-                  title="Export Workspace artifacts"
+                  className="w-full flex items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f97316]"
                 >
-                  <Download className="h-3.5 w-3.5 text-[#f97316]" />
-                  <span>Export Workspace...</span>
+                  <Download className="h-4 w-4 text-[var(--text-muted)]" />
+                  <span>Export workspace…</span>
                 </button>
+
                 <button
+                  type="button"
+                  role="menuitem"
                   onClick={() => {
                     setIsMoreMenuOpen(false);
-                    onOpenApproval();
+                    toggleTheme();
                   }}
-                  className="w-full flex items-center gap-2 px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] transition"
-                  title="Review experiment specification"
+                  className="w-full flex items-center justify-between rounded-[6px] px-2.5 py-2 text-left text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f97316]"
                 >
-                  <Sparkles className="h-3.5 w-3.5 text-sky-400" />
-                  <span>Review Experiment Plan</span>
+                  <span className="flex items-center gap-2.5">
+                    {theme === 'dark' ? (
+                      <Moon className="h-4 w-4 text-[var(--text-muted)]" />
+                    ) : (
+                      <Sun className="h-4 w-4 text-[var(--text-muted)]" />
+                    )}
+                    <span>Theme</span>
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    {theme === 'dark' ? 'Dark' : 'Light'}
+                  </span>
                 </button>
+
                 {onSignOut && (
-                  <button
-                    onClick={() => {
-                      setIsMoreMenuOpen(false);
-                      onSignOut();
-                    }}
-                    className="w-full flex items-center gap-2 px-2.5 py-2 text-left text-red-400 hover:bg-[var(--bg-surface-hover)] border-t border-[var(--border-primary)] mt-1 pt-2 transition"
-                    title="Sign out"
-                  >
-                    <LogOut className="h-3.5 w-3.5" />
-                    <span>Sign Out</span>
-                  </button>
+                  <>
+                    <div
+                      role="separator"
+                      className="my-1 border-t border-[var(--border-primary)]"
+                    />
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        onSignOut();
+                      }}
+                      className="w-full flex items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-left text-red-400 hover:bg-[var(--bg-surface-hover)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f97316]"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      <span>Sign out</span>
+                    </button>
+                  </>
                 )}
               </div>
             )}

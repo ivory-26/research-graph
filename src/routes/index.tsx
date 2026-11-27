@@ -21,7 +21,6 @@ import {
 } from '../data/demoWorkspace';
 import type { WorkspaceNode, WorkspaceEdge } from '../data/demoWorkspace';
 import type { ExperimentSpec } from '../shared/types';
-import { Plus, Play } from 'lucide-react';
 import { getCurrentUser } from '../server/auth';
 import { signOut } from '../utils/authClient';
 import { sendPipelineApproval, subscribeToPipelineStream } from '../utils/pipelineClient';
@@ -84,45 +83,6 @@ export const Route = createFileRoute('/')({
   },
   component: WorkspacePage,
 });
-
-const PAGE_META: Record<PageId, { title: string; subtitle: string }> = {
-  overview: {
-    title: 'Overview',
-    subtitle: 'Workspace health, research activity and recent artifacts',
-  },
-  graph: {
-    title: 'Research Graph',
-    subtitle: 'Explore claims, methods, datasets and reproducibility lineage',
-  },
-  sources: {
-    title: 'Sources',
-    subtitle: 'Research papers, ingestion status and extracted chunks',
-  },
-  ask: {
-    title: 'Ask Research',
-    subtitle: 'Ask evidence-grounded questions across your sources',
-  },
-  agents: {
-    title: 'Agent Monitor',
-    subtitle: 'Pipeline stages, agent tasks and execution observability',
-  },
-  experiments: {
-    title: 'Experiments',
-    subtitle: 'Plan, approve and inspect reproducibility experiments',
-  },
-  compare: {
-    title: 'Run Comparison',
-    subtitle: 'Compare parent and what-if experiment outcomes',
-  },
-  strategies: {
-    title: 'Strategies',
-    subtitle: 'Empirical strategy performance and task analytics',
-  },
-  settings: {
-    title: 'Preferences',
-    subtitle: 'Workspace, appearance and interaction settings',
-  },
-};
 
 function WorkspacePage() {
   const navigate = useNavigate({ from: '/' });
@@ -522,60 +482,14 @@ function WorkspacePage() {
           activeWorkspaceId={activeWorkspaceObj.id}
           workspaces={workspaces}
           onSelectWorkspace={handleSelectWorkspace}
+          showInspectorToggle={currentPage === 'graph'}
           isInspectorOpen={isInspectorOpen}
           onToggleInspector={() => setIsInspectorOpen(!isInspectorOpen)}
           onOpenApproval={() => handleOpenPipelineRun()}
           onOpenExport={() => setIsExportOpen(true)}
           onToggleConsole={() => setIsConsoleOpen(!isConsoleOpen)}
           onSignOut={handleSignOut}
-          onAddSource={() => {
-            if (currentPage === 'sources') {
-              const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-              if (input) input.click();
-            } else {
-              setCurrentPage('sources');
-            }
-          }}
         />
-
-        {/* Subheader Pagebar (Only for non-graph pages; Graph has no redundant title row) */}
-        {currentPage !== 'graph' && (
-          <div className="flex min-h-[46px] flex-none items-center justify-between border-b border-[var(--border-primary)] bg-transparent px-5 py-2 select-none">
-            <div>
-              <div className="text-sm font-bold text-[var(--text-primary)] font-mono">
-                {PAGE_META[currentPage].title}
-              </div>
-              <div className="text-[11px] text-[var(--text-dim)] font-sans">
-                {PAGE_META[currentPage].subtitle}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {currentPage === 'sources' && (
-                <button
-                  onClick={() => {
-                    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-                    if (input) input.click();
-                  }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono bg-[#f97316] text-black font-bold hover:bg-[#ea580c] transition"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span>Add source</span>
-                </button>
-              )}
-
-              {currentPage === 'experiments' && (
-                <button
-                  onClick={() => handleOpenPipelineRun()}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono bg-[#f97316] text-black font-bold hover:bg-[#ea580c] transition"
-                >
-                  <Play className="h-3.5 w-3.5 fill-current" />
-                  <span>Plan & Run</span>
-                </button>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Page Views Container */}
         <div className="flex-1 overflow-auto relative">
