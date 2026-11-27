@@ -12,7 +12,7 @@ The graph is the presentation, not the product. The product is the claim:
 - every result is compared against the number the paper reported, under a declared reproduction mode
 - the verdict is computed by code, not written by a model
 
-## Status — 25 November 2026
+## Status — 27 November 2026
 
 `main` is mid-build toward the 30 November recording. The trustworthy core works at the module level; the browser workstation renders `fixtures/workspace.json` when no database workspace UUID is active, and includes `/sign-in`/`/sign-up`, `pipelineClient.ts`, and guarded `/api/graph`, `/api/workspaces`, and `/api/strategies` routes.
 

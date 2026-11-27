@@ -396,6 +396,7 @@ function WorkspacePage() {
           onComplete: () => {
             streamCleanupRef.current = null;
             setIsStreaming(false);
+            setExperimentId(null);
             setGateSeq(null);
             setActiveGateSpec(null);
             if (approvalOpenedByStreamRef.current) {
