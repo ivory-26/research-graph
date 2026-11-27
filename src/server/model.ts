@@ -21,12 +21,13 @@
  *
  * Structured output goes through the AI SDK's `Output.object`. The caller
  * passes a flat, non-recursive Zod schema; the wrapper still re-parses with
- * that schema because provider-side constraint support differs. Meta Model
- * API constrains decoding to the schema; Gemini silently ignores `minLength`,
- * `maxLength` and `uniqueItems` (ADR 0009).
+ * that schema because provider-side constraint support differs. Meta runs the
+ * schema in non-strict mode (its strict validator rejects the extraction
+ * contract's optional fields), so Zod revalidation is load-bearing. Gemini
+ * silently ignores `minLength`, `maxLength` and `uniqueItems` (ADR 0009).
  */
 import { APICallError, Output, generateText } from 'ai'
-import type { LanguageModel } from 'ai'
+import type { JSONValue, LanguageModel } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { google } from '@ai-sdk/google'
 import type { z } from 'zod'
@@ -205,12 +206,18 @@ export type StructuredGenerator = (
  * make its exact type unusable as an injected dependency; the default generator
  * below calls the real function with the documented AI SDK 7 options.
  */
+export type StructuredProviderOptions = Record<
+  string,
+  Record<string, JSONValue>
+>
+
 export type StructuredGenerateText = (options: {
   model: LanguageModel
   prompt: string
   output: unknown
   maxRetries: number
   abortSignal?: AbortSignal
+  providerOptions?: StructuredProviderOptions
 }) => Promise<{
   output: unknown
   usage: {
@@ -278,6 +285,7 @@ function resolveMetaModel(modelId: string): LanguageModel {
 function createStructuredGenerator(
   defaultResolveModel: (modelId: string) => LanguageModel,
   deps: StructuredGeneratorDeps,
+  providerOptions?: StructuredProviderOptions,
 ): StructuredGenerator {
   const resolveModel = deps.resolveModel ?? defaultResolveModel
   const generate: StructuredGenerateText =
@@ -291,6 +299,7 @@ function createStructuredGenerator(
         output: options.output as ReturnType<typeof Output.object>,
         maxRetries: options.maxRetries,
         abortSignal: options.abortSignal,
+        providerOptions: options.providerOptions,
       })
       return { output: result.output as unknown, usage: result.usage }
     })
@@ -302,6 +311,7 @@ function createStructuredGenerator(
       output: Output.object({ schema }),
       maxRetries: 0,
       abortSignal: signal,
+      providerOptions,
     })
 
     return {
@@ -319,11 +329,21 @@ export function createGeminiGenerator(
   return createStructuredGenerator(resolveGeminiModel, deps)
 }
 
-/** The default text generator: Meta Model API, OpenAI-compatible. */
+/**
+ * The default text generator: Meta Model API, OpenAI-compatible.
+ *
+ * Meta rejects strict-mode schemas that contain optional properties, and the
+ * extraction contract legitimately has them (`codeUrls`, `datasets`, ...).
+ * Non-strict mode accepts the same schema and still uses it to constrain the
+ * response; the wrapper re-parses every result with the original Zod schema,
+ * so an optional field cannot skip validation.
+ */
 export function createMetaGenerator(
   deps: StructuredGeneratorDeps = {},
 ): StructuredGenerator {
-  return createStructuredGenerator(resolveMetaModel, deps)
+  return createStructuredGenerator(resolveMetaModel, deps, {
+    openaiCompatible: { strictJsonSchema: false },
+  })
 }
 
 export const generateWithGemini: StructuredGenerator = createGeminiGenerator()

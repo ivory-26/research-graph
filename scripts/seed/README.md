@@ -382,5 +382,11 @@ seed never resets it for you.
   was verified against the real API (`https://api.meta.ai/v1`) with both a
   plain completion and a schema-constrained `{ "ok": true }` response;
   embeddings remain `gemini-embedding-2`.
+- The first Meta live attempt (`2b1e7f1`) failed before generation: Meta's
+  strict schema mode rejected `ExtractionResultSchema` because optional
+  properties such as `codeUrls` were not in `required`. The Meta generator now
+  sends the schema with `strictJsonSchema: false` and revalidates with the
+  original Zod schema. A real call using the production extraction schema
+  returned `claims`/`datasets`/`methods`/`codeUrls` successfully.
 - The live two-seed baseline remains the outstanding gate; the "under one
   minute" budget is not yet measured.

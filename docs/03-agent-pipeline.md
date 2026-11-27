@@ -198,6 +198,7 @@ The dashboard is designed as a `GROUP BY` over `agent_tasks`, with no separate s
 Because structured-output support differs by provider ([ADR 0009](./adr/0009-gemini-only.md)):
 
 - Every schema is flat or one level of nesting. No recursive `$ref`; Meta rejects recursive schemas.
+- Meta's strict schema mode also rejects optional properties; the extraction contract has them, so text calls use a non-strict schema plus Zod revalidation.
 - Never rely on `minLength`, `maxLength`, `uniqueItems` as a portable guarantee — Gemini silently ignores them. Enforce in Zod after the call, not in the schema before it.
 - Never exceed 12 items in a top-level array; large arrays increase truncation risk and make validation all-or-nothing.
 

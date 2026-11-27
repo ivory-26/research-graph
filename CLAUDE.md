@@ -45,7 +45,7 @@ Much of the AI SDK material online describes v5 or v6 and will not compile. When
 
 Every text call site uses Meta Model API's `muse-spark-1.3-contributor` through the OpenAI-compatible provider, including the Stage 7 `explain_gap` explanation. `evaluateExperiment` still computes the verdict before that call, so the model cannot change it. Gemini's `gemini-embedding-2` at 768 dimensions remains the embedding provider. Contributor mode is cheaper ($0.10 input / $0.20 output per million tokens) in exchange for Meta being permitted to use prompts and responses to train future models; prompts contain public paper text and generated specs, never a secret or personal document. `DEFAULT_PRICING` is an accounting estimate, not billing telemetry. `gemini-3.8-flash` and `gemini-4-hydrogen` remain in the price table only for an explicit override.
 
-Text schemas stay flat or one level of nesting, with no recursive `$ref` (Meta rejects recursive schemas). Still validate in Zod after every call: provider constraint support differs, and `minLength` / `maxLength` / `uniqueItems` are not a portable guarantee.
+Text schemas stay flat or one level of nesting, with no recursive `$ref` (Meta rejects recursive schemas). Meta's strict mode also rejects optional properties, and the extraction contract has them, so the provider runs the schema in non-strict mode. Still validate in Zod after every call: provider constraint support differs, and `minLength` / `maxLength` / `uniqueItems` are not a portable guarantee.
 
 ## Commands
 
