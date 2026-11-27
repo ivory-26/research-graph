@@ -46,7 +46,7 @@ Three things: a claim whose quote is not verbatim in the source is rejected, an 
 The design is a `GROUP BY` over `agent_tasks` and nothing else. `GET /api/strategies` reads `agent_tasks` for an authorized workspace UUID and `StrategyDashboard` aggregates them via `aggregateAgentTasks`; when no database workspace is active, it falls back to `DEMO_STRATEGIES` clearly labelled `DEMO FIXTURE`.
 
 **"Is what I see on screen coming from the database?"**
-When an authenticated workspace UUID is selected, `/api/graph`, `/api/workspaces`, and `/api/strategies` read Postgres; otherwise (before `#8` seeds a workspace), the workstation renders `fixtures/workspace.json` labelled as a fixture.
+When an authenticated workspace UUID is selected, `/api/graph`, `/api/workspaces`, and `/api/strategies` read Postgres; otherwise, the workstation renders `fixtures/workspace.json` labelled as a fixture.
 
 ## What would make this fail badly
 

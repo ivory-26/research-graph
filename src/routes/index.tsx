@@ -354,6 +354,7 @@ function WorkspacePage() {
             setIsStreaming(false);
           },
           onComplete: () => {
+            delete lastSeqRef.current[expId];
             streamCleanupRef.current = null;
             setIsStreaming(false);
             setExperimentId(null);

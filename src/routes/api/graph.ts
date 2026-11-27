@@ -57,26 +57,48 @@ export const Route = createFileRoute('/api/graph')({
 
           const nodeTitleById = new Map(dbNodes.map((n) => [n.id, n.title]));
 
-          const columnByType: Record<string, number> = {
-            source: 40,
-            claim: 320,
-            method: 580,
-            dataset: 580,
-            run: 840,
-            result: 1100,
-            note: 320,
+          const MAX_ROWS_PER_COL = 5;
+          const COL_WIDTH = 240;
+          const ROW_HEIGHT = 170;
+          const GROUP_ORDER = ['source', 'claim', 'method_dataset', 'run', 'result'] as const;
+          const bucketOf = (type: string): (typeof GROUP_ORDER)[number] => {
+            if (type === 'source') return 'source';
+            if (type === 'method' || type === 'dataset') return 'method_dataset';
+            if (type === 'run') return 'run';
+            if (type === 'result') return 'result';
+            return 'claim';
           };
-          const rowCountByCol = new Map<number, number>();
+
+          const originCounts = new Map<string, number>();
+          for (const n of dbNodes) {
+            if (n.positionX === 0 && n.positionY === 0) {
+              const b = bucketOf(n.type);
+              originCounts.set(b, (originCounts.get(b) ?? 0) + 1);
+            }
+          }
+
+          const groupStartX = new Map<string, number>();
+          let cursorX = 40;
+          for (const g of GROUP_ORDER) {
+            groupStartX.set(g, cursorX);
+            const count = originCounts.get(g) ?? 0;
+            const subCols = Math.max(1, Math.ceil(count / MAX_ROWS_PER_COL));
+            cursorX += subCols * COL_WIDTH + 40;
+          }
+
+          const placedInGroup = new Map<string, number>();
 
           const formattedNodes = dbNodes.map((n) => {
             let x = n.positionX;
             let y = n.positionY;
             if (x === 0 && y === 0) {
-              const colX = columnByType[n.type] ?? 320;
-              const rowIdx = rowCountByCol.get(colX) ?? 0;
-              rowCountByCol.set(colX, rowIdx + 1);
-              x = colX;
-              y = 80 + rowIdx * 170;
+              const g = bucketOf(n.type);
+              const idx = placedInGroup.get(g) ?? 0;
+              placedInGroup.set(g, idx + 1);
+              const subCol = Math.floor(idx / MAX_ROWS_PER_COL);
+              const rowIdx = idx % MAX_ROWS_PER_COL;
+              x = (groupStartX.get(g) ?? 40) + subCol * COL_WIDTH;
+              y = 80 + rowIdx * ROW_HEIGHT;
             }
             return {
               id: n.id,
