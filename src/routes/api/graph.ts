@@ -55,17 +55,42 @@ export const Route = createFileRoute('/api/graph')({
           ]);
 
           const nodeTitleById = new Map(dbNodes.map((n) => [n.id, n.title]));
+          const allOrigin =
+            dbNodes.length > 1 &&
+            dbNodes.every((n) => n.positionX === 0 && n.positionY === 0);
 
-          const formattedNodes = dbNodes.map((n) => ({
-            id: n.id,
-            type: n.type,
-            title: n.title,
-            position: { x: n.positionX, y: n.positionY },
-            data: {
-              ...(n.data as Record<string, unknown>),
+          const columnByType: Record<string, number> = {
+            source: 40,
+            claim: 320,
+            method: 580,
+            dataset: 580,
+            run: 840,
+            result: 1100,
+            note: 320,
+          };
+          const rowCountByCol = new Map<number, number>();
+
+          const formattedNodes = dbNodes.map((n) => {
+            let x = n.positionX;
+            let y = n.positionY;
+            if (allOrigin) {
+              const colX = columnByType[n.type] ?? 320;
+              const rowIdx = rowCountByCol.get(colX) ?? 0;
+              rowCountByCol.set(colX, rowIdx + 1);
+              x = colX;
+              y = 80 + rowIdx * 170;
+            }
+            return {
+              id: n.id,
+              type: n.type,
               title: n.title,
-            },
-          }));
+              position: { x, y },
+              data: {
+                ...(n.data as Record<string, unknown>),
+                title: n.title,
+              },
+            };
+          });
 
           const formattedEdges = dbEdgeRows.map((row) => ({
             id: row.edge.id,

@@ -134,10 +134,17 @@ export function subscribeToPipelineStream(
 
   const url = `/api/pipeline/${encodeURIComponent(experimentId)}`;
   const es = new ES(url);
+  let lastSeq = 0;
 
   es.onmessage = (e: MessageEvent) => {
     try {
       const data = JSON.parse(e.data) as PipelineEvent;
+      if (typeof data.seq === 'number' && data.seq <= lastSeq) {
+        return;
+      }
+      if (typeof data.seq === 'number') {
+        lastSeq = data.seq;
+      }
       handlers.onEvent?.(data);
 
       if (data.type === 'stage.started') {

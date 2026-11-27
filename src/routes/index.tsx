@@ -361,7 +361,12 @@ function WorkspacePage() {
           setGateSeq(null);
           setActiveGateSpec(null);
         },
-        onError: () => {
+        onError: (err) => {
+          const es = (err as any)?.target;
+          // Let native EventSource auto-reconnect with Last-Event-ID on transient errors
+          if (es && typeof EventSource !== 'undefined' && es.readyState === EventSource.CONNECTING) {
+            return;
+          }
           const msg = `Pipeline stream error for ${expId}`;
           setExecutionLogs((prev) => [
             ...prev,
