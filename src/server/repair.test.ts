@@ -993,6 +993,67 @@ describe('repairAndRetryRun (Issue #26)', () => {
     expect(result.finalRun.stderr).not.toContain('internal_host_leak')
   })
 
+  it('keeps captured output and the abort reason when a repair run is cancelled', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, 'boom')
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+    const taskStore = new MemoryTaskStore()
+    const callModelFn = createCallModel({
+      generate: async () => ({
+        output: {
+          script: HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!,
+          summary: 'Fixed',
+        },
+        inputTokens: 10,
+        outputTokens: 10,
+      }),
+      sleep: async () => {},
+    })
+    const controller = new AbortController()
+    const runner: ExperimentRunner = {
+      async run(_spec, onStdout) {
+        onStdout?.('partial training output\n')
+        controller.abort(new Error('stream budget expired'))
+        throw new SandboxTimeoutError(
+          'Execution timed out after 60 seconds',
+          60,
+          'partial timeout stdout',
+          'partial timeout stderr',
+          1234,
+        )
+      },
+      async cancel() {},
+    }
+
+    await expect(
+      repairAndRetryRun(failedRun, {
+        runStore,
+        runner,
+        modelContext: {
+          workspaceId: 'ws-1',
+          strategyId: null,
+          store: taskStore,
+          signal: controller.signal,
+        },
+        callModelFn,
+        maxAttempts: 1,
+        abortedStatus: () => 'timeout',
+      }),
+    ).rejects.toThrow('stream budget expired')
+
+    const child = [...runStore.rows.values()].find(
+      (row) => row.parentRunId === failedRun.id,
+    )
+    expect(child).toMatchObject({
+      status: 'timeout',
+      stdout: 'partial timeout stdout',
+      verdict: null,
+      verdictDetail: null,
+    })
+    expect(child?.stderr).toContain('The experiment sandbox timed out before completing')
+  })
+
   it('emits lifecycle events (run.started, run.succeeded, verdict.computed) when emitEvent is supplied', async () => {
     const brokenSpec = makeBrokenImportSpec()
     const failedRun = makeFailedRun(brokenSpec, "ModuleNotFoundError: No module named 'sklern'")

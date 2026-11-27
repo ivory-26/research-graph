@@ -986,32 +986,35 @@ async function executeChainedRepairRun(
     ) {
       isKilledTimeout = true
     }
-    result = options.signal?.aborted
-      ? {
-          exitCode: 1,
-          stdout: '',
-          stderr: '',
-          metrics: {},
-          artifacts: [],
-          durationMs: 0,
-          environment: newRun.environment,
-        }
-      : sanitizeRunnerError(err, spec, startedAt.toISOString())
+    // Keep whatever the typed error carried (stdout, stderr, duration,
+    // environment) even on the abort path: cancellation is a status, not a
+    // reason to erase the audit trail of the work that did happen.
+    result = sanitizeRunnerError(err, spec, startedAt.toISOString())
   }
 
   await Promise.all(pendingStdoutEmits)
 
   if (options.signal?.aborted) {
-    await options.runStore.updateRun(newRun.id, {
-      status: options.abortedStatus?.() ?? 'cancelled',
-      metrics: {},
-      environment: result.environment,
-      verdict: null,
-      verdictDetail: null,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      finishedAt: now(),
-    })
+    try {
+      await options.runStore.updateRun(newRun.id, {
+        status: options.abortedStatus?.() ?? 'cancelled',
+        metrics: {},
+        environment: result.environment,
+        verdict: null,
+        verdictDetail: null,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        finishedAt: now(),
+      })
+    } catch (persistError) {
+      // The abort reason is the error the caller must see. A failed write here
+      // must not replace it or skip `throwIfAborted`; the row is left for the
+      // terminal reconciler rather than reporting a non-abort failure.
+      console.error(
+        '[executeChainedRepairRun] could not persist the aborted repair run',
+        persistError,
+      )
+    }
     options.signal.throwIfAborted()
   }
 

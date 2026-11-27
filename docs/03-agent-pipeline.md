@@ -109,7 +109,7 @@ A spec that violates a rule is rejected with the full list of errors. On `main` 
 
 The approval screen shows the resource and isolation cards (network disabled, vCPU and memory, dataset mode), the dataset reference, URL and size, the criteria, and then the full generated script. Approve or reject.
 
-On `main` the gate is durable: `approval_gates` binds the offered spec to the `approval.requested` seq, the execution claim and the experiment. The POST is same-origin and authenticated, checks workspace membership, and records the verified actor. Exactly one decision can be written, and it names the gate it decides, so it cannot be applied to a different plan. The executed run uses the offered spec, not a re-read of `experiments.spec`. A rejection emits `pipeline.cancelled` (`reason: 'rejected'`) and never calls `EXECUTE`. The current approval *screen* is rendered from the hero fixture, not from a live gate.
+On `main` the gate is durable: `approval_gates` binds the offered spec to the `approval.requested` seq, the execution claim and the experiment. The POST is same-origin and authenticated, checks workspace membership, and records the verified actor. Exactly one decision can be written, and it names the gate it decides, so it cannot be applied to a different plan. The executed run uses the offered spec, not a re-read of `experiments.spec`. A rejection of the initial plan emits `pipeline.cancelled` (`reason: 'rejected'`) and never calls `EXECUTE`; a rejected repair gate ends the pipeline without executing the candidate. The current approval *screen* is rendered from the hero fixture, not from a live gate.
 
 ### EXECUTE
 
@@ -154,6 +154,8 @@ On `failed` or `timeout`, up to **two** repair attempts:
 Every executed repair candidate is its own `runs` row with `attempt` incremented and `parentRunId` chained. A `REPAIR_SCRIPT` call that never yields a valid replacement — a model failure, an empty or unchanged script, or a validation failure — consumes one of the two attempts but writes no run row, because no candidate was executed. The graph shows the chain, which is the visual form of the demo's "errors and fixes appear as linked nodes" beat.
 
 The two-attempt ceiling is not a safety measure, it is a demo measure. An unbounded loop can burn a recording session.
+
+**Known limits.** A repaired child is evaluated by code, but the two-sentence `explain_gap` explanation is produced for the initial EVALUATE only; a repaired run records the deterministic verdict without one. If the stream budget expires while a repair gate is pending, the gate is left undecided on a closed claim and the experiment keeps `approvalState = 'pending'`, the same failure mode as a pending initial gate. Both are follow-ups, not silent successes.
 
 ## Strategy selection
 
