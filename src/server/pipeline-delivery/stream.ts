@@ -531,6 +531,34 @@ async function runOwner(
       actorId: input.actor.id,
       signal: context.signal,
       emit,
+      repairApproval: {
+        claimId: ownerClaimId,
+        async open(input) {
+          context.signal.throwIfAborted()
+          const opened = await data.openApprovalGate(input)
+          await flushPersisted()
+          context.signal.throwIfAborted()
+          return opened
+        },
+        async wait(gateSeq) {
+          const readGate = async () => {
+            const gate = await data.getApprovalGate({ experimentId, workspaceId, gateSeq })
+            if (!gate) throw new Error('the repair approval gate could not be found')
+            return gate
+          }
+          await waitForApproval(async () => {
+            const gate = await readGate()
+            return { state: gate.status, approvedBy: gate.decidedBy }
+          }, {
+            signal: context.signal,
+            intervalMs: timings.approvalPollIntervalMs,
+          })
+          const gate = await readGate()
+          await flushPersisted()
+          context.signal.throwIfAborted()
+          return gate
+        },
+      },
     }
 
     const plan = await stages.plan(stageContext)
@@ -585,6 +613,10 @@ async function runOwner(
     await flushPersisted()
     if (stopped() || state.terminal) return
 
+    if (execution.repairRejected) {
+      await emit({ type: 'pipeline.cancelled', reason: 'rejected' })
+      return
+    }
     await emit({ type: 'pipeline.completed', runId: execution.runId })
   } catch (error) {
     if (state.terminal || state.finalized || context.cancelled()) return

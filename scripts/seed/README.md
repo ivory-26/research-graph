@@ -257,13 +257,15 @@ against the production `Database`; the loopback cast is confined to this file.
 
 ## Migrations
 
-No new migration is needed. A disposable database needs exactly the two
-committed migrations, which the seed applies automatically:
+The seed needs no migration of its own; it applies every committed migration
+to the fresh database automatically:
 
 - `0000_initial_schema.sql` creates the pgvector extension
   (`CREATE EXTENSION IF NOT EXISTS vector`) and the graph/run tables.
 - `0001_pipeline_foundation.sql` adds pipeline events, claims and approval
   gates.
+- `0002_repair_approval_gates.sql` adds the repair-gate linkage merged from
+  the repair loop.
 
 Use the `pgvector/pgvector:pg18` image (or any Postgres with the `vector`
 extension available). `pnpm db:push` is the disposable-branch alternative but
@@ -328,9 +330,14 @@ seed never resets it for you.
    seed before claiming the budget.
 4. **Node positions.** The seed leaves `nodes.position_x/y` at `(0, 0)`. The
    canvas/force layout owns placement.
-5. **Stacked PRs.** This branch imports `src/server/branch.ts` and the repair
-   loop from PRs #66/#65. PR #70 cannot merge before those; the seed refuses
-   with `WHAT_IF_UNAVAILABLE` rather than stubbing them.
+5. **Merged dependencies.** The what-if branch (#66), repair loop (#65) and
+   notebook export (#67) are now on `main`; this branch merges them and no
+   longer depends on unmerged PRs. The seed still refuses with
+   `WHAT_IF_UNAVAILABLE` rather than stubbing the what-if service.
+6. **Repairs.** A successful hero run never repairs. If the production
+   pipeline opens a repair gate during EXECUTE, the seed fails closed with
+   `REPAIR_APPROVAL_UNAVAILABLE`; it has no operator in the execution loop and
+   will not fabricate a decision.
 
 ## Verified in this worktree
 
@@ -340,7 +347,8 @@ seed never resets it for you.
   selector/fallback anchors, the five persisted edges, non-terminal-run
   refusal, foreign-workspace refusal.
 - `pnpm test` with `TEST_DATABASE_URL` pointing at a disposable pgvector
-  container — 414 tests pass, 7 skipped, exit 0 (28 files).
+  container — 434 tests pass, 7 skipped, exit 0 (29 files), after merging
+  current `main` (#65/#66/#67).
 - `pnpm build` — pass; `pnpm db:check` — pass.
 - `pnpm verify:hero` — pass in Docker: Run A and Run B execute the frozen
   parameters, produce distinct measured metrics, write `importance.csv`, match

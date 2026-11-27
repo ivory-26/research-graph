@@ -12,8 +12,8 @@ One interface, one adapter, one story.
 | Deterministic verdict | Built (`src/server/evaluate-verdict.ts`) |
 | `explain_gap` explanation | Built (`src/server/evaluate.ts`, `gemini-4-hydrogen`) |
 | Local Docker path | Built as `Dockerfile.template`; verified by `pnpm verify:hero` |
-| Server-side notebook generation | Not built; the UI builds a notebook from the fixture |
-| What-if branch | Not built; see [03](./03-agent-pipeline.md) |
+| Server-side notebook generation | Successful pipeline runs store an nbformat 4.5 notebook in `run_artifacts` |
+| What-if branch | Built in `src/server/branch.ts`; queued Run B adoption is #62 |
 
 ## The contract
 
@@ -235,7 +235,7 @@ This is the "runs on a laptop CPU" claim. `Dockerfile.template` is the built ima
 
 ## Notebook export
 
-**Status on `main`: not built server-side.** `ExportModal.tsx` builds a similar nbformat document in the browser from `fixtures/hero-spec.ts` and `fixtures/workspace.json`. It does not read `run_artifacts`, so it is a demonstration of the format, not a reproducibility record of a particular run. The structure below is the target.
+Production saves the notebook after persisting the verdict for a successful run. `ExportModal.tsx` also builds a demonstration notebook from the fixture. The persisted artifact records a specific run's frozen spec and environment.
 
 `runArtifacts(kind='notebook')` is an nbformat v4 document built from the frozen spec, not from a model call. Cells:
 

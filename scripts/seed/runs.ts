@@ -111,6 +111,7 @@ import {
   appendPipelineEvent,
   claimExecutionStart,
   decideApproval,
+  getApprovalGate,
   openApprovalGate,
   PipelineDbError,
   type PipelineEventInput,
@@ -190,6 +191,7 @@ export type SeedRunErrorCode =
   | 'APPROVAL_REJECTED'
   | 'CLAIM_NOT_ACQUIRED'
   | 'PLAN_SPEC_MISMATCH'
+  | 'REPAIR_APPROVAL_UNAVAILABLE'
   | 'PIPELINE_STAGE_FAILED'
   | 'PIPELINE_DB_FAILED'
   | 'RUN_NOT_CREATED'
@@ -1720,6 +1722,34 @@ export async function seedRuns(input: SeedRunsInput): Promise<SeedRunsResult> {
       actorId: operatorUserId,
       signal: baseSignal,
       emit,
+      // A successful hero run never repairs. If the production pipeline does
+      // propose a repair that needs a durable decision, this seed has no
+      // operator in the execution loop to approve it: fail closed instead of
+      // inventing an approval.
+      repairApproval: {
+        claimId,
+        open: (gateInput) => openApprovalGate(input.db, gateInput),
+        async wait(gateSeq) {
+          const gate = await getApprovalGate(input.db, {
+            experimentId: params.experimentId,
+            workspaceId,
+            gateSeq,
+          })
+          if (!gate) {
+            throw new SeedRunError(
+              'REPAIR_APPROVAL_UNAVAILABLE',
+              `the pipeline requested repair gate ${gateSeq}, but it could not be found`,
+            )
+          }
+          if (gate.status === 'pending') {
+            throw new SeedRunError(
+              'REPAIR_APPROVAL_UNAVAILABLE',
+              `the pipeline requested a decision on repair gate ${gateSeq}; the seed does not approve repairs and will not fabricate one`,
+            )
+          }
+          return gate
+        },
+      },
     }
 
     try {

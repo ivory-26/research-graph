@@ -70,9 +70,9 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 | Rebuild the recorded workspace with `pnpm seed` | #8 | a repeatable recording from an empty database |
 | Production deploy | #9 | the deployed-link success criterion |
 | Sign-in screens | #16 | a user-facing auth flow |
-| What-if branch execution | — | Run B and a real comparison |
-| Repair loop and multi-strategy selection | — | the "learning" beat |
-| Server-side notebook export | — | a notebook generated from a real run |
+| What-if branch execution | #62 | adopt the queued Run B for a real comparison; the branch module is built |
+| Repair loop and multi-strategy selection | #26 | the repair loop is built; strategy selection remains unbuilt |
+| Server-side notebook export | Built into production run evaluation | a notebook generated from a real run |
 | Browser→pipeline bridge | — | every live UI beat |
 
 `pnpm typecheck` and `pnpm db:check` pass. `pnpm test` runs 27 `node:test` transport checks plus the Vitest suite: 303 passed and 29 skipped on 25 November. The skipped files are the opt-in Postgres, E2B and Gemini integration suites.

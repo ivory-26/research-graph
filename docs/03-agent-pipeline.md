@@ -20,8 +20,8 @@ INGEST_SOURCE → EXTRACT_CLAIMS → PROPOSE_EDGES → PLAN_EXPERIMENT
 | `AWAIT_APPROVAL` | `src/server/pipeline-delivery/`, `src/db/pipeline-*` | Built: durable gate, same-origin POST, verified actor |
 | `EXECUTE` | `src/server/runner.ts` | Built: real E2B runner with pinned-package verification |
 | `EVALUATE` | `src/server/evaluate.ts`, `evaluate-verdict.ts` | Built: deterministic verdict, then `explain_gap` |
-| `BRANCH_WHAT_IF` | — | Not built |
-| repair loop (`REPAIR_SCRIPT`) | — | Not built |
+| `BRANCH_WHAT_IF` | `src/server/branch.ts` | Built as a module; EXECUTE adoption of the queued Run B is #62 |
+| repair loop (`REPAIR_SCRIPT`) | `src/server/branch.ts` | Built; wired into EXECUTE after a failed run |
 | strategy selection | — | Not built; `agent_strategies` exists but nothing picks a strategy |
 
 The rest of this document is the contract each stage is held to, whether or not the stage exists yet.
@@ -109,7 +109,7 @@ A spec that violates a rule is rejected with the full list of errors. On `main` 
 
 The approval screen shows the resource and isolation cards (network disabled, vCPU and memory, dataset mode), the dataset reference, URL and size, the criteria, and then the full generated script. Approve or reject.
 
-On `main` the gate is durable: `approval_gates` binds the offered spec to the `approval.requested` seq, the execution claim and the experiment. The POST is same-origin and authenticated, checks workspace membership, and records the verified actor. Exactly one decision can be written, and it names the gate it decides, so it cannot be applied to a different plan. The executed run uses the offered spec, not a re-read of `experiments.spec`. A rejection emits `pipeline.cancelled` (`reason: 'rejected'`) and never calls `EXECUTE`. The current approval *screen* is rendered from the hero fixture, not from a live gate.
+On `main` the gate is durable: `approval_gates` binds the offered spec to the `approval.requested` seq, the execution claim and the experiment. The POST is same-origin and authenticated, checks workspace membership, and records the verified actor. Exactly one decision can be written, and it names the gate it decides, so it cannot be applied to a different plan. The executed run uses the offered spec, not a re-read of `experiments.spec`. A rejection of the initial plan emits `pipeline.cancelled` (`reason: 'rejected'`) and never calls `EXECUTE`; a rejected repair gate ends the pipeline without executing the candidate. The current approval *screen* is rendered from the hero fixture, not from a live gate.
 
 ### EXECUTE
 
@@ -135,7 +135,7 @@ This is worth restating because it is the cheapest possible defence against the 
 
 ### BRANCH_WHAT_IF
 
-**Status on `main`: not built.** The comparison view exists, but it renders recorded fixture results; there is no branch execution, no one-parameter diff check and no `parentRunId` creation path yet.
+**Status on `main`: built as a module.** `src/server/branch.ts` clones the frozen spec, enforces the one-parameter diff and persists the branched experiment plus a queued Run B with `parentRunId`. EXECUTE does not yet adopt that queued row, so the comparison view still renders the recorded fixture; adoption is tracked in #62.
 
 Input: a completed run and a parameter name. The branch copies the frozen `spec`, applies exactly one change, re-runs `PLAN_EXPERIMENT`'s validation (not its generation), and creates a new `experiment` with `parentRunId` pointing at the ancestor. The parent row is never touched.
 
@@ -143,17 +143,19 @@ One parameter, enforced: the diff between parent and child `spec` must have exac
 
 ## Retry and repair
 
-**Status on `main`: not built.** A failed run is recorded and stops. There is no repair loop. The only retry behaviour is bounded 429 backoff in `callModel` (a new physical attempt and a new `agent_tasks` row) and in the embedding path.
+**Status on `main`: built.** `src/server/branch.ts` implements the loop and `src/server/pipeline-delivery/production-stages.ts` starts it after a failed or timed-out run. Bounded 429 backoff in `callModel` remains the only retry behaviour for other stages.
 
-On `failed`, up to **two** repair attempts:
+On `failed` or `timeout`, up to **two** repair attempts:
 
 1. `REPAIR_SCRIPT` receives the script, the spec, and the last 4,000 characters of stderr.
 2. It returns a full replacement script, not a diff.
 3. The new script re-enters validation and is re-approved automatically only if the repair changed nothing but imports, column names, or paths. Any other change re-opens the approval gate.
 
-Every attempt is its own `runs` row with `attempt` incremented and `parentRunId` chained. The graph shows the chain, which is the visual form of the demo's "errors and fixes appear as linked nodes" beat.
+Every executed repair candidate is its own `runs` row with `attempt` incremented and `parentRunId` chained. A `REPAIR_SCRIPT` call that never yields a valid replacement — a model failure, an empty or unchanged script, or a validation failure — consumes one of the two attempts but writes no run row, because no candidate was executed. The graph shows the chain, which is the visual form of the demo's "errors and fixes appear as linked nodes" beat.
 
 The two-attempt ceiling is not a safety measure, it is a demo measure. An unbounded loop can burn a recording session.
+
+**Known limits.** A repaired child is evaluated by code, but the two-sentence `explain_gap` explanation is produced for the initial EVALUATE only; a repaired run records the deterministic verdict without one. If the stream budget expires while a repair gate is pending, the gate is left undecided on a closed claim and the experiment keeps `approvalState = 'pending'`, the same failure mode as a pending initial gate. Both are follow-ups, not silent successes.
 
 ## Strategy selection
 

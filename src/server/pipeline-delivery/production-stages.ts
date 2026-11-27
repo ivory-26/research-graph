@@ -40,12 +40,20 @@
 import { and, eq } from 'drizzle-orm'
 
 import type { Database } from '../../db/client'
-import { experiments, runs } from '../../db/schema'
+import { experiments, nodes, runs, sources } from '../../db/schema'
 import type {
   ExperimentResult,
   ExperimentSpec,
   RunEnvironment,
 } from '../../shared/types'
+import {
+  MAX_REPAIR_ATTEMPTS,
+  createDrizzleRepairRunStore,
+  executeApprovedRepairCandidate,
+  repairAndRetryRun,
+  type RepairPipelineEvent,
+  type RepairRunRecord,
+} from '../branch'
 import { evaluateAndExplainExperiment } from '../evaluate'
 import {
   callModel as productionCallModel,
@@ -54,11 +62,13 @@ import {
   type CallModelContext,
   type PersistedAgentTask,
 } from '../model'
+import { saveNotebookArtifact } from '../notebook'
 import { projectRunToGraph } from '../pipeline'
 import { validateExperimentSpec } from '../planner'
 import { StreamBudgetExceededError } from '../pipeline-transport'
 import {
   E2BRunner,
+  SandboxTimeoutError,
   runnerErrorToFailedResult,
   type ExperimentRunner,
 } from '../runner'
@@ -307,6 +317,7 @@ export function createProductionPipelineStages(
   const randomUUID = options.randomUUID ?? (() => crypto.randomUUID())
   const now = options.now ?? (() => new Date())
   const taskStore = createDrizzleAgentTaskStore(db)
+  const repairStore = createDrizzleRepairRunStore(db)
 
   async function loadStoredSpec(
     context: PipelineStageContext,
@@ -330,6 +341,74 @@ export function createProductionPipelineStages(
     }
 
     return row.spec
+  }
+
+  async function repair(
+    context: PipelineStageContext,
+    failedRun: RepairRunRecord,
+    executionRunner: ExperimentRunner,
+  ) {
+    const modelContext = {
+      workspaceId: context.workspaceId,
+      store: taskStore,
+      signal: context.signal,
+    }
+    const emitRepairEvent = async (event: RepairPipelineEvent): Promise<void> => {
+      if (event.type === 'run.stdout') return
+      const { at: _at, experimentId: _experimentId, ...input } = event
+      await context.emit(input)
+    }
+    const repairOptions = {
+      runStore: {
+        ...repairStore,
+        async updateRun(...args: Parameters<typeof repairStore.updateRun>) {
+          const run = await repairStore.updateRun(...args)
+          if (context.signal.aborted) {
+            await projectRunToGraphSafely(db, run.id)
+          } else {
+            await projectRunToGraph(db, run.id)
+          }
+          return run
+        },
+      },
+      runner: executionRunner,
+      emitEvent: emitRepairEvent,
+      signal: context.signal,
+      abortedStatus: () => abortedRunStatus(context.signal),
+      now,
+    }
+
+    let finalRun = failedRun
+    let attemptsLeft = MAX_REPAIR_ATTEMPTS
+    while (attemptsLeft > 0) {
+      const result = await repairAndRetryRun(finalRun, {
+        ...repairOptions,
+        maxAttempts: attemptsLeft,
+        modelContext,
+        callModelFn,
+        claimId: context.repairApproval.claimId,
+        openApprovalGate: context.repairApproval.open,
+      })
+      finalRun = result.finalRun
+      attemptsLeft -= result.attemptsUsed
+      if (result.status !== 'awaiting_approval') break
+
+      if (!result.candidateSpec || result.gateSeq === undefined) {
+        throw new Error('repair awaiting approval did not return a candidate and gate')
+      }
+      const gate = await context.repairApproval.wait(result.gateSeq)
+      if (gate.id !== result.gateId) throw new Error('the repair approval gate changed')
+      if (gate.status === 'rejected') {
+        return { runId: finalRun.id, repairRejected: true as const }
+      }
+
+      finalRun = await executeApprovedRepairCandidate(finalRun, result.candidateSpec, {
+        ...repairOptions,
+        gate,
+      })
+      if (finalRun.status === 'succeeded') break
+    }
+    return { runId: finalRun.id }
   }
 
   const stages: PipelineStages = {
@@ -408,21 +487,30 @@ export function createProductionPipelineStages(
           })
         }
       }
-      context.signal.addEventListener('abort', cancelActiveSandboxes, {
-        once: true,
-      })
+      const executionRunner: ExperimentRunner = {
+        async run(spec, onStdout) {
+          context.signal.throwIfAborted()
+          context.signal.addEventListener('abort', cancelActiveSandboxes, { once: true })
+          try {
+            return await runner.run(spec, onStdout)
+          } finally {
+            context.signal.removeEventListener('abort', cancelActiveSandboxes)
+          }
+        },
+        cancel: (sandboxId) => runner.cancel(sandboxId),
+      }
 
       let result: ExperimentResult
       let runnerThrew = false
+      let runnerTimedOut = false
       try {
-        result = await runner.run(spec, () => {
+        result = await executionRunner.run(spec, () => {
           // Durable stdout lives in `runs.stdout`; see the module header.
         })
       } catch (error) {
         runnerThrew = true
+        runnerTimedOut = error instanceof SandboxTimeoutError
         result = failedResultFromRunnerError(error, spec, startedAt)
-      } finally {
-        context.signal.removeEventListener('abort', cancelActiveSandboxes)
       }
 
       const finishedAt = now()
@@ -463,7 +551,12 @@ export function createProductionPipelineStages(
           : new Error('the pipeline was aborted')
       }
 
-      const runStatus = result.exitCode === 0 ? 'succeeded' : 'failed'
+      const runStatus =
+        result.exitCode === 0
+          ? 'succeeded'
+          : runnerTimedOut
+            ? 'timeout'
+            : 'failed'
       await db
         .update(runs)
         .set({
@@ -509,7 +602,8 @@ export function createProductionPipelineStages(
         await context.emit({
           type: 'stage.finished',
           stage: 'EXECUTE',
-          status: runStatus,
+          // StageStatus has no `timeout`; the run row keeps that distinction.
+          status: runStatus === 'succeeded' ? 'succeeded' : 'failed',
           taskId: null,
           error:
             runStatus === 'succeeded'
@@ -552,13 +646,62 @@ export function createProductionPipelineStages(
         // writes. The verdict is arithmetic and belongs on the run row even if
         // the stream budget expires while its events are appended; the graph
         // then projects the same authoritative data instead of a null verdict.
-        await db
+        const [terminalRun] = await db
           .update(runs)
           .set({
             verdict: evaluated.verdict,
             verdictDetail: evaluated.detail,
           })
           .where(eq(runs.id, runId))
+          .returning()
+        if (!terminalRun) throw new Error('the terminal run could not be read back')
+
+        if (runStatus === 'succeeded') {
+          try {
+            const [claim] = await db
+              .select({
+                data: nodes.data,
+                paperTitle: sources.title,
+                doi: sources.doi,
+              })
+              .from(nodes)
+              .leftJoin(
+                sources,
+                and(
+                  eq(sources.id, nodes.sourceId),
+                  eq(sources.workspaceId, nodes.workspaceId),
+                ),
+              )
+              .where(
+                and(
+                  eq(nodes.id, spec.claimNodeId),
+                  eq(nodes.workspaceId, context.workspaceId),
+                  eq(nodes.type, 'claim'),
+                ),
+              )
+
+            if (claim?.data.type !== 'claim') {
+              throw new Error('the run claim could not be loaded')
+            }
+
+            await saveNotebookArtifact(db, runId, {
+              spec,
+              environment: result.environment,
+              paperTitle: claim.paperTitle,
+              doi: claim.doi,
+              claim: {
+                text: claim.data.text,
+                quote: claim.data.locator.quote,
+                page: claim.data.locator.page,
+                reported: claim.data.reported,
+              },
+              verdict: evaluated.verdict,
+              verdictExplanation: evaluated.detail.explanation,
+            })
+          } catch (error) {
+            console.error('[pipeline-delivery] could not save the run notebook', error)
+          }
+        }
 
         if (context.signal.aborted) {
           throw context.signal.reason instanceof Error
@@ -619,6 +762,9 @@ export function createProductionPipelineStages(
           )
         }
 
+        if (runStatus === 'timeout' || (runStatus === 'failed' && !runnerThrew)) {
+          return await repair(context, terminalRun, executionRunner)
+        }
         return { runId }
       } finally {
         if (!graphProjected) {

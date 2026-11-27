@@ -2,7 +2,8 @@
 
 Status: landed in #52 on 25 November. `main` is at `2870a79`. The PRs after
 #52 (#55, #56, #60) touched ingestion accounting, ingest/extract review nits
-and CI; none changed this layer.
+and CI; none changed this layer. #65 later added the repair approval gate on
+the same execution claim and wired the repair loop into EXECUTE (#63).
 
 The SSE transport, the cross-request approval write path, the real stage
 provider and the mounted routes are implemented in

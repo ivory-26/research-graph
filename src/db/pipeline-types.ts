@@ -90,6 +90,8 @@ export type OpenApprovalGateInput = {
   workspaceId: string
   /** The active claim that owns this gate. */
   claimId: string
+  /** Opens a subsequent gate for a failed run in the same experiment. */
+  repairParentRunId?: string
   /** The exact plan version offered to the human. */
   spec: ExperimentSpec
 }

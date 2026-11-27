@@ -15,6 +15,13 @@
       "when": 1795444628422,
       "tag": "0001_pipeline_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795779621297,
+      "tag": "0002_repair_approval_gates",
+      "breakpoints": true
     }
   ]
 }

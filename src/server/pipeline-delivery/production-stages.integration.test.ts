@@ -21,6 +21,8 @@ import {
   it,
 } from 'vitest'
 
+import { createCallModel } from '../model'
+import { SandboxTimeoutError } from '../runner'
 import type { PipelineEvent } from '../../shared/events'
 import type { ExperimentSpec } from '../../shared/types'
 import type { PipelineTimings } from './timings'
@@ -31,6 +33,7 @@ import {
   createRecordedCallModel,
   createStubRunner,
   makeValidSpec,
+  measuredResult,
   type StubRunner,
 } from './test-support/production-fixtures'
 import {
@@ -83,6 +86,7 @@ describeIntegration('production pipeline stages over real Postgres', () => {
   function handlersFor(
     runner: StubRunner,
     timings: Partial<PipelineTimings> = FAST_TIMINGS,
+    callModel = createRecordedCallModel(),
   ) {
     return createPipelineHandlers({
       data: createDrizzlePipelineData(testDb.db),
@@ -90,7 +94,7 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       stages: createProductionPipelineStages({
         db: testDb.db,
         runner,
-        callModel: createRecordedCallModel(),
+        callModel,
         randomUUID: () => '11111111-1111-4111-8111-111111111111',
       }),
       timings,
@@ -325,6 +329,140 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       cancel: (sandboxId) => stub.cancel(sandboxId),
     }
   }
+  it.each(['automatic', 'approved', 'rejected'] as const)(
+    'records a failed run and handles a subsequent %s repair through the production stages',
+    async (mode) => {
+      const repairedScript = seed.spec.files['main.py']!
+      const brokenScript = repairedScript.replace('import json', 'import missing_json')
+      seed.spec.files['main.py'] = brokenScript
+      await testDb.pool.query('UPDATE experiments SET spec = $1 WHERE id = $2', [
+        JSON.stringify(seed.spec), seed.experimentId,
+      ])
+
+      const candidate = mode === 'automatic'
+        ? repairedScript
+        : repairedScript.replace('0.9', '0.8')
+      const runner: StubRunner = {
+        ...createStubRunner('succeed'),
+        async run(spec) {
+          this.runCalls++
+          if (this.runCalls === 1) {
+            expect(spec.files['main.py']).toBe(brokenScript)
+            return measuredResult({
+              exitCode: 1,
+              stderr: 'ModuleNotFoundError: missing_json',
+              metrics: {},
+            })
+          }
+          expect(spec.files['main.py']).toBe(candidate)
+          return measuredResult({ metrics: { score: mode === 'automatic' ? 0.9 : 0.8 } })
+        },
+      }
+      const callModel = createCallModel({
+        generate: async ({ prompt }) => ({
+          output: prompt.includes('ModuleNotFoundError: missing_json')
+            ? { script: candidate, summary: 'Fixed the import' }
+            : { explanation: 'The verdict was computed from the run.' },
+          inputTokens: 15,
+          outputTokens: 10,
+        }),
+      })
+      const handlers = handlersFor(runner, FAST_TIMINGS, callModel)
+      const sse = consume(await handlers.stream(streamRequest(seed.experimentId), {
+        experimentId: seed.experimentId,
+      }))
+      const initial = await approveRequested(handlers, sse)
+
+      if (mode !== 'automatic') {
+        const repairGate = await sse.waitFor(
+          (event) => event.type === 'approval.requested' && event.seq > initial.seq,
+        )
+        expect(runner.runCalls).toBe(1)
+        const replay = await handlers.approve(
+          approveRequest(seed.experimentId, initial.seq, 'approved'),
+          { experimentId: seed.experimentId },
+        )
+        expect(replay.status).toBe(200)
+        expect(runner.runCalls).toBe(1)
+
+        const decision = mode === 'approved' ? 'approved' : 'rejected'
+        const response = await handlers.approve(
+          approveRequest(seed.experimentId, repairGate.seq, decision),
+          { experimentId: seed.experimentId },
+        )
+        expect(response.status).toBe(200)
+        await sse.waitFor((event) => event.type === 'approval.resolved' && event.seq > repairGate.seq)
+      }
+
+      await sse.waitFor((event) => event.type === (
+        mode === 'rejected' ? 'pipeline.cancelled' : 'pipeline.completed'
+      ))
+      const rows = await runRows()
+      const [parent, child] = rows
+      expect(parent).toMatchObject({ attempt: 1, status: 'failed', verdict: 'failed' })
+      expect(parent!.spec.files['main.py']).toBe(brokenScript)
+      const task = await testDb.pool.query<{ input_ref: unknown }>(
+        "SELECT input_ref FROM agent_tasks WHERE task_kind = 'repair_script'",
+      )
+      expect(task.rows).toEqual([{
+        input_ref: { experimentId: seed.experimentId, runId: parent!.id },
+      }])
+
+      if (mode === 'rejected') {
+        expect(rows).toHaveLength(1)
+        expect(runner.runCalls).toBe(1)
+        return
+      }
+      expect(rows).toHaveLength(2)
+      expect(child).toMatchObject({
+        attempt: 2, parent_run_id: parent!.id, status: 'succeeded', verdict: 'match',
+      })
+      expect(child!.spec.files['main.py']).toBe(candidate)
+      expect(sse.events.at(-1)).toMatchObject({ type: 'pipeline.completed', runId: child!.id })
+      expect((await graphRows()).edges.map((edge) => edge.evidence_run_id))
+        .toEqual(expect.arrayContaining([parent!.id, child!.id]))
+    },
+  )
+
+  it('starts the repair loop after a sandbox timeout and records the parent as timeout', async () => {
+    const originalScript = seed.spec.files['main.py']!
+    const candidate = originalScript.replace('import json', 'import json as json')
+    const runner: StubRunner = {
+      ...createStubRunner('succeed'),
+      async run() {
+        this.runCalls++
+        if (this.runCalls === 1) {
+          throw new SandboxTimeoutError('Execution timed out after 30 seconds', 30)
+        }
+        return measuredResult({ metrics: { score: 0.9 } })
+      },
+    }
+    const callModel = createCallModel({
+      generate: async ({ prompt }) => ({
+        output: prompt.includes('timed out')
+          ? { script: candidate, summary: 'Retry after the sandbox timeout' }
+          : { explanation: 'The verdict was computed from the run.' },
+        inputTokens: 15,
+        outputTokens: 10,
+      }),
+    })
+    const handlers = handlersFor(runner, FAST_TIMINGS, callModel)
+    const sse = consume(await handlers.stream(streamRequest(seed.experimentId), {
+      experimentId: seed.experimentId,
+    }))
+    await approveRequested(handlers, sse)
+    await sse.waitFor((event) => event.type === 'pipeline.completed')
+
+    const rows = await runRows()
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ attempt: 1, status: 'timeout' })
+    expect(rows[1]).toMatchObject({
+      attempt: 2,
+      parent_run_id: rows[0]!.id,
+      status: 'succeeded',
+    })
+    expect(runner.runCalls).toBe(2)
+  })
 
   it('offers the persisted plan at the gate after real planner validation', async () => {
     const runner = createStubRunner('succeed')
@@ -420,12 +558,31 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       'SELECT kind, path, sha256, bytes, content FROM run_artifacts WHERE run_id = $1',
       [completed.runId],
     )
-    expect(artifacts.rows).toEqual([{ ...artifact, kind: 'table' }])
+    // The runner's table artifact and #67's exported notebook are both stored.
+    expect(artifacts.rows).toHaveLength(2)
+    expect(artifacts.rows).toEqual(
+      expect.arrayContaining([{ ...artifact, kind: 'table' }]),
+    )
 
     const verdict = (await sse.waitFor(
       (event) => event.type === 'verdict.computed',
     )) as Extract<PipelineEvent, { type: 'verdict.computed' }>
     expect(verdict.verdict).toBe('match')
+
+    const notebookArtifacts = await testDb.pool.query<{
+      kind: string
+      content: string
+    }>(
+      "SELECT kind, content FROM run_artifacts WHERE run_id = $1 AND kind = 'notebook'",
+      [completed.runId],
+    )
+    expect(notebookArtifacts.rows).toHaveLength(1)
+    expect(notebookArtifacts.rows[0]?.kind).toBe('notebook')
+    const notebook = JSON.parse(notebookArtifacts.rows[0]!.content)
+    expect(notebook).toMatchObject({ nbformat: 4, nbformat_minor: 5 })
+    const metadata = notebook.cells[0].source.join('')
+    expect(metadata).toContain('noise can outrank informative features')
+    expect(metadata).toContain(rows[0]!.verdict_detail!.explanation)
 
     const tasks = await testDb.pool.query<{
       task_kind: string

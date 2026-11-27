@@ -7,7 +7,7 @@
  * waiting transaction acquires the lock only after the previous writer
  * commits, sequence order and commit order cannot disagree.
  */
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { Database } from './client'
 import type { PipelineEvent } from '../shared/events'
 import type { ApprovalState } from '../shared/types'
@@ -330,6 +330,7 @@ export type ApprovalGateFilter = {
   workspaceId: string
   gateSeq?: number
   executionClaimId?: string
+  repairParentRunId?: string | null
 }
 
 export async function selectApprovalGate(
@@ -368,6 +369,11 @@ export async function selectApprovalGate(
         filter.executionClaimId === undefined
           ? undefined
           : eq(approvalGates.executionClaimId, filter.executionClaimId),
+        filter.repairParentRunId === null
+          ? isNull(approvalGates.repairParentRunId)
+          : filter.repairParentRunId === undefined
+            ? undefined
+            : eq(approvalGates.repairParentRunId, filter.repairParentRunId),
       ),
     )
     .orderBy(desc(approvalGates.gateSeq))
