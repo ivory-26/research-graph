@@ -139,7 +139,10 @@ export const AgentMonitorPage: React.FC = () => {
         {/* Selected Task Details */}
         <div className="border border-[var(--border-primary)] bg-[var(--card-bg)] p-6 space-y-4">
           <div className="text-xs uppercase font-bold text-[var(--text-primary)] tracking-wide">
-            Sample Task Specification · extract_claims
+            Recorded Seed Task Specification · extract_claims
+          </div>
+          <div className="text-[10px] text-[var(--text-dim)]">
+            The seeded workspace records Meta's Contributor model; the application runtime stays on gemini-3.8-flash.
           </div>
 
           <div className="space-y-1">
@@ -147,7 +150,7 @@ export const AgentMonitorPage: React.FC = () => {
             <pre className="p-3 bg-[var(--bg-surface)] border border-[var(--border-primary)] text-[11px] text-[var(--text-secondary)] font-mono overflow-x-auto leading-relaxed">
 {`source_ids: ["src-1"]
 strategy: "sectioned"
-model: "gemini-3.8-flash"
+model: "muse-spark-1.3-contributor"
 max_attempts: 2`}
             </pre>
           </div>

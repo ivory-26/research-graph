@@ -16,4 +16,4 @@ The "one provider, one key" decision still holds, with one pinned model exceptio
 
 ## Update — 27 November 2026
 
-Amended by [ADR 0013](./0013-meta-muse-spark-contributor-provider.md): setting an explicit `META_API_KEY` routes general text calls through Meta Model API's `muse-spark-1.3-contributor` inside `src/server/model.ts` (`$0.10` / `$0.20` per million tokens Contributor list rate), while `gemini-3.8-flash` remains `DEFAULT_MODEL_ID` when `META_API_KEY` is unset, `gemini-4-hydrogen` remains pinned for `explain_gap`, and `gemini-embedding-2` remains the sole embedding model.
+Amended by [ADR 0014](./0014-meta-muse-spark-contributor-provider.md): setting an explicit `META_API_KEY` routes general text calls through Meta Model API's `muse-spark-1.3-contributor` inside `src/server/model.ts` (`$0.10` / `$0.20` per million tokens Contributor list rate), while `gemini-3.8-flash` remains `DEFAULT_MODEL_ID` when `META_API_KEY` is unset, `gemini-4-hydrogen` remains pinned for `explain_gap`, and `gemini-embedding-2` remains the sole embedding model.

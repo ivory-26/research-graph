@@ -71,16 +71,16 @@ The UI still renders `fixtures/workspace.json`; the runtime is exercised with `H
 - **CyberCodezilla** — wire `ingestPdf`/`ingestWebSource` → `extractClaims` → `proposeEdges` into one workspace-scoped call path, and add the `sectioned` and `table_first` strategies behind the existing interface.
 - **frag2win** — replace the fixture reads with the live pipeline and a thin read API; the approval modal should POST to the real gate. Until that lands, keep every fixture value labelled as recorded.
 - **yashhh-23** — build the what-if branch and the repair loop against the frozen `ExperimentResult`, then generate the notebook from `run_artifacts` rather than the fixture.
-- **ivory-26** — #7 graph write-back, #8 seed, #9 deploy, #16 sign-in screens.
+- **ivory-26** — #7 graph write-back, #9 deploy, #16 sign-in screens; #8 seed is built.
 
-## Where each stream stands — 25 November
+## Where each stream stands — 27 November
 
 | Stream | Landed | Open |
 |---|---|---|
-| Foundation & Integration (ivory-26) | scaffold, schema, auth server, transport, pipeline persistence, SSE delivery, CI reviewer | #7 graph write-back, #8 seed, #9 deploy, #16 sign-in screens, browser→pipeline bridge |
+| Foundation & Integration (ivory-26) | scaffold, schema, auth server, transport, pipeline persistence, SSE delivery, CI reviewer, seed (#8) | #7 graph write-back, #9 deploy, #16 sign-in screens, browser→pipeline bridge |
 | Ingestion & Extraction (CyberCodezilla) | PDF reading order, chunking, embeddings, claim extraction, edge proposal, retrieval, Firecrawl | `sectioned` and `table_first` strategies; live end-to-end ingestion from the UI |
 | Canvas & UI (frag2win) | canvas, evidence, approval, comparison, dashboard, exports — all fixture-driven | reading live data, starting a real run, showing a real gate |
-| Runtime & Evaluation (yashhh-23) | planner validation, E2B runner, pinned-environment verification, hero run, deterministic verdict, what-if branch module, repair loop | what-if execution (#62), server-side notebook, strategy selection, plan generation |
+| Runtime & Evaluation (yashhh-23) | planner validation, E2B runner, pinned-environment verification, hero run, deterministic verdict, what-if branch module and queued-run adoption (#62), repair loop, server-side notebook | strategy selection, plan generation |
 
 ## The original day-by-day
 

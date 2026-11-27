@@ -35,7 +35,7 @@ These are not style preferences. Breaking one of them breaks the product's only 
 | `ai` | 7.x — `ToolLoopAgent`, `tool({ inputSchema })`, `generateText({ output: Output.object() })`. `generateObject` is deprecated |
 | `@ai-sdk/react` | 4.x — `useChat({ transport })`, `message.parts`. `handleSubmit` and `api` props no longer exist |
 | `@ai-sdk/google` | 4.x — models `gemini-3.8-flash` (default), `gemini-4-hydrogen` (evaluator `explain_gap` only), embeddings `gemini-embedding-2` at 768 dims |
-| Meta Model API (`META_API_KEY`) | Optional text model replacement (`muse-spark-1.3-contributor` only, via `https://api.meta.ai/v1/chat/completions`; no Gemini fallback on failure) inside `src/server/model.ts`; see [ADR 0013](./docs/adr/0013-meta-muse-spark-contributor-provider.md) |
+| Meta Model API (`META_API_KEY`) | Optional text model replacement (`muse-spark-1.3-contributor` only, via `https://api.meta.ai/v1/chat/completions`; no Gemini fallback on failure) inside `src/server/model.ts`; see [ADR 0014](./docs/adr/0014-meta-muse-spark-contributor-provider.md) |
 | Drizzle + Neon | pgvector on, HNSW optional at this scale |
 | `@xyflow/react` | canvas |
 | `unpdf` | PDF text extraction |
@@ -43,13 +43,15 @@ These are not style preferences. Breaking one of them breaks the product's only 
 
 Much of the AI SDK material online describes v5 or v6 and will not compile. When in doubt, read the installed types, not a tutorial.
 
-`gemini-4-hydrogen` is a deliberate, evaluator-only exception: the Stage 7 `explain_gap` call uses it for the two-sentence explanation and always routes through `@ai-sdk/google`, while `evaluateExperiment` computes the verdict before that call and the model cannot change it. Every other text call site uses `gemini-3.8-flash` (`DEFAULT_MODEL_ID`), or Meta's `muse-spark-1.3-contributor` when `META_API_KEY` is explicitly configured (ADR 0013), and embeddings stay on `gemini-embedding-2`. `DEFAULT_PRICING` costs `gemini-3.8-flash` ($0.30 / $2.50), `gemini-4-hydrogen` ($1.50 / $7.50 Standard paid rate, thinking included at the output rate), and `muse-spark-1.3-contributor` ($0.10 / $0.20 published Contributor list rate, reasoning included in output); this is an accounting estimate, not billing telemetry.
+`gemini-4-hydrogen` is a deliberate, evaluator-only exception: the Stage 7 `explain_gap` call uses it for the two-sentence explanation and always routes through `@ai-sdk/google`, while `evaluateExperiment` computes the verdict before that call and the model cannot change it. Every other text call site uses `gemini-3.8-flash` (`DEFAULT_MODEL_ID`), or Meta's `muse-spark-1.3-contributor` when `META_API_KEY` is explicitly configured (ADR 0014), and embeddings stay on `gemini-embedding-2`. `DEFAULT_PRICING` costs `gemini-3.8-flash` ($0.30 / $2.50), `gemini-4-hydrogen` ($1.50 / $7.50 Standard paid rate, thinking included at the output rate), and `muse-spark-1.3-contributor` ($0.10 / $0.20 published Contributor list rate, reasoning included in output); this is an accounting estimate, not billing telemetry.
 
 Structured output schemas stay flat or one level of nesting with no recursive `$ref`. Both Gemini and Meta strict JSON Schema ignore `minLength` / `maxLength` / `uniqueItems` (and numeric bounds for Meta) during generation, so `callModel` validates schema bounds in Zod after every call (with the 400-character verbatim `quote` limit and 240-character `rationale` limit enforced per item inside `extract/` validators).
 
+`pnpm seed` pins Meta's `muse-spark-1.3-contributor` for its recorded baseline even when `META_API_KEY` is absent, because the committed recording is keyed to that model. Only the seed reads `SEED_RECORD_MODEL_OUTPUTS` / `SEED_REPLAY_MODEL_OUTPUTS`. Contributor mode permits Meta to train on prompts and responses; the seed sends only public paper text and generated specs, never a secret or personal data.
+
 ## Commands
 
-Ingestion, extraction, retrieval, the E2B runner, the deterministic evaluator and the SSE pipeline routes are merged. The graph write-back (#7), seed (#8), deploy (#9), sign-in screens (#16) and the browser→pipeline bridge are not. Database commands read `DATABASE_URL` from `.env`; see [src/db/README.md](./src/db/README.md).
+Ingestion, extraction, retrieval, the E2B runner, the deterministic evaluator, the SSE pipeline routes and the seed script (#8) are merged. The graph write-back (#7), deploy (#9), sign-in screens (#16) and the browser→pipeline bridge are not. Database commands read `DATABASE_URL` from `.env`; see [src/db/README.md](./src/db/README.md).
 
 ```bash
 pnpm dev             # TanStack Start dev server
@@ -61,7 +63,7 @@ pnpm db:migrate      # apply committed migrations (empty database included)
 pnpm db:push         # disposable branch only: pgvector bootstrap, then push
 pnpm db:check        # validate the migration journal and snapshots
 pnpm db:studio       # inspect the public schema
-pnpm seed            # rebuild the recorded workspace — lands with #8, not on main yet
+pnpm seed            # rebuild the recorded workspace from an empty database (#8)
 ```
 
 ## Layout

@@ -195,14 +195,16 @@ The dashboard is designed as a `GROUP BY` over `agent_tasks`, with no separate s
 
 ## Model discipline
 
-Because of structured-output schema limits ([ADR 0009](./adr/0009-gemini-only.md), [ADR 0013](./adr/0013-meta-muse-spark-contributor-provider.md)):
+Because of structured-output schema limits ([ADR 0009](./adr/0009-gemini-only.md), [ADR 0014](./adr/0014-meta-muse-spark-contributor-provider.md)):
 
 - Every schema is flat or one level of nesting. No recursive `$ref`.
 - Never rely on `minLength`, `maxLength`, `uniqueItems` (or Meta `minimum`/`maximum` grammar keywords) — they are ignored or stripped during generation. Enforce in Zod after the call, not in the schema before it.
 - Never exceed 12 items in a top-level array; large arrays increase truncation risk and make validation all-or-nothing.
 
-Every call is sequential. Quotas are project-wide, so the pipeline never issues parallel requests. Text calls go through one `callModel()` wrapper (`src/server/model.ts`) that implements exponential backoff with jitter on 429, disables provider auto-retries, redacts sent secrets on errors, and writes one `agent_tasks` row per **physical attempt** with cost, tokens and latency. Embeddings use the same queue and task-row helpers (`enqueueProcessTask`) via `embedMany`.
+Every call is sequential. Quotas are project-wide, so the pipeline never issues parallel requests. Text calls go through one `callModel()` wrapper (`src/server/model.ts`) that implements exponential backoff with jitter on 429/503, disables provider auto-retries, redacts sent secrets on errors, and writes one `agent_tasks` row per **physical attempt** with cost, tokens and latency. Embeddings use the same queue and task-row helpers (`enqueueProcessTask`) via `embedMany`.
 
-Only rate-limit responses are retried. A provider capacity response (`high demand` / `503`) is persisted as a failed task row and surfaces as a missing explanation; the deterministic verdict still completes.
+429 rate-limit and 503 provider-capacity responses (`high demand`) are retried with bounded exponential backoff and jitter; every other provider failure is persisted immediately and surfaces as a missing explanation. The deterministic verdict still completes. `DEFAULT_MAX_ATTEMPTS` and the 240-second stream budget bound the retry chain.
 
 The one model exception is the Stage 7 `explain_gap` call, which pins `gemini-4-hydrogen` (`@ai-sdk/google`) for the two-sentence explanation (`src/server/evaluate.ts`). The verdict is computed by `evaluateExperiment` before that call and the model cannot alter it. Every other text call site uses `gemini-3.8-flash` (`DEFAULT_MODEL_ID`), or Meta Model API's `muse-spark-1.3-contributor` (`https://api.meta.ai/v1/chat/completions`) when `META_API_KEY` is explicitly configured or `DEFAULT_META_MODEL_ID` is pinned; embeddings stay on `gemini-embedding-2`. `DEFAULT_PRICING` records published list rates (`gemini-3.8-flash` $0.30/$2.50, `gemini-4-hydrogen` $1.50/$7.50 Standard paid rate, `muse-spark-1.3-contributor` $0.10/$0.20 Contributor list rate, reasoning/thinking included in output). The table is an accounting estimate from published prices, not billing telemetry or a statement about account entitlement.
+
+The seed pins Meta's `muse-spark-1.3-contributor` for its recorded baseline even when `META_API_KEY` is absent, because the committed recording is keyed to that model. `SEED_RECORD_MODEL_OUTPUTS` and `SEED_REPLAY_MODEL_OUTPUTS` are seed-only; the application runtime never reads them. Contributor mode permits Meta to train on prompts and responses; the seed sends only public paper text and generated specs.

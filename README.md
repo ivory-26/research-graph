@@ -12,7 +12,7 @@ The graph is the presentation, not the product. The product is the claim:
 - every result is compared against the number the paper reported, under a declared reproduction mode
 - the verdict is computed by code, not written by a model
 
-## Status — 25 November 2026
+## Status — 27 November 2026
 
 `main` is mid-build toward the 30 November recording. The trustworthy core works at the module level; the browser is a fixture-driven workstation and is not yet wired to the live pipeline or database.
 
@@ -25,20 +25,19 @@ The graph is the presentation, not the product. The product is the claim:
 - Runtime: planner validation, the real E2B runner with pinned-package verification, the deterministic evaluator, and a `gemini-4-hydrogen` `explain_gap` explanation that cannot change the verdict
 - Delivery: `GET /api/pipeline/:experimentId` SSE, `POST /api/pipeline/:experimentId/approve`, 240 s budget, 15 s heartbeat, cross-request approval polling and Last-Event-ID replay
 - Auth: Neon Auth session verification, the same-origin `/api/auth/$` proxy and the workspace-membership guard — but no sign-in screens yet
+- Seed: `pnpm seed` rebuilds the recorded workspace from an empty database through production ingestion, approval gates, E2B runs, evaluation and graph projection; `pnpm seed:compare` checks two fresh databases as one logical workspace (#8)
 - UI: the React Flow canvas, evidence panel, approval modal, comparison view, strategy dashboard and notebook export, all rendered from `fixtures/workspace.json`
 - CI: typecheck, tests and `db:check` on same-repository PRs, plus a read-only OpenCode reviewer that also covers the approved fork (fork checks report `NOT RUN`)
 
 **Not on `main` yet**
 
 - writing a completed run back as result/run nodes and the `produced` edge (#7)
-- `pnpm seed` (#8)
 - the production deploy (#9)
 - sign-in screens (#16)
-- what-if branch execution, the repair loop and multi-strategy selection
-- server-side notebook generation from `run_artifacts` (the UI builds one from the fixture)
+- strategy selection (the repair loop and what-if branch are built)
 - the browser calling the pipeline endpoint or reading from Postgres
 
-**Verified 25 November 2026:** `pnpm typecheck`, `pnpm db:check` and `pnpm test` pass. The run reports 303 tests passing and 29 skipped: 27 `node:test` transport checks plus Vitest's 276 passed / 29 skipped. The skipped files are the opt-in Postgres/E2B/Gemini integration suites; they run only with `TEST_DATABASE_URL` (and `LIVE_SMOKE=1` for the credentialed smoke). See [docs/09-pipeline-delivery-handoff.md](./docs/09-pipeline-delivery-handoff.md).
+**Verified 27 November 2026:** `pnpm typecheck`, `pnpm db:check`, `pnpm test` and `pnpm build` pass on this branch after merging current `main`: 27 `node:test` transport checks, 393 Vitest tests passed and 64 skipped, plus 90 seed tests. The skipped files are the opt-in Postgres/E2B/Gemini integration suites; they run only with `TEST_DATABASE_URL` (and `LIVE_SMOKE=1` for the credentialed smoke). See [docs/09-pipeline-delivery-handoff.md](./docs/09-pipeline-delivery-handoff.md).
 
 | Document | Contents |
 |---|---|
@@ -69,13 +68,15 @@ pnpm db:migrate     # apply committed migrations
 pnpm db:push        # disposable branch only: pgvector bootstrap, then push
 pnpm db:check       # validate the migration journal and snapshots
 pnpm db:studio      # inspect the public schema
+pnpm seed           # rebuild the recorded workspace from an empty database (#8)
+pnpm seed:compare   # compare two seeded databases as one logical workspace
 ```
-
-`pnpm seed` is planned with #8 and is not on `main` yet.
 
 ## Stack
 
 TanStack Start 1.169.x · React 19 · TypeScript 7 · Neon Postgres (pgvector) · Drizzle · Vercel AI SDK 7 · Google Gemini (`gemini-3.8-flash`, `gemini-4-hydrogen` for `explain_gap`, `gemini-embedding-2`) · optional Meta Model API (`muse-spark-1.3-contributor` via `META_API_KEY`) · E2B · Firecrawl · `@xyflow/react` 13
+
+Text calls use Meta Model API's `muse-spark-1.3-contributor` (Contributor mode) when `META_API_KEY` is set; otherwise they use `gemini-3.8-flash`. The evaluator's `explain_gap` stays on `gemini-4-hydrogen`, embeddings stay on `gemini-embedding-2`, and the seed pins Meta for its recording.
 
 Node 26.x, ESM only. `.nvmrc` and `.node-version` pin 26.13.1.
 

@@ -1,7 +1,12 @@
 import { embed, embedMany, type EmbeddingModel } from 'ai'
 import { createGoogleGenerativeAI, google } from '@ai-sdk/google'
 import type { Chunk, EmbedOptions } from './types'
-import { agentTaskStore, enqueueProcessTask, isRateLimitError } from '../model'
+import {
+  agentTaskStore,
+  enqueueProcessTask,
+  isRetryableProviderError,
+} from '../model'
+import { abortableSleep } from '../pipeline-transport'
 
 /** The pinned embedding model (CLAUDE.md & Issue #11). */
 export const DEFAULT_EMBEDDING_MODEL_ID = 'gemini-embedding-2'
@@ -24,14 +29,52 @@ export const DEFAULT_MAX_EMBED_ATTEMPTS = 3
 export const DEFAULT_BASE_DELAY_MS = 1_000
 export const DEFAULT_MAX_DELAY_MS = 30_000
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 function backoffDelayMs(retryIndex: number): number {
   const ceiling = Math.min(DEFAULT_MAX_DELAY_MS, DEFAULT_BASE_DELAY_MS * 2 ** (retryIndex - 1))
   const jitter = Math.max(0, Math.min(1, Math.random()))
   return Math.floor(jitter * ceiling)
+}
+
+/**
+ * Gemini's 429 body often says "Please retry in 13.2s"; respecting that
+ * window matters on the free tier, where the jittered 1-2 s backoff expires
+ * well before the quota window reopens. Use the provider's guidance when it
+ * is present, otherwise the normal jittered delay.
+ */
+function providerRetryDelayMs(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null) {
+    const headers = (error as { responseHeaders?: Record<string, string> })
+      .responseHeaders
+    const raw = headers?.['retry-after'] ?? headers?.['Retry-After']
+    if (raw !== undefined) {
+      const seconds = Number(raw)
+      if (Number.isFinite(seconds) && seconds >= 0) {
+        return Math.ceil(seconds * 1000)
+      }
+    }
+  }
+
+  const message = error instanceof Error ? error.message : String(error)
+  const match = /retry in ([\d.]+)\s*s/i.exec(message)
+  if (match) {
+    const seconds = Number(match[1])
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.ceil(seconds * 1000)
+    }
+  }
+  return undefined
+}
+
+/**
+ * Honour the provider's window, but never beyond the existing max-delay bound:
+ * a quota message asking for minutes must not outlast the caller's stream
+ * budget. The sleep itself is abortable, so a cancelled pipeline stops here.
+ */
+function retryDelayMs(retryIndex: number, error: unknown): number {
+  return Math.min(
+    DEFAULT_MAX_DELAY_MS,
+    Math.max(backoffDelayMs(retryIndex), providerRetryDelayMs(error) ?? 0),
+  )
 }
 
 /**
@@ -103,7 +146,7 @@ export interface EmbedDeps {
  * - gemini-embedding-2 at 768 dimensions passed to provider via outputDimensionality
  * - One call per batch of at most 20 chunks
  * - Sequential queue to prevent parallel burst rate-limiting across concurrent ingests
- * - maxRetries: 0 with manual 429 backoff recording 'retried' rows for intermediate attempts
+ * - maxRetries: 0 with manual 429/503 backoff recording 'retried' rows for intermediate attempts
  * - Estimated tokens recorded when provider returns undefined usage
  * - Vector dimension validated BEFORE recording success in agent_tasks
  * - Accounting failures surface rather than being swallowed
@@ -124,7 +167,9 @@ export async function embedChunks(
   const embedManyCall = deps.embedManyFn ?? embedMany
   const taskStore = options.taskStore ?? agentTaskStore
   const taskKind = options.taskKind ?? 'ingest'
-  const sleepCall = deps.sleepFn ?? sleep
+  const sleepCall =
+    deps.sleepFn ??
+    ((ms: number) => abortableSleep(ms, options.abortSignal))
 
   const texts: string[] = items.map((item) => (typeof item === 'string' ? item : item.text))
   const allEmbeddings: number[][] = []
@@ -160,9 +205,9 @@ export async function embedChunks(
         break
       } catch (err) {
         const latencyMs = Math.max(0, Date.now() - startedAt)
-        const is429 = isRateLimitError(err)
+        const retryable = isRetryableProviderError(err)
 
-        if (is429 && attempt < maxAttempts) {
+        if (retryable && attempt < maxAttempts) {
           if (options.workspaceId) {
             await taskStore.insert({
               workspaceId: options.workspaceId,
@@ -179,12 +224,12 @@ export async function embedChunks(
               latencyMs,
             })
           }
-          const delay = backoffDelayMs(attempt)
+          const delay = retryDelayMs(attempt, err)
           await sleepCall(delay)
           continue
         }
 
-        // Exhausted retries or non-429 error
+        // Exhausted retries or a non-retryable error
         if (options.workspaceId) {
           await taskStore.insert({
             workspaceId: options.workspaceId,
@@ -300,7 +345,9 @@ export async function embedQuery(
   const embedCall = deps.embedFn ?? embed
   const taskStore = options.taskStore ?? agentTaskStore
   const taskKind = options.taskKind ?? 'ingest'
-  const sleepCall = deps.sleepFn ?? sleep
+  const sleepCall =
+    deps.sleepFn ??
+    ((ms: number) => abortableSleep(ms, options.abortSignal))
 
   let attempt = 0
   let result: any = null
@@ -330,9 +377,9 @@ export async function embedQuery(
       break
     } catch (err) {
       const latencyMs = Math.max(0, Date.now() - startedAt)
-      const is429 = isRateLimitError(err)
+      const retryable = isRetryableProviderError(err)
 
-      if (is429 && attempt < maxAttempts) {
+      if (retryable && attempt < maxAttempts) {
         if (options.workspaceId) {
           await taskStore.insert({
             workspaceId: options.workspaceId,
@@ -349,7 +396,7 @@ export async function embedQuery(
             latencyMs,
           })
         }
-        const delay = backoffDelayMs(attempt)
+        const delay = retryDelayMs(attempt, err)
         await sleepCall(delay)
         continue
       }

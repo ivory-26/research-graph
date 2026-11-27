@@ -30,7 +30,8 @@ const ExplainGapSchema = z.object({
  * The text model pinned for this evaluator's `explain_gap` explanation (#6).
  * This is a deliberate evaluator-only exception: every other text call site
  * keeps `DEFAULT_MODEL_ID` and embeddings stay on `gemini-embedding-2`. The
- * wrapper costs the call from this model's `DEFAULT_PRICING` entry.
+ * literal stays here so a default change cannot silently move it. The wrapper
+ * costs the call from this model's `DEFAULT_PRICING` entry.
  */
 export const EXPLAIN_GAP_MODEL_ID = 'gemini-4-hydrogen'
 

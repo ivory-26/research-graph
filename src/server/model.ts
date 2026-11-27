@@ -3,11 +3,11 @@
  *
  * docs/03-agent-pipeline.md fixes four rules this file exists to enforce:
  *
- * 1. Calls are sequential. Gemini's free-tier quota is per project and
- *    unpublished, so this wrapper queues every call behind the previous one.
- * 2. A 429 backs off exponentially with jitter. Other failures do not retry;
- *    they are the caller's problem (a repair is a new pipeline task, not a
- *    hidden retry).
+ * 1. Calls are sequential. Provider quotas are per project and unpublished,
+ *    so this wrapper queues every call behind the previous one.
+ * 2. A 429 rate-limit or 503 provider-capacity response backs off
+ *    exponentially with jitter. Other failures do not retry; they are the
+ *    caller's problem (a repair is a new pipeline task, not a hidden retry).
  * 3. Every physical request attempt writes exactly one `agent_tasks` row,
  *    including the attempts that fail. A retried attempt is `retried`; the
  *    final attempt is `succeeded` or `failed`.
@@ -19,10 +19,11 @@
  * workstream (issue #3); this file imports the published table only for the
  * thin Drizzle-backed adapter below and never duplicates the schema.
  *
- * Structured output stays inside Gemini's documented subset: the caller passes
- * a flat, non-recursive Zod schema. The wrapper parses the result with that
- * same Zod schema after the call, because Gemini silently ignores `minLength`,
- * `maxLength` and `uniqueItems` (ADR 0009).
+ * Structured output stays inside the providers' documented subsets: the caller
+ * passes a flat, non-recursive Zod schema. The wrapper parses the result with
+ * that same Zod schema after the call, because Gemini silently ignores
+ * `minLength`, `maxLength` and `uniqueItems` (ADR 0009) and Meta's strict mode
+ * rejects optional properties (ADR 0014).
  */
 import { APICallError, Output, generateText } from 'ai'
 import type { LanguageModel } from 'ai'
@@ -42,10 +43,13 @@ export const DEFAULT_META_MODEL_ID = 'muse-spark-1.3-contributor'
 export const DEFAULT_META_CHAT_COMPLETIONS_URL =
   'https://api.meta.ai/v1/chat/completions'
 
+/** Bearer token for the Meta Model API. Never logged or persisted. */
+export const META_API_KEY_ENV = 'META_API_KEY'
+
 /**
  * One initial attempt plus two retries. docs/03-agent-pipeline.md sets the
  * ceiling for repair at two attempts and docs/06-risks.md budgets the pipeline
- * around that ceiling; the same bound keeps a 429 cascade inside the
+ * around that ceiling; the same bound keeps a 429/503 cascade inside the
  * 240-second stream budget.
  */
 export const DEFAULT_MAX_ATTEMPTS = 3
@@ -71,7 +75,7 @@ export type ModelPricing = {
  * the total output count, so thinking is included.
  *
  * `muse-spark-1.3-contributor` is the optional Meta Model API text model when
- * `META_API_KEY` is configured or explicitly pinned (ADR 0013). Its entry is
+ * `META_API_KEY` is configured or explicitly pinned (ADR 0014). Its entry is
  * Meta's published Contributor list rate: $0.10 per million input tokens and
  * $0.20 per million output tokens (`completion_tokens` includes reasoning tokens).
  * This is an accounting estimate from published prices, not billing telemetry.
@@ -275,7 +279,7 @@ export function createGeminiGenerator(
 export const generateWithGemini: StructuredGenerator = createGeminiGenerator()
 
 // ---------------------------------------------------------------------------
-// Meta Model API adapter (`muse-spark-1.3-contributor` only, ADR 0013)
+// Meta Model API adapter (`muse-spark-1.3-contributor` only, ADR 0014)
 // ---------------------------------------------------------------------------
 
 const META_UNSUPPORTED_STRICT_KEYWORDS = new Set([
@@ -306,7 +310,7 @@ export class MetaApiError extends Error {
 }
 
 export function resolveMetaApiKey(env: NodeJS.ProcessEnv = process.env): string | null {
-  const key = env.META_API_KEY?.trim() ?? ''
+  const key = env[META_API_KEY_ENV]?.trim() ?? ''
   return key.length > 0 ? key : null
 }
 
@@ -486,7 +490,9 @@ export function createMetaGenerator(
 
     const apiKey = getApiKey()?.trim() || ''
     if (!apiKey) {
-      throw new Error('Missing META_API_KEY environment variable for Meta Model API.')
+      throw new Error(
+        `Missing ${META_API_KEY_ENV} environment variable for Meta Model API.`,
+      )
     }
 
     const body: Record<string, unknown> = {
@@ -666,18 +672,30 @@ function elapsedMs(startedAt: number, finishedAt: number): number {
 }
 
 /**
- * A 429 is the only error the wrapper retries. The fallback covers provider
- * errors that carry the status but are not the SDK's `APICallError` instance.
+ * Statuses the wrapper retries: rate limiting (429) and transient provider
+ * capacity (503, e.g. "high demand"). The fallback covers provider errors that
+ * carry the status but are not the SDK's `APICallError` instance, including
+ * the Meta generator's own `MetaApiError`.
  */
-export function isRateLimitError(error: unknown): boolean {
-  if (APICallError.isInstance(error)) return error.statusCode === 429
+const RETRYABLE_PROVIDER_STATUS_CODES = new Set([429, 503])
+
+function isRetryableStatus(value: unknown): boolean {
+  return (
+    typeof value === 'number' && RETRYABLE_PROVIDER_STATUS_CODES.has(value)
+  )
+}
+
+export function isRetryableProviderError(error: unknown): boolean {
+  if (APICallError.isInstance(error)) return isRetryableStatus(error.statusCode)
   if (typeof error !== 'object' || error === null) return false
-  if ((error as { statusCode?: unknown }).statusCode === 429) return true
+  if (isRetryableStatus((error as { statusCode?: unknown }).statusCode)) {
+    return true
+  }
   const cause = (error as { cause?: unknown }).cause
   return (
     typeof cause === 'object' &&
     cause !== null &&
-    (cause as { statusCode?: unknown }).statusCode === 429
+    isRetryableStatus((cause as { statusCode?: unknown }).statusCode)
   )
 }
 
@@ -845,7 +863,7 @@ async function executeCall<T>(
       return { output: outcome.output, task, attempts }
     }
 
-    const retry = isRateLimitError(outcome.error) && attempt < runtime.maxAttempts
+    const retry = isRetryableProviderError(outcome.error) && attempt < runtime.maxAttempts
 
     // Persistence is deliberately outside the request handling above: if the
     // insert fails, it must surface as a database error, not trigger a second
