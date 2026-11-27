@@ -175,11 +175,9 @@ function buildMetadataMarkdownCell(input: BuildNotebookInput): NbformatMarkdownC
 
 function buildPipInstallCell(
   packages: Record<string, string> | undefined,
-): NbformatCodeCell {
+): NbformatCodeCell | null {
   if (!packages || Object.keys(packages).length === 0) {
-    throw new Error(
-      'Cannot build notebook dependencies install cell: run environment.packages is required to prevent unpinned drift',
-    )
+    return null
   }
 
   const filtered: Record<string, string> = {}
@@ -467,6 +465,8 @@ export function buildNotebookDocument(
       ? { name: 'python', version: rawPy }
       : { name: 'python' }
 
+  const installCell = buildPipInstallCell(input.environment?.packages)
+
   return {
     nbformat: 4,
     nbformat_minor: 5,
@@ -480,7 +480,7 @@ export function buildNotebookDocument(
     },
     cells: [
       buildMetadataMarkdownCell(input),
-      buildPipInstallCell(input.environment?.packages),
+      ...(installCell ? [installCell] : []),
       buildDatasetDownloadCell(input.spec, input.environment),
       ...buildVerbatimScriptCell(input.spec),
       buildMetricsDisplayCell(),
