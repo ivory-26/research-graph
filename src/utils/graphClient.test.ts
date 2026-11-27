@@ -87,6 +87,14 @@ describe('graphClient', () => {
       expect(res.source).toBe('api');
       expect(res.nodes).toEqual(customNodes);
       expect(res.edges).toEqual(customEdges);
+
+      const emptyFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ nodes: [], edges: [] }),
+      });
+      const resEmpty = await fetchWorkspaceGraph(wsId, emptyFetch as any);
+      expect(resEmpty.source).toBe('api');
+      expect(resEmpty.nodes).toEqual([]);
     });
 
     it('falls back cleanly to workspace fixture when UUID is absent, invalid, or endpoint fails', async () => {

@@ -134,7 +134,7 @@ export async function fetchWorkspaceGraph(
 
       if (res.ok) {
         const data = await res.json().catch(() => null);
-        if (isValidGraphPayload(data) && data.nodes.length > 0) {
+        if (isValidGraphPayload(data)) {
           return {
             nodes: data.nodes,
             edges: data.edges,

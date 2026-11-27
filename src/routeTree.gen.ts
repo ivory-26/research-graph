@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as ApiGraphRouteImport } from './routes/api/graph'
+import { Route as ApiStrategiesRouteImport } from './routes/api/strategies'
 import { Route as ApiWorkspacesRouteImport } from './routes/api/workspaces'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiPipelineExperimentIdRouteImport } from './routes/api/pipeline/$experimentId'
@@ -36,6 +37,11 @@ const SignUpRoute = SignUpRouteImport.update({
 const ApiGraphRoute = ApiGraphRouteImport.update({
   id: '/api/graph',
   path: '/api/graph',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiStrategiesRoute = ApiStrategiesRouteImport.update({
+  id: '/api/strategies',
+  path: '/api/strategies',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWorkspacesRoute = ApiWorkspacesRouteImport.update({
@@ -65,6 +71,7 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/api/graph': typeof ApiGraphRoute
+  '/api/strategies': typeof ApiStrategiesRoute
   '/api/workspaces': typeof ApiWorkspacesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/pipeline/$experimentId': typeof ApiPipelineExperimentIdRouteWithChildren
@@ -75,6 +82,7 @@ export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/api/graph': typeof ApiGraphRoute
+  '/api/strategies': typeof ApiStrategiesRoute
   '/api/workspaces': typeof ApiWorkspacesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/pipeline/$experimentId': typeof ApiPipelineExperimentIdRouteWithChildren
@@ -86,6 +94,7 @@ export interface FileRoutesById {
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/api/graph': typeof ApiGraphRoute
+  '/api/strategies': typeof ApiStrategiesRoute
   '/api/workspaces': typeof ApiWorkspacesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/pipeline/$experimentId': typeof ApiPipelineExperimentIdRouteWithChildren
@@ -98,6 +107,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-up'
     | '/api/graph'
+    | '/api/strategies'
     | '/api/workspaces'
     | '/api/auth/$'
     | '/api/pipeline/$experimentId'
@@ -108,6 +118,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-up'
     | '/api/graph'
+    | '/api/strategies'
     | '/api/workspaces'
     | '/api/auth/$'
     | '/api/pipeline/$experimentId'
@@ -118,6 +129,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-up'
     | '/api/graph'
+    | '/api/strategies'
     | '/api/workspaces'
     | '/api/auth/$'
     | '/api/pipeline/$experimentId'
@@ -129,6 +141,7 @@ export interface RootRouteChildren {
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
   ApiGraphRoute: typeof ApiGraphRoute
+  ApiStrategiesRoute: typeof ApiStrategiesRoute
   ApiWorkspacesRoute: typeof ApiWorkspacesRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiPipelineExperimentIdRoute: typeof ApiPipelineExperimentIdRouteWithChildren
@@ -162,6 +175,13 @@ declare module '@tanstack/react-router' {
       path: '/api/graph'
       fullPath: '/api/graph'
       preLoaderRoute: typeof ApiGraphRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/strategies': {
+      id: '/api/strategies'
+      path: '/api/strategies'
+      fullPath: '/api/strategies'
+      preLoaderRoute: typeof ApiStrategiesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/workspaces': {
@@ -214,6 +234,7 @@ const rootRouteChildren: RootRouteChildren = {
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
   ApiGraphRoute: ApiGraphRoute,
+  ApiStrategiesRoute: ApiStrategiesRoute,
   ApiWorkspacesRoute: ApiWorkspacesRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiPipelineExperimentIdRoute: ApiPipelineExperimentIdRouteWithChildren,

@@ -48,7 +48,7 @@ Gemini constrains our schemas: flat or one level of nesting, no recursive `$ref`
 
 ## Commands
 
-Ingestion, extraction, retrieval, the E2B runner, the deterministic evaluator and the SSE pipeline routes are merged. The graph write-back (#7), seed (#8), deploy (#9), sign-in screens (#16) and the browser→pipeline bridge are not. Database commands read `DATABASE_URL` from `.env`; see [src/db/README.md](./src/db/README.md).
+Ingestion, extraction, retrieval, the E2B runner, the deterministic evaluator, the SSE pipeline routes, sign-in/sign-up screens (#16), and the browser→pipeline / graph / strategy API clients are built. The graph write-back (#7), seed (#8), and deploy (#9) are not. Database commands read `DATABASE_URL` from `.env`; see [src/db/README.md](./src/db/README.md).
 
 ```bash
 pnpm dev             # TanStack Start dev server
@@ -78,7 +78,7 @@ fixtures/            workspace.json, hero-spec.ts, papers, extract
 docs/                the documents above
 ```
 
-The UI reads `fixtures/workspace.json` and `fixtures/hero-spec.ts`. It does not call the pipeline endpoint or read Postgres yet; do not present fixture values as measured run output.
+The UI renders `fixtures/workspace.json` and `fixtures/hero-spec.ts` when no database workspace UUID is active, and reads `/api/graph`, `/api/workspaces`, `/api/strategies`, and `/api/pipeline/:experimentId` when an authenticated workspace/experiment is selected. Do not present fixture values as measured run output.
 
 ## Working style
 

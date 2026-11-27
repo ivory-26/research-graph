@@ -6,7 +6,7 @@ Status as of 25 November. Rows marked **verified** have been exercised against t
 
 | # | Risk | Likelihood | Impact | Mitigation | Fallback |
 |---|---|---|---|---|---|
-| 1 | **The browser never reaches the pipeline** | High | High | This is the largest unbuilt bridge: the endpoint works, the UI renders fixtures | Record the backend and the UI separately, and say so |
+| 1 | **The browser never reaches the pipeline** | Medium | High | `src/utils/pipelineClient.ts` and `ApprovalModal` wire the SSE/approval flow; end-to-end still needs seeded/created experiment rows (#8) | Record the backend and the UI separately, and say so |
 | 2 | **No deploy on 30 November** | High | High | `vercel.json` exists; #9 is unstarted | A local recording and a repository link; say plainly that no hosted link exists |
 | 3 | **No seed script** | High | High | #8 is unstarted; the fixture is currently the recorded workspace | Keep the fixture and label it as a recording aid, not a seed |
 | 4 | **Deck written on the last night** | High | High | The deck is not on `main` | Ship a shorter deck; the video carries the submission |
@@ -43,10 +43,10 @@ The ingest path can read them. Execution is limited to tabular ML, and the curre
 Three things: a claim whose quote is not verbatim in the source is rejected, an edge cannot be written without evidence because the database refuses it, and the verdict is computed by code before any model is asked to explain it.
 
 **"What about your own scoreboard — is it real?"**
-The design is a `GROUP BY` over `agent_tasks` and nothing else. On `main` that `GROUP BY` is not wired: the dashboard renders recorded fixture rows, and strategy selection is unbuilt. The honest answer today is "the table is the design; the data behind this screen is a fixture", not "these are live counts".
+The design is a `GROUP BY` over `agent_tasks` and nothing else. `GET /api/strategies` reads `agent_tasks` for an authorized workspace UUID and `StrategyDashboard` aggregates them via `aggregateAgentTasks`; when no database workspace is active, it falls back to `DEMO_STRATEGIES` clearly labelled `DEMO FIXTURE`.
 
 **"Is what I see on screen coming from the database?"**
-Not yet. The pipeline endpoint, runner, evaluator and retrieval API work server-side; the browser is a fixture-driven workstation. The bridge is the open work.
+When an authenticated workspace UUID is selected, `/api/graph`, `/api/workspaces`, and `/api/strategies` read Postgres; otherwise (before `#8` seeds a workspace), the workstation renders `fixtures/workspace.json` labelled as a fixture.
 
 ## What would make this fail badly
 

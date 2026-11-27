@@ -26,6 +26,7 @@ import { getCurrentUser } from '../server/auth';
 import { signOut } from '../utils/authClient';
 import { sendPipelineApproval, subscribeToPipelineStream } from '../utils/pipelineClient';
 import { fetchWorkspaceGraph } from '../utils/graphClient';
+import type { AgentTaskRow } from '../utils/strategyClient';
 
 const VALID_PAGES: ReadonlySet<PageId> = new Set([
   'overview',
@@ -130,6 +131,7 @@ function WorkspacePage() {
   const [nodes, setNodes] = useState<WorkspaceNode[]>(DEMO_NODES);
   const [edges, setEdges] = useState<WorkspaceEdge[]>(DEMO_EDGES);
   const [workspaces, setWorkspaces] = useState(WORKSPACES);
+  const [agentTasks, setAgentTasks] = useState<AgentTaskRow[] | undefined>(undefined);
 
   // URL-addressable active page and workspace
   const currentPage: PageId = search.page ?? 'graph';
@@ -202,7 +204,7 @@ function WorkspacePage() {
     };
   }, []);
 
-  // Load graph from API if workspace UUID is provided, falling back to fixture
+  // Load graph and strategy agent_tasks from API if workspace UUID is provided, falling back to fixture
   useEffect(() => {
     let active = true;
     fetchWorkspaceGraph(search.workspace).then((res) => {
@@ -219,19 +221,43 @@ function WorkspacePage() {
       }
     });
 
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (search.workspace && UUID_RE.test(search.workspace)) {
+      fetch(`/api/strategies?workspaceId=${encodeURIComponent(search.workspace)}`, {
+        headers: { Accept: 'application/json' },
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (active && data && Array.isArray(data.tasks)) {
+            setAgentTasks(data.tasks);
+          }
+        })
+        .catch(() => {
+          if (active) setAgentTasks(undefined);
+        });
+    } else {
+      setAgentTasks(undefined);
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [search.workspace]);
+
+  // Separate effect for URL-triggered SSE pipeline stream so workspace switches do not kill an active stream
+  useEffect(() => {
     if (search.experimentId) {
       handleOpenPipelineRun(search.experimentId);
     }
 
     return () => {
-      active = false;
       if (streamCleanupRef.current) {
         streamCleanupRef.current();
         streamCleanupRef.current = null;
       }
       setIsStreaming(false);
     };
-  }, [search.workspace, search.experimentId]);
+  }, [search.experimentId]);
 
   const selectedEdge = edges.find((e) => e.id === selectedEdgeId) || edges[0] || null;
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
@@ -548,7 +574,7 @@ function WorkspacePage() {
           )}
 
           {currentPage === 'strategies' && (
-            <StrategyDashboard />
+            <StrategyDashboard tasks={agentTasks} />
           )}
 
           {currentPage === 'settings' && (

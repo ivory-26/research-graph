@@ -47,9 +47,15 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
   const noiseCount = typeof datasetNode?.data?.noiseColumns === 'string'
     ? datasetNode.data.noiseColumns.split(',').filter(Boolean).length
     : null;
-  const maxRank = featureCount != null && noiseCount != null ? featureCount + noiseCount : 12;
-  const barWidthA = typeof rankA === 'number' ? `${Math.max(5, Math.min(100, Math.round((1 - (rankA - 1) / maxRank) * 100)))}%` : '50%';
-  const barWidthB = typeof rankB === 'number' ? `${Math.max(5, Math.min(100, Math.round((1 - (rankB - 1) / maxRank) * 100)))}%` : '50%';
+  const maxRank = featureCount != null && noiseCount != null ? featureCount + noiseCount : null;
+  const barWidthA =
+    typeof rankA === 'number' && maxRank
+      ? `${Math.max(5, Math.min(100, Math.round((1 - (rankA - 1) / maxRank) * 100)))}%`
+      : '50%';
+  const barWidthB =
+    typeof rankB === 'number' && maxRank
+      ? `${Math.max(5, Math.min(100, Math.round((1 - (rankB - 1) / maxRank) * 100)))}%`
+      : '50%';
 
   const content = (
     <div className="w-full max-w-[1200px] mx-auto p-6 flex flex-col gap-5 text-[var(--text-secondary)]">
@@ -129,7 +135,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               <span>
                 Dataset: {sampleCount != null ? `${sampleCount} samples` : 'unknown samples'} · {featureCount != null ? `${featureCount} base` : 'unknown base'} + {noiseCount != null ? `${noiseCount} noise` : 'unknown noise'}
               </span>
-              <span>Method: {String(paramA.importance_method ?? 'impurity')}</span>
+              <span>Method: {String(paramA.importance_method ?? 'unknown')}</span>
             </div>
           </div>
 
@@ -174,7 +180,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               <span>
                 Dataset: {sampleCount != null ? `${sampleCount} samples` : 'unknown samples'} · {featureCount != null ? `${featureCount} base` : 'unknown base'} + {noiseCount != null ? `${noiseCount} noise` : 'unknown noise'}
               </span>
-              <span>Method: {String(paramB.importance_method ?? 'permutation')}</span>
+              <span>Method: {String(paramB.importance_method ?? 'unknown')}</span>
             </div>
           </div>
 

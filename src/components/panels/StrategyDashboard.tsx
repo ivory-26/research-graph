@@ -21,8 +21,6 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
 }) => {
   const [runFilter, setRunFilter] = useState<string>('all');
 
-  if (!isOpen) return null;
-
   const hasLiveTasks = Boolean(tasks && tasks.length > 0);
   const liveTasks = tasks ?? [];
 
@@ -46,6 +44,8 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
     () => filteredTasks.filter((t) => t.status === 'failed' || t.status === 'rejected'),
     [filteredTasks],
   );
+
+  if (!isOpen) return null;
 
   const rows = hasLiveTasks
     ? liveRows.map((s) => ({
@@ -285,7 +285,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
       {/* Footer Note */}
       <div className="text-[11px] text-[var(--text-dim)] font-mono">
         {hasLiveTasks
-          ? 'Strategy Evaluation: Aggregated by (task_kind, strategy_id, run_id) using Thompson Sampling over task outcomes.'
+          ? 'Strategy Evaluation: Filtered by run_id and aggregated by (task_kind, strategy_id) using Thompson Sampling over task outcomes.'
           : 'Strategy Evaluation (Demo Fixture): Displays illustrative fixture values from fixtures/workspace.json until live agent_tasks rows are recorded.'}
       </div>
     </div>

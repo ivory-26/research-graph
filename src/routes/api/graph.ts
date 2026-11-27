@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { eq } from 'drizzle-orm';
 
 import { getDb } from '../../db/client';
-import { edges, nodes } from '../../db/schema';
+import { edges, nodes, sourceChunks } from '../../db/schema';
 import { requireWorkspaceAccess } from '../../server/auth/workspace.server';
 import {
   AuthConfigurationError,
@@ -14,7 +14,8 @@ import {
 /**
  * Auth-guarded, workspace-scoped Graph API endpoint.
  *
- * Reads persisted graph nodes and edges from Postgres for the authorized workspace.
+ * Reads persisted graph nodes and evidenced edges (joined with source_chunks
+ * for verbatim quote, page, and character offsets) from Postgres.
  */
 export const Route = createFileRoute('/api/graph')({
   server: {
@@ -34,16 +35,26 @@ export const Route = createFileRoute('/api/graph')({
           const membership = await requireWorkspaceAccess(request, workspaceId);
           const db = getDb();
 
-          const [dbNodes, dbEdges] = await Promise.all([
+          const [dbNodes, dbEdgeRows] = await Promise.all([
             db
               .select()
               .from(nodes)
               .where(eq(nodes.workspaceId, membership.workspaceId)),
             db
-              .select()
+              .select({
+                edge: edges,
+                chunkText: sourceChunks.text,
+                chunkPage: sourceChunks.page,
+                chunkOrdinal: sourceChunks.ordinal,
+                chunkCharStart: sourceChunks.charStart,
+                chunkCharEnd: sourceChunks.charEnd,
+              })
               .from(edges)
+              .leftJoin(sourceChunks, eq(edges.evidenceChunkId, sourceChunks.id))
               .where(eq(edges.workspaceId, membership.workspaceId)),
           ]);
+
+          const nodeTitleById = new Map(dbNodes.map((n) => [n.id, n.title]));
 
           const formattedNodes = dbNodes.map((n) => ({
             id: n.id,
@@ -53,15 +64,22 @@ export const Route = createFileRoute('/api/graph')({
             data: n.data,
           }));
 
-          const formattedEdges = dbEdges.map((e) => ({
-            id: e.id,
-            source: e.sourceNodeId,
-            target: e.targetNodeId,
-            relation: e.relation,
-            status: e.status,
-            confidence: e.confidence ?? undefined,
-            evidenceChunkId: e.evidenceChunkId ?? undefined,
-            evidenceRunId: e.evidenceRunId ?? undefined,
+          const formattedEdges = dbEdgeRows.map((row) => ({
+            id: row.edge.id,
+            source: row.edge.sourceNodeId,
+            target: row.edge.targetNodeId,
+            relation: row.edge.relation,
+            status: row.edge.status,
+            confidence: row.edge.confidence ?? undefined,
+            evidenceChunkId: row.edge.evidenceChunkId ?? undefined,
+            evidenceRunId: row.edge.evidenceRunId ?? undefined,
+            quote: row.chunkText ?? undefined,
+            page: row.chunkPage ?? undefined,
+            chunkNumber: row.chunkOrdinal ?? undefined,
+            charStart: row.chunkCharStart ?? undefined,
+            charEnd: row.chunkCharEnd ?? undefined,
+            sourceTitle: nodeTitleById.get(row.edge.sourceNodeId),
+            targetTitle: nodeTitleById.get(row.edge.targetNodeId),
           }));
 
           return Response.json(

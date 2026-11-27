@@ -90,4 +90,4 @@ In priority order. Stop at the first one that fails.
 4. Every run in the demo declares its mode and its verdict, and no number shown as measured was typed by hand.
 5. The strategy table shows real task counts.
 
-On 25 November, criterion 4 is satisfiable today at the runner and evaluator level (the hero run is `adapted`, the verdict is arithmetic), but criteria 2 and 3 are not: the loop has not been wired to the browser, and there is no deploy. The strategy table still renders fixture rows because strategy selection and the seed are not implemented.
+The browser auth screens (#16), pipeline SSE/approval client (#20), and guarded `/api/graph`, `/api/workspaces`, and `/api/strategies` read routes are implemented, while criteria 2 and 3 still await the seed script (#8), graph write-back (#7), and production deploy (#9). Without an active database workspace UUID, the dashboard renders fixture rows.
