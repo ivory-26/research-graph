@@ -79,6 +79,7 @@ recorded by the production gate. Node positions remain at the schema default
 | `DATABASE_URL` | Fresh, migrated application database. The seed refuses a non-empty schema and runs the committed migrations itself. |
 | `MODEL_API_KEY` | Meta Model API key for every text call (claim extraction, edge proposal, planning, `explain_gap`). Contributor mode is the pinned `muse-spark-1.3-contributor` model. Not needed when replaying a recording. |
 | `SEED_RECORD_MODEL_OUTPUTS` / `SEED_REPLAY_MODEL_OUTPUTS` | Optional seed-only capture or replay of structured model responses for the deterministic two-seed baseline. Set at most one; paths are described below. |
+| `SEED_EMBEDDING_PACING_MS` | Optional pause between sources; use `65000` for a replay burst on the Gemini free tier. Defaults to 0. |
 | `GOOGLE_GENERATIVE_AI_API_KEY` or `GEMINI_API_KEY` | Gemini embeddings only (`gemini-embedding-2`). |
 | `SEED_ACTOR_USER_ID` | Verified Neon Auth user id. Graph-only mode uses it directly; the complete seed derives it from the signed-in session and requires any supplied value to match. |
 | `E2B_API_KEY` | The pinned sandbox template for Run A and Run B. |
@@ -229,8 +230,10 @@ run's text responses and replay them for the canonical two-seed baseline:
 SEED_RECORD_MODEL_OUTPUTS=scripts/seed/recordings/meta-muse-spark-1.3-contributor.json \
   pnpm seed --non-interactive
 
-# Two fresh databases replay the same recorded responses.
+# Two fresh databases replay the same recorded responses. On the Gemini free
+# tier, pace the embedding calls and leave ~65 s between the two seeds.
 SEED_REPLAY_MODEL_OUTPUTS=scripts/seed/recordings/meta-muse-spark-1.3-contributor.json \
+SEED_EMBEDDING_PACING_MS=65000 \
   pnpm seed --non-interactive
 ```
 
@@ -248,10 +251,11 @@ changes.
 
 **Embedding quota.** Replay removes the text-call delays, so a full replay seed
 issues all of its Gemini embedding requests in a short burst. The seed needs
-about 45k embedding tokens; Gemini's free tier allows 30k per minute. A replay
-run immediately after capture can therefore exhaust the free-tier embedding
-quota even though every text response is replayed. Use a billed Gemini key for
-replay, wait between runs, or extend the recording to embeddings.
+about 45k embedding tokens; Gemini's free tier allows 30k per minute. Set
+`SEED_EMBEDDING_PACING_MS=65000` to pause between sources and stay inside the
+window; the embedding retry also honours a provider `retry-after` or
+"retry in Ns" message. Use a billed Gemini key if the one-minute budget
+matters; pacing makes a free-tier replay take a few minutes.
 
 ## Canonical baseline: two live seeds
 
@@ -448,7 +452,9 @@ seed never resets it for you.
 - On `db87a16` the capture seed completed (5m29s, 7 records, 272,978 bytes, no
   credentials) and replay reproduced paper 1 exactly in 6.5s with no Meta key.
   Replay then hit the Gemini free-tier embedding quota on paper 2 (30k tokens
-  per minute; the seed needs ~45k). The replay pair and `seed:compare` are still
-  outstanding; a billed embedding key, spacing, or embedding replay is needed.
+  per minute; the seed needs ~45k). `SEED_EMBEDDING_PACING_MS=65000` now spaces
+  sources and the embedding retry honours the provider's stated window; the
+  replay pair and `seed:compare` are the remaining live check. A billed
+  embedding key remains the only way to keep the one-minute budget.
 - The live two-seed baseline remains the outstanding gate; the "under one
   minute" budget is not yet measured.

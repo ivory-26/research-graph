@@ -39,6 +39,36 @@ function backoffDelayMs(retryIndex: number): number {
 }
 
 /**
+ * Gemini's 429 body often says "Please retry in 13.2s"; respecting that
+ * window matters on the free tier, where the jittered 1-2 s backoff expires
+ * well before the quota window reopens. Use the provider's guidance when it
+ * is present, otherwise the normal jittered delay.
+ */
+function providerRetryDelayMs(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null) {
+    const headers = (error as { responseHeaders?: Record<string, string> })
+      .responseHeaders
+    const raw = headers?.['retry-after'] ?? headers?.['Retry-After']
+    if (raw !== undefined) {
+      const seconds = Number(raw)
+      if (Number.isFinite(seconds) && seconds >= 0) {
+        return Math.ceil(seconds * 1000)
+      }
+    }
+  }
+
+  const message = error instanceof Error ? error.message : String(error)
+  const match = /retry in ([\d.]+)\s*s/i.exec(message)
+  if (match) {
+    const seconds = Number(match[1])
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.ceil(seconds * 1000)
+    }
+  }
+  return undefined
+}
+
+/**
  * Resolves finite token usage and cost for an embedding request.
  * AI SDK 7's embed/embedMany can return `{ tokens: NaN }` when the provider omits usage metadata.
  */
@@ -183,7 +213,10 @@ export async function embedChunks(
               latencyMs,
             })
           }
-          const delay = backoffDelayMs(attempt)
+          const delay = Math.max(
+            backoffDelayMs(attempt),
+            providerRetryDelayMs(err) ?? 0,
+          )
           await sleepCall(delay)
           continue
         }
@@ -353,7 +386,10 @@ export async function embedQuery(
             latencyMs,
           })
         }
-        const delay = backoffDelayMs(attempt)
+        const delay = Math.max(
+          backoffDelayMs(attempt),
+          providerRetryDelayMs(err) ?? 0,
+        )
         await sleepCall(delay)
         continue
       }

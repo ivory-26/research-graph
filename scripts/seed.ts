@@ -217,11 +217,18 @@ async function ingestAssets(
   db: Database,
   prepared: readonly LocalAsset[],
   logger: SeedLogger,
+  embeddingPacingMs: number,
 ): Promise<SeedSourceReport[]> {
   const reports: SeedSourceReport[] = []
   const taskStore = createDrizzleAgentTaskStore(db)
 
   for (const { asset, bytes, sha256 } of prepared) {
+    if (reports.length > 0 && embeddingPacingMs > 0) {
+      logger.info(
+        `Waiting ${embeddingPacingMs} ms before ${asset.key} to respect the embedding quota`,
+      )
+      await new Promise((resolve) => setTimeout(resolve, embeddingPacingMs))
+    }
     const started = Date.now()
     // unpdf transfers the input ArrayBuffer to its worker inside
     // `getDocumentProxy`, which detaches this Buffer. Capture the expected
@@ -406,6 +413,18 @@ export async function seedWorkspaceGraph(
   // missing/corrupt PDF cannot leave a half-seeded workspace.
   const prepared = loadLocalAssets(repoRoot)
 
+  const pacingRaw = env[SEED_EMBEDDING_PACING_ENV]?.trim()
+  const embeddingPacingMs = pacingRaw ? Number(pacingRaw) : 0
+  if (
+    !Number.isSafeInteger(embeddingPacingMs) ||
+    embeddingPacingMs < 0
+  ) {
+    throw new SeedError(
+      'INVALID_EMBEDDING_PACING',
+      `${SEED_EMBEDDING_PACING_ENV} must be a non-negative integer number of milliseconds.`,
+    )
+  }
+
   const { db } = options
   const startedAt = new Date()
   const startedMs = Date.now()
@@ -415,7 +434,7 @@ export async function seedWorkspaceGraph(
 
   logger.info(`Workspace ${SEED_WORKSPACE_SLUG} (${SEED_WORKSPACE_ID}) created for actor ${actor.userId}`)
 
-  const sources = await ingestAssets(db, prepared, logger)
+  const sources = await ingestAssets(db, prepared, logger, embeddingPacingMs)
   const counts = await readCounts(db, sources)
 
   const heroSource = sources.find(
@@ -486,6 +505,7 @@ function formatSeedError(error: SeedError): string {
 }
 
 const SEED_APPROVED_SPEC_HASHES_ENV = 'SEED_APPROVED_LOGICAL_SPEC_HASHES'
+const SEED_EMBEDDING_PACING_ENV = 'SEED_EMBEDDING_PACING_MS'
 const SPEC_HASH_PATTERN = /^[0-9a-f]{64}$/
 const SEED_FLAGS = new Set([
   '--graph-only',
@@ -676,6 +696,8 @@ Required environment for the complete seed:
   NEON_AUTH_COOKIE_SECRET         app's Neon Auth cookie secret
   SEED_AUTH_COOKIE                Cookie header from a signed-in workspace account
   SEED_APPROVED_LOGICAL_SPEC_HASHES  --non-interactive only; see above
+  SEED_EMBEDDING_PACING_MS        optional pause between sources for free-tier
+                                  embedding quota, e.g. 65000
 
 The command never resets data. Use a fresh database for each attempt.`)
 }
