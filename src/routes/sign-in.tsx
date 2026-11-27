@@ -4,11 +4,15 @@ import { signIn } from '../utils/authClient';
 import { ShieldCheck, LogIn, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
 
 export const Route = createFileRoute('/sign-in')({
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
+    redirect: typeof search.redirect === 'string' ? search.redirect : undefined,
+  }),
   component: SignInPage,
 });
 
 function SignInPage() {
   const navigate = useNavigate();
+  const { redirect: redirectTo } = Route.useSearch();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -22,7 +26,11 @@ function SignInPage() {
     try {
       const res = await signIn({ email, password });
       if (res.ok) {
-        navigate({ to: '/' });
+        if (redirectTo && redirectTo.startsWith('/') && !redirectTo.startsWith('//')) {
+          window.location.assign(redirectTo);
+        } else {
+          navigate({ to: '/' });
+        }
       } else {
         setErrorMessage(res.error || 'Sign in failed');
       }

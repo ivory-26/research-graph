@@ -219,8 +219,10 @@ evidence; no further live provider calls were made.
 
 - **#7 graph write-back.** A completed run does not yet become result/run nodes
   plus the `produced` edge. That is the one integration seam #6 does not own.
-- **No browser client.** The routes work when called with `Request` objects;
-  the UI renders fixtures and never opens the stream.
+- **Browser client wiring.** `src/utils/pipelineClient.ts` (`subscribeToPipelineStream`
+  and `sendPipelineApproval`) and `src/routes/index.tsx` / `ApprovalModal.tsx`
+  wire the SSE stream and approval POST; live workspace experiment creation
+  still requires an active `experimentId` from a seeded/created experiment.
 - **Live verification is opt-in, not CI.** The two runs recorded above passed
   on 2026-11-25 against template build `3060b313`, but the files are skipped
   without credentials and are not part of the main suite. On 25 November

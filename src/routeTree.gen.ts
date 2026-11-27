@@ -12,8 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
-import { Route as ApiGraphRouteImport } from './routes/api/graph'
-import { Route as ApiStrategiesRouteImport } from './routes/api/strategies'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiPipelineExperimentIdRouteImport } from './routes/api/pipeline/$experimentId'
 import { Route as ApiPipelineExperimentIdApproveRouteImport } from './routes/api/pipeline/$experimentId/approve'
@@ -31,16 +29,6 @@ const SignInRoute = SignInRouteImport.update({
 const SignUpRoute = SignUpRouteImport.update({
   id: '/sign-up',
   path: '/sign-up',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiGraphRoute = ApiGraphRouteImport.update({
-  id: '/api/graph',
-  path: '/api/graph',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiStrategiesRoute = ApiStrategiesRouteImport.update({
-  id: '/api/strategies',
-  path: '/api/strategies',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -64,8 +52,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
-  '/api/graph': typeof ApiGraphRoute
-  '/api/strategies': typeof ApiStrategiesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/pipeline/$experimentId': typeof ApiPipelineExperimentIdRouteWithChildren
   '/api/pipeline/$experimentId/approve': typeof ApiPipelineExperimentIdApproveRoute
@@ -74,8 +60,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
-  '/api/graph': typeof ApiGraphRoute
-  '/api/strategies': typeof ApiStrategiesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/pipeline/$experimentId': typeof ApiPipelineExperimentIdRouteWithChildren
   '/api/pipeline/$experimentId/approve': typeof ApiPipelineExperimentIdApproveRoute
@@ -85,8 +69,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
-  '/api/graph': typeof ApiGraphRoute
-  '/api/strategies': typeof ApiStrategiesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/pipeline/$experimentId': typeof ApiPipelineExperimentIdRouteWithChildren
   '/api/pipeline/$experimentId/approve': typeof ApiPipelineExperimentIdApproveRoute
@@ -97,8 +79,6 @@ export interface FileRouteTypes {
     | '/'
     | '/sign-in'
     | '/sign-up'
-    | '/api/graph'
-    | '/api/strategies'
     | '/api/auth/$'
     | '/api/pipeline/$experimentId'
     | '/api/pipeline/$experimentId/approve'
@@ -107,8 +87,6 @@ export interface FileRouteTypes {
     | '/'
     | '/sign-in'
     | '/sign-up'
-    | '/api/graph'
-    | '/api/strategies'
     | '/api/auth/$'
     | '/api/pipeline/$experimentId'
     | '/api/pipeline/$experimentId/approve'
@@ -117,8 +95,6 @@ export interface FileRouteTypes {
     | '/'
     | '/sign-in'
     | '/sign-up'
-    | '/api/graph'
-    | '/api/strategies'
     | '/api/auth/$'
     | '/api/pipeline/$experimentId'
     | '/api/pipeline/$experimentId/approve'
@@ -128,8 +104,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
-  ApiGraphRoute: typeof ApiGraphRoute
-  ApiStrategiesRoute: typeof ApiStrategiesRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiPipelineExperimentIdRoute: typeof ApiPipelineExperimentIdRouteWithChildren
 }
@@ -155,20 +129,6 @@ declare module '@tanstack/react-router' {
       path: '/sign-up'
       fullPath: '/sign-up'
       preLoaderRoute: typeof SignUpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/graph': {
-      id: '/api/graph'
-      path: '/api/graph'
-      fullPath: '/api/graph'
-      preLoaderRoute: typeof ApiGraphRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/strategies': {
-      id: '/api/strategies'
-      path: '/api/strategies'
-      fullPath: '/api/strategies'
-      preLoaderRoute: typeof ApiStrategiesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -213,8 +173,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
-  ApiGraphRoute: ApiGraphRoute,
-  ApiStrategiesRoute: ApiStrategiesRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiPipelineExperimentIdRoute: ApiPipelineExperimentIdRouteWithChildren,
 }

@@ -104,7 +104,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
             </div>
             <div className="flex gap-2">
               <span className="badge-orange-outline rounded-none">
-                {runA?.data?.mode ?? 'adapted'}
+                {runA?.data?.mode ?? 'unspecified'}
               </span>
               <span className="badge-solid-white rounded-none uppercase">
                 {verdictLabelA}
@@ -147,7 +147,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
             </div>
             <div className="flex gap-2">
               <span className="badge-orange-outline rounded-none">
-                {runB?.data?.mode ?? 'adapted'}
+                {runB?.data?.mode ?? 'unspecified'}
               </span>
               <span className="badge-solid-white rounded-none uppercase">
                 {verdictLabelB}

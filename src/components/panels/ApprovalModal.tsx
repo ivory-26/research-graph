@@ -1,6 +1,7 @@
 import React from 'react';
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../../fixtures/hero-spec';
-import { ShieldCheck, Cpu, HardDrive, WifiOff, X } from 'lucide-react';
+import type { ExperimentSpec } from '../../shared/types';
+import { ShieldCheck, Cpu, HardDrive, WifiOff, X, AlertCircle } from 'lucide-react';
 
 interface ApprovalModalProps {
   isOpen: boolean;
@@ -9,6 +10,8 @@ interface ApprovalModalProps {
   onReject: (experimentId?: string, gateSeq?: number) => void;
   experimentId?: string;
   gateSeq?: number;
+  spec?: ExperimentSpec | null;
+  errorMessage?: string | null;
   isSubmitting?: boolean;
 }
 
@@ -19,11 +22,13 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
   onReject,
   experimentId = 'exp-hero-run-a',
   gateSeq = 1,
+  spec: liveSpec,
+  errorMessage,
   isSubmitting = false,
 }) => {
   if (!isOpen) return null;
 
-  const spec = HERO_EXPERIMENT_SPEC_RUN_A;
+  const spec = liveSpec ?? HERO_EXPERIMENT_SPEC_RUN_A;
   const primaryDataset = spec.datasets[0];
   const criteriaText = spec.criteria.checks
     .map((c) => `${c.metric} ${c.op === 'lte' ? '≤' : c.op === 'gt' ? '>' : c.op} ${c.value}`)
@@ -62,6 +67,12 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {errorMessage && (
+            <div className="flex items-center gap-2 border border-red-500/40 bg-red-950/20 p-3 text-xs text-red-300 font-mono">
+              <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
           {/* Resource & Isolation Boundary Cards with Sharp Corners */}
           <div className="grid grid-cols-3 gap-3">
             <div className="c p-3 flex items-center gap-3 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">

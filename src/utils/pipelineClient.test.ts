@@ -17,11 +17,11 @@ describe('sendPipelineApproval', () => {
 
     const res2 = await sendPipelineApproval({
       experimentId: 'exp-1',
-      gateSeq: NaN,
+      gateSeq: 0,
       decision: 'approved',
     });
     expect(res2.ok).toBe(false);
-    expect(res2.error).toContain('gateSeq must be a valid number');
+    expect(res2.error).toContain('positive integer');
 
     const res3 = await sendPipelineApproval({
       experimentId: 'exp-1',

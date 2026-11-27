@@ -10,8 +10,8 @@ Neon Auth (managed Better Auth) owns identities and sessions. The application's 
 | Same-origin `/api/auth/$` proxy | Built |
 | Workspace membership guard (`requireWorkspaceAccess`, `enforceWorkspaceMembership`) | Built; the approval POST uses `enforceWorkspaceMembership` |
 | Local and production-build harness (`scripts/auth-harness.mjs`) | Built |
-| Sign-in / sign-up screens, route protection, sign-out UI | **Not built** (#16) |
-| User-facing session state | Not built; the UI runs without an authenticated identity |
+| Sign-in / sign-up screens, route protection, sign-out UI | Built (`src/routes/sign-in.tsx`, `src/routes/sign-up.tsx`, `src/routes/index.tsx` `beforeLoad`, `Navbar` Sign Out) (#16) |
+| User-facing session state | Built via `getCurrentUser()` in `beforeLoad` and `src/utils/authClient.ts` against the `/api/auth/*` proxy |
 
 ## Setup
 

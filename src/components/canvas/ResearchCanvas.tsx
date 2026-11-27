@@ -26,7 +26,12 @@ import { MemoryNode } from './MemoryNode';
 import { MemoryGraphToolbar, type MemoryGraphSettings } from './MemoryGraphToolbar';
 import { CustomEvidenceEdge } from './CustomEdges';
 import { computeForceLayout } from '../../utils/forceSimulation';
-import { loadPersistedPositions, savePersistedPositions } from '../../utils/graphClient';
+import {
+  clearPersistedPositions,
+  loadPersistedPositions,
+  savePersistedPositions,
+  type PositionMap,
+} from '../../utils/graphClient';
 import type { WorkspaceNode, WorkspaceEdge } from '../../data/demoWorkspace';
 import { useTheme } from '../../context/ThemeContext';
 import {
@@ -150,10 +155,16 @@ function CanvasInner({
   }, [initialNodes, initialEdges, settings.repulsion, settings.linkDistance, simulationSeed]);
 
   // References for tracking layout inputs, rendered positions, and manual user drags
-  const userDraggedNodeIdsRef = useRef<Set<string>>(
-    new Set(Object.keys(loadPersistedPositions())),
-  );
+  const userDraggedNodeIdsRef = useRef<Set<string>>(new Set());
   const nodesRef = useRef<Node[]>([]);
+  const [persistedPositions, setPersistedPositions] = useState<PositionMap>({});
+
+  // Load persisted node coordinates on the client after mount / viewMode switch (SSR-safe)
+  useEffect(() => {
+    const loaded = loadPersistedPositions(viewMode);
+    setPersistedPositions(loaded);
+    userDraggedNodeIdsRef.current = new Set(Object.keys(loaded));
+  }, [viewMode]);
 
   // Double-click focus on node and immediate neighborhood (centred on actually rendered position)
   const handleNodeDoubleClick = useCallback(
@@ -175,16 +186,20 @@ function CanvasInner({
 
   const handleResetLayout = useCallback(() => {
     userDraggedNodeIdsRef.current.clear();
+    clearPersistedPositions(viewMode);
+    setPersistedPositions({});
     setSimulationSeed((s) => s + 1);
     setTimeout(() => {
-      fitView({ padding: 0.25, duration: 600 });
+      fitView({ padding: viewMode === 'memory' ? 0.38 : 0.25, duration: 600 });
     }, 100);
-  }, [fitView]);
+  }, [fitView, viewMode]);
 
   const handleAnimateLayout = useCallback(() => {
     userDraggedNodeIdsRef.current.clear();
+    clearPersistedPositions(viewMode);
+    setPersistedPositions({});
     setSimulationSeed((s) => s + 1);
-  }, []);
+  }, [viewMode]);
 
   const nodeTypes = useMemo(
     () => ({
@@ -295,8 +310,7 @@ function CanvasInner({
       const isDimmed = isCategoryDimmed || (hasLineage && !isLineageNode);
       const isHighlighted = hasLineage ? isLineageNode : false;
 
-      // Position: persisted user drag coordinates, organic force-directed position or cards pipeline position
-      const persistedPositions = loadPersistedPositions();
+      // Position: persisted user drag coordinates (per viewMode), organic force-directed position, or cards pipeline position
       const persisted = persistedPositions[n.id];
       const position =
         persisted ||
@@ -337,6 +351,7 @@ function CanvasInner({
     selectedNodeId,
     viewMode,
     forceLayout,
+    persistedPositions,
     settings,
     handleNodeDoubleClick,
   ]);
@@ -400,21 +415,10 @@ function CanvasInner({
   const handleNodesChange = useCallback(
     (changes: any) => {
       if (Array.isArray(changes)) {
-        const positions = loadPersistedPositions();
-        let hasPositionChange = false;
-
         for (const c of changes) {
           if (c.type === 'position' && (c.dragging || c.position)) {
             userDraggedNodeIdsRef.current.add(c.id);
-            if (c.position) {
-              positions[c.id] = { x: Math.round(c.position.x), y: Math.round(c.position.y) };
-              hasPositionChange = true;
-            }
           }
-        }
-
-        if (hasPositionChange) {
-          savePersistedPositions(positions);
         }
       }
       onNodesChange(changes);
@@ -517,9 +521,14 @@ function CanvasInner({
         onEdgesChange={onEdgesChange}
         onNodeDragStop={(_, node) => {
           userDraggedNodeIdsRef.current.add(node.id);
-          const positions = loadPersistedPositions();
-          positions[node.id] = { x: Math.round(node.position.x), y: Math.round(node.position.y) };
-          savePersistedPositions(positions);
+          setPersistedPositions((prev) => {
+            const next = {
+              ...prev,
+              [node.id]: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
+            };
+            savePersistedPositions(next, viewMode);
+            return next;
+          });
         }}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}

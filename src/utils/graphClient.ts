@@ -3,18 +3,26 @@ import type { WorkspaceNode, WorkspaceEdge } from '../data/demoWorkspace';
 
 export const GRAPH_POSITIONS_STORAGE_KEY = 'rg_node_positions';
 
+export type CanvasViewMode = 'memory' | 'cards';
 export type PositionMap = Record<string, { x: number; y: number }>;
 
+function getStorageKey(viewMode?: CanvasViewMode): string {
+  return viewMode ? `${GRAPH_POSITIONS_STORAGE_KEY}_${viewMode}` : GRAPH_POSITIONS_STORAGE_KEY;
+}
+
 /**
- * Loads user-dragged node coordinates from localStorage.
+ * Loads user-dragged node coordinates from localStorage for a given view mode.
  */
 export function loadPersistedPositions(
+  viewMode: CanvasViewMode = 'cards',
   storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
 ): PositionMap {
   if (!storage) return {};
   try {
-    const raw = storage.getItem(GRAPH_POSITIONS_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    const raw = storage.getItem(getStorageKey(viewMode));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
   }
@@ -25,28 +33,63 @@ export function loadPersistedPositions(
  */
 export function savePersistedPositions(
   positions: PositionMap,
+  viewMode: CanvasViewMode = 'cards',
   storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
 ): void {
   if (!storage) return;
   try {
-    storage.setItem(GRAPH_POSITIONS_STORAGE_KEY, JSON.stringify(positions));
+    storage.setItem(getStorageKey(viewMode), JSON.stringify(positions));
   } catch {
     // Gracefully handle storage quota or privacy restrictions
   }
 }
 
 /**
- * Clears persisted node positions, resetting to default calculated force layout.
+ * Clears persisted node positions, resetting to default calculated layout.
  */
 export function clearPersistedPositions(
+  viewMode?: CanvasViewMode,
   storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
 ): void {
   if (!storage) return;
   try {
-    storage.removeItem(GRAPH_POSITIONS_STORAGE_KEY);
+    if (viewMode) {
+      storage.removeItem(getStorageKey(viewMode));
+    } else {
+      storage.removeItem(getStorageKey('cards'));
+      storage.removeItem(getStorageKey('memory'));
+      storage.removeItem(GRAPH_POSITIONS_STORAGE_KEY);
+    }
   } catch {
     // Ignore
   }
+}
+
+function isValidGraphPayload(data: unknown): data is { nodes: WorkspaceNode[]; edges: WorkspaceEdge[] } {
+  if (!data || typeof data !== 'object') return false;
+  const candidate = data as Record<string, unknown>;
+  if (!Array.isArray(candidate.nodes) || !Array.isArray(candidate.edges)) return false;
+
+  const nodesValid = candidate.nodes.every(
+    (n) =>
+      n &&
+      typeof n === 'object' &&
+      typeof (n as any).id === 'string' &&
+      typeof (n as any).type === 'string' &&
+      (n as any).position &&
+      typeof (n as any).position.x === 'number' &&
+      typeof (n as any).position.y === 'number',
+  );
+  const edgesValid = candidate.edges.every(
+    (e) =>
+      e &&
+      typeof e === 'object' &&
+      typeof (e as any).id === 'string' &&
+      typeof (e as any).source === 'string' &&
+      typeof (e as any).target === 'string',
+  );
+
+  return nodesValid && edgesValid;
 }
 
 export interface WorkspaceGraphData {
@@ -71,7 +114,7 @@ export async function fetchWorkspaceGraph(
 
     if (res.ok) {
       const data = await res.json().catch(() => null);
-      if (data && Array.isArray(data.nodes) && Array.isArray(data.edges)) {
+      if (isValidGraphPayload(data)) {
         return {
           nodes: data.nodes,
           edges: data.edges,

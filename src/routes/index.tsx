@@ -20,8 +20,10 @@ import {
   DEMO_EDGES,
 } from '../data/demoWorkspace';
 import type { WorkspaceNode, WorkspaceEdge } from '../data/demoWorkspace';
+import type { ExperimentSpec } from '../shared/types';
 import { Plus, Play } from 'lucide-react';
 import { getCurrentUser } from '../server/auth';
+import { signOut } from '../utils/authClient';
 import { sendPipelineApproval, subscribeToPipelineStream } from '../utils/pipelineClient';
 import { fetchWorkspaceGraph } from '../utils/graphClient';
 
@@ -68,26 +70,19 @@ export const Route = createFileRoute('/')({
     };
   },
   beforeLoad: async ({ location }) => {
-    try {
-      const user = await getCurrentUser();
-      if (!user) {
-        const search = location.search as Record<string, unknown>;
-        if (search?.preview === 'true') {
-          return { user: null, isPreview: true };
-        }
-        throw redirect({
-          to: '/sign-in',
-          search: { redirect: location.href },
-        });
-      }
-      return { user, isPreview: false };
-    } catch (err: any) {
-      if (err?.isRedirect || (err && typeof err === 'object' && 'statusCode' in err)) {
-        throw err;
-      }
-      // If auth service is not configured (e.g. local loopback testing), permit preview access
+    const search = location.search as Record<string, unknown>;
+    if (import.meta.env.DEV && search?.preview === 'true') {
       return { user: null, isPreview: true };
     }
+
+    const user = await getCurrentUser();
+    if (!user) {
+      throw redirect({
+        to: '/sign-in',
+        search: { redirect: location.href },
+      });
+    }
+    return { user, isPreview: false };
   },
   component: WorkspacePage,
 });
@@ -183,8 +178,10 @@ function WorkspacePage() {
   ]);
 
   // Pipeline backend integration state
-  const [experimentId, setExperimentId] = useState('exp-hero-run-a');
-  const [gateSeq, setGateSeq] = useState(1);
+  const [experimentId, setExperimentId] = useState<string | null>(null);
+  const [gateSeq, setGateSeq] = useState<number | null>(null);
+  const [activeGateSpec, setActiveGateSpec] = useState<ExperimentSpec | null>(null);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
   const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
   const streamCleanupRef = useRef<(() => void) | null>(null);
 
@@ -222,9 +219,61 @@ function WorkspacePage() {
     showToast(`Source queued: ${title} (${kind.toUpperCase()})`);
   };
 
-  // Connects Plan & Run to the experiment approval lifecycle and SSE stream
-  const handleApproveExperiment = async (expId = experimentId, seq = gateSeq) => {
+  // Opens the SSE pipeline stream first; the backend creates and emits `approval.requested`
+  const handleOpenPipelineRun = (targetExperimentId?: string) => {
+    setApprovalError(null);
+    const expId = targetExperimentId ?? experimentId;
+
+    if (!expId) {
+      // No live experiment ID bound yet; open modal in preview inspection mode
+      setIsApprovalOpen(true);
+      return;
+    }
+
+    if (!streamCleanupRef.current) {
+      setIsConsoleOpen(true);
+      setExecutionLogs((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] [SSE] Connecting to /api/pipeline/${expId}...`,
+      ]);
+
+      streamCleanupRef.current = subscribeToPipelineStream(expId, {
+        onLog: (line) => {
+          setExecutionLogs((prev) => [...prev, line]);
+        },
+        onApprovalRequested: (event) => {
+          setExperimentId(event.experimentId);
+          setGateSeq(event.seq);
+          setActiveGateSpec(event.spec);
+          setApprovalError(null);
+          setIsApprovalOpen(true);
+        },
+        onError: () => {
+          const msg = `Pipeline stream error for ${expId}`;
+          setExecutionLogs((prev) => [
+            ...prev,
+            `[${new Date().toLocaleTimeString()}] [SSE ERROR] ${msg}`,
+          ]);
+          showToast(msg);
+        },
+        onComplete: () => {
+          streamCleanupRef.current = null;
+        },
+      });
+    } else {
+      setIsApprovalOpen(true);
+    }
+  };
+
+  // Decision handlers only POST; the open SSE stream delivers approval.resolved & terminal events
+  const handleApproveExperiment = async (expId = experimentId ?? undefined, seq = gateSeq ?? undefined) => {
+    if (!expId || seq == null) {
+      setApprovalError('No active pipeline gate has been requested yet. Start a pipeline run first.');
+      return;
+    }
+
     setIsSubmittingApproval(true);
+    setApprovalError(null);
     const timestamp = new Date().toLocaleTimeString();
 
     try {
@@ -234,68 +283,66 @@ function WorkspacePage() {
         decision: 'approved',
       });
 
+      if (!result.ok) {
+        const errMsg = result.error || `Approval refused (HTTP ${result.status})`;
+        setApprovalError(errMsg);
+        showToast(errMsg);
+        return;
+      }
+
       setIsApprovalOpen(false);
       setIsConsoleOpen(true);
-
-      if (result.ok) {
-        showToast(`Plan confirmed for ${expId} (gate #${seq})`);
-        setExecutionLogs((prev) => [
-          ...prev,
-          `[${timestamp}] [POST /api/pipeline/${expId}/approve] Gate #${seq} approved`,
-        ]);
-      } else {
-        showToast(result.error ? `Notice: ${result.error}` : 'Plan confirmed in preview session');
-        setExecutionLogs((prev) => [
-          ...prev,
-          `[${timestamp}] [APPROVAL] Plan specification approved for ${expId}`,
-        ]);
-      }
-
-      // Subscribe to backend SSE stream for real-time progress and logs
-      if (streamCleanupRef.current) {
-        streamCleanupRef.current();
-      }
-
-      streamCleanupRef.current = subscribeToPipelineStream(expId, {
-        onLog: (line) => {
-          setExecutionLogs((prev) => [...prev, line]);
-        },
-        onApprovalRequested: (event) => {
-          setGateSeq(event.seq);
-          setIsApprovalOpen(true);
-        },
-        onError: () => {},
-      });
+      showToast(`Plan confirmed for ${expId} (gate #${seq})`);
+      setExecutionLogs((prev) => [
+        ...prev,
+        `[${timestamp}] [POST /api/pipeline/${expId}/approve] Gate #${seq} approved`,
+      ]);
     } finally {
       setIsSubmittingApproval(false);
     }
   };
 
-  const handleRejectExperiment = async (expId = experimentId, seq = gateSeq) => {
+  const handleRejectExperiment = async (expId = experimentId ?? undefined, seq = gateSeq ?? undefined) => {
+    if (!expId || seq == null) {
+      setApprovalError('No active pipeline gate has been requested yet.');
+      return;
+    }
+
     setIsSubmittingApproval(true);
+    setApprovalError(null);
     const timestamp = new Date().toLocaleTimeString();
 
     try {
-      await sendPipelineApproval({
+      const result = await sendPipelineApproval({
         experimentId: expId,
         gateSeq: seq,
         decision: 'rejected',
       });
 
+      if (!result.ok) {
+        const errMsg = result.error || `Rejection refused (HTTP ${result.status})`;
+        setApprovalError(errMsg);
+        showToast(errMsg);
+        return;
+      }
+
       setIsApprovalOpen(false);
       showToast('Experiment plan rejected');
-
       setExecutionLogs((prev) => [
         ...prev,
         `[${timestamp}] [POST /api/pipeline/${expId}/approve] Gate #${seq} rejected`,
       ]);
-
-      if (streamCleanupRef.current) {
-        streamCleanupRef.current();
-        streamCleanupRef.current = null;
-      }
     } finally {
       setIsSubmittingApproval(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    const res = await signOut();
+    if (res.ok) {
+      navigate({ to: '/sign-in' });
+    } else {
+      showToast(res.error || 'Sign out failed');
     }
   };
 
@@ -319,9 +366,10 @@ function WorkspacePage() {
           onSelectWorkspace={handleSelectWorkspace}
           isInspectorOpen={isInspectorOpen}
           onToggleInspector={() => setIsInspectorOpen(!isInspectorOpen)}
-          onOpenApproval={() => setIsApprovalOpen(true)}
+          onOpenApproval={() => handleOpenPipelineRun()}
           onOpenExport={() => setIsExportOpen(true)}
           onToggleConsole={() => setIsConsoleOpen(!isConsoleOpen)}
+          onSignOut={handleSignOut}
           onAddSource={() => {
             if (currentPage === 'sources') {
               const input = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -360,7 +408,7 @@ function WorkspacePage() {
 
               {currentPage === 'experiments' && (
                 <button
-                  onClick={() => setIsApprovalOpen(true)}
+                  onClick={() => handleOpenPipelineRun()}
                   className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono bg-[#f97316] text-black font-bold hover:bg-[#ea580c] transition"
                 >
                   <Play className="h-3.5 w-3.5 fill-current" />
@@ -430,7 +478,7 @@ function WorkspacePage() {
 
           {currentPage === 'experiments' && (
             <ExperimentsPage
-              onOpenApproval={() => setIsApprovalOpen(true)}
+              onOpenApproval={() => handleOpenPipelineRun()}
               onOpenCompare={() => setCurrentPage('compare')}
             />
           )}
@@ -459,11 +507,16 @@ function WorkspacePage() {
       {/* Global Modals */}
       <ApprovalModal
         isOpen={isApprovalOpen}
-        onClose={() => setIsApprovalOpen(false)}
+        onClose={() => {
+          setApprovalError(null);
+          setIsApprovalOpen(false);
+        }}
         onApprove={handleApproveExperiment}
         onReject={handleRejectExperiment}
-        experimentId={experimentId}
-        gateSeq={gateSeq}
+        experimentId={experimentId ?? undefined}
+        gateSeq={gateSeq ?? undefined}
+        spec={activeGateSpec}
+        errorMessage={approvalError}
         isSubmitting={isSubmittingApproval}
       />
 

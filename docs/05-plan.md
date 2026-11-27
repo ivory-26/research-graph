@@ -69,11 +69,11 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 | Write a completed run back as result/run nodes and the `produced` edge | #7 | the graph beat showing a real result |
 | Rebuild the recorded workspace with `pnpm seed` | #8 | a repeatable recording from an empty database |
 | Production deploy | #9 | the deployed-link success criterion |
-| Sign-in screens | #16 | a user-facing auth flow |
+| Sign-in screens | #16 | Built in `src/routes/sign-in.tsx`, `sign-up.tsx`, and `index.tsx` `beforeLoad` |
 | What-if branch execution | — | Run B and a real comparison |
 | Repair loop and multi-strategy selection | — | the "learning" beat |
 | Server-side notebook export | — | a notebook generated from a real run |
-| Browser→pipeline bridge | — | every live UI beat |
+| Browser→pipeline bridge | #20 | `src/utils/pipelineClient.ts` wired to `ApprovalModal` and `index.tsx` |
 
 `pnpm typecheck` and `pnpm db:check` pass. `pnpm test` runs 27 `node:test` transport checks plus the Vitest suite: 303 passed and 29 skipped on 25 November. The skipped files are the opt-in Postgres, E2B and Gemini integration suites.
 

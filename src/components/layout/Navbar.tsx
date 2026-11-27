@@ -11,6 +11,7 @@ import {
   Download,
   ChevronDown,
   Sparkles,
+  LogOut,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -30,6 +31,7 @@ interface NavbarProps {
   onOpenExport: () => void;
   onToggleConsole: () => void;
   onAddSource?: () => void;
+  onSignOut?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -42,6 +44,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenExport,
   onToggleConsole,
   onAddSource,
+  onSignOut,
 }) => {
   const { theme, toggleTheme } = useTheme();
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
@@ -286,6 +289,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Sparkles className="h-3.5 w-3.5 text-sky-400" />
                   <span>Review Experiment Plan</span>
                 </button>
+                {onSignOut && (
+                  <button
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onSignOut();
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-2 text-left text-red-400 hover:bg-[var(--bg-surface-hover)] border-t border-[var(--border-primary)] mt-1 pt-2 transition"
+                    title="Sign out"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    <span>Sign Out</span>
+                  </button>
+                )}
               </div>
             )}
           </div>

@@ -39,11 +39,11 @@ export async function sendPipelineApproval(
     };
   }
 
-  if (typeof gateSeq !== 'number' || Number.isNaN(gateSeq)) {
+  if (!Number.isSafeInteger(gateSeq) || gateSeq <= 0) {
     return {
       ok: false,
       status: 400,
-      error: 'gateSeq must be a valid number',
+      error: 'gateSeq must be a positive integer',
     };
   }
 
@@ -132,7 +132,10 @@ export function subscribeToPipelineStream(
     return () => {};
   }
 
-  const url = `/api/pipeline/${encodeURIComponent(experimentId)}`;
+  const baseUrl = `/api/pipeline/${encodeURIComponent(experimentId)}`;
+  const url = options?.lastEventId
+    ? `${baseUrl}?lastEventId=${encodeURIComponent(options.lastEventId)}`
+    : baseUrl;
   const es = new ES(url);
 
   es.onmessage = (e: MessageEvent) => {

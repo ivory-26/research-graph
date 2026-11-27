@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { DEMO_STRATEGIES } from '../../data/demoWorkspace';
 import {
-  PREVIEW_AGENT_TASKS,
   aggregateAgentTasks,
-  fetchAgentTasks,
   type AgentTaskRow,
 } from '../../utils/strategyClient';
 import { X, AlertTriangle } from 'lucide-react';
@@ -11,59 +10,92 @@ interface StrategyDashboardProps {
   isModal?: boolean;
   isOpen?: boolean;
   onClose?: () => void;
+  tasks?: AgentTaskRow[];
 }
 
 export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
   isModal = false,
   isOpen = true,
   onClose,
+  tasks,
 }) => {
-  const [tasks, setTasks] = useState<AgentTaskRow[]>(PREVIEW_AGENT_TASKS);
-  const [dataSource, setDataSource] = useState<'api' | 'preview'>('preview');
   const [runFilter, setRunFilter] = useState<string>('all');
-
-  useEffect(() => {
-    let active = true;
-    fetchAgentTasks().then((res) => {
-      if (active) {
-        setTasks(res.tasks);
-        setDataSource(res.source);
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
 
   if (!isOpen) return null;
 
+  const hasLiveTasks = Boolean(tasks && tasks.length > 0);
+  const liveTasks = tasks ?? [];
+
   const availableRuns = useMemo(() => {
-    const runs = new Set(tasks.map((t) => t.runId));
+    if (!hasLiveTasks) return ['all'];
+    const runs = new Set(liveTasks.map((t) => t.runId));
     return ['all', ...Array.from(runs).sort()];
-  }, [tasks]);
+  }, [hasLiveTasks, liveTasks]);
 
   const filteredTasks = useMemo(
-    () => (runFilter === 'all' ? tasks : tasks.filter((t) => t.runId === runFilter)),
-    [tasks, runFilter],
+    () => (runFilter === 'all' ? liveTasks : liveTasks.filter((t) => t.runId === runFilter)),
+    [liveTasks, runFilter],
   );
 
-  const strategies = useMemo(
-    () => aggregateAgentTasks(tasks, runFilter),
-    [tasks, runFilter],
+  const liveRows = useMemo(
+    () => (hasLiveTasks ? aggregateAgentTasks(liveTasks, runFilter) : []),
+    [hasLiveTasks, liveTasks, runFilter],
   );
 
   const failedTasks = useMemo(
-    () => filteredTasks.filter((t) => t.status === 'failed'),
+    () => filteredTasks.filter((t) => t.status === 'failed' || t.status === 'rejected'),
     [filteredTasks],
   );
 
-  const totalAttempts = filteredTasks.length;
-  const totalFailures = failedTasks.length;
-  const totalCost = filteredTasks.reduce((sum, t) => sum + t.costUsd, 0);
-  const avgLatency =
-    totalAttempts > 0
-      ? (filteredTasks.reduce((sum, t) => sum + t.latencyMs, 0) / totalAttempts / 1000).toFixed(2)
-      : '0.00';
+  const rows = hasLiveTasks
+    ? liveRows.map((s) => ({
+        key: s.key,
+        taskKind: s.taskKind,
+        strategyId: s.strategyId,
+        preferred: s.preferred,
+        attempts: s.attempts,
+        successes: s.successes,
+        failures: s.failures,
+        successRate: s.successRate,
+        avgLatencyMs: s.avgLatencyMs,
+        avgCostUsd: s.avgCostUsd,
+        score: s.score,
+      }))
+    : DEMO_STRATEGIES.map((s) => {
+        const failures = Math.max(0, s.attempts - s.successes);
+        const successRate = s.attempts > 0 ? (s.successes / s.attempts) * 100 : 0;
+        const avgCostUsd = s.attempts > 0 ? s.totalCostUsd / s.attempts : 0;
+        return {
+          key: s.id,
+          taskKind: s.taskKind,
+          strategyId: s.name,
+          preferred: Boolean(s.preferred),
+          attempts: s.attempts,
+          successes: s.successes,
+          failures,
+          successRate,
+          avgLatencyMs: s.avgLatencyMs,
+          avgCostUsd,
+          score: s.score,
+        };
+      });
+
+  const totalAttempts = hasLiveTasks
+    ? filteredTasks.length
+    : DEMO_STRATEGIES.reduce((sum, s) => sum + s.attempts, 0);
+  const totalFailures = hasLiveTasks
+    ? failedTasks.length
+    : DEMO_STRATEGIES.reduce((sum, s) => sum + Math.max(0, s.attempts - s.successes), 0);
+  const totalCost = hasLiveTasks
+    ? filteredTasks.reduce((sum, t) => sum + t.costUsd, 0)
+    : DEMO_STRATEGIES.reduce((sum, s) => sum + s.totalCostUsd, 0);
+  const avgLatency = hasLiveTasks
+    ? filteredTasks.length > 0
+      ? (filteredTasks.reduce((sum, t) => sum + t.latencyMs, 0) / filteredTasks.length / 1000).toFixed(2)
+      : '0.00'
+    : DEMO_STRATEGIES.length > 0
+      ? (DEMO_STRATEGIES.reduce((sum, s) => sum + s.avgLatencyMs, 0) / DEMO_STRATEGIES.length / 1000).toFixed(1)
+      : '0.0';
 
   const content = (
     <div className="w-full max-w-[1200px] mx-auto p-6 flex flex-col gap-5 text-[var(--text-secondary)]">
@@ -73,32 +105,35 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
           <div className="flex items-center gap-2 mb-1">
             <div className="l">Adaptive Agent Strategies</div>
             <span className="badge-orange-outline !text-[8px] rounded-none">
-              {dataSource === 'api' ? 'LIVE AGENT_TASKS' : 'PREVIEW'}
+              {hasLiveTasks ? 'LIVE AGENT_TASKS' : 'DEMO FIXTURE'}
             </span>
           </div>
           <div className="text-[22px] font-bold mt-1 text-[var(--text-primary)] font-mono tracking-tight">
-            Autonomous Strategy Selection · Task Aggregation
+            {hasLiveTasks
+              ? 'Autonomous Strategy Selection · Task Aggregation'
+              : 'Autonomous Strategy Selection · Demo Fixture Preview'}
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Extraction Run Filter */}
-          <div className="flex items-center gap-1 border border-[var(--border-primary)] bg-[var(--bg-surface)] p-1 font-mono text-[11px]">
-            {availableRuns.map((runId) => (
-              <button
-                key={runId}
-                type="button"
-                onClick={() => setRunFilter(runId)}
-                className={`px-2.5 py-1 transition uppercase cursor-pointer ${
-                  runFilter === runId
-                    ? 'bg-[#f97316] text-black font-bold'
-                    : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                {runId === 'all' ? 'All Runs' : runId}
-              </button>
-            ))}
-          </div>
+          {hasLiveTasks && (
+            <div className="flex items-center gap-1 border border-[var(--border-primary)] bg-[var(--bg-surface)] p-1 font-mono text-[11px]">
+              {availableRuns.map((runId) => (
+                <button
+                  key={runId}
+                  type="button"
+                  onClick={() => setRunFilter(runId)}
+                  className={`px-2.5 py-1 transition uppercase cursor-pointer ${
+                    runFilter === runId
+                      ? 'bg-[#f97316] text-black font-bold'
+                      : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  {runId === 'all' ? 'All Runs' : runId}
+                </button>
+              ))}
+            </div>
+          )}
 
           {isModal && onClose && (
             <button
@@ -114,7 +149,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
       {/* KPI Cards with Sharp Corners */}
       <div className="flex gap-4 flex-wrap">
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
-          <div className="l">Tasks Recorded</div>
+          <div className="l">{hasLiveTasks ? 'Tasks Recorded' : 'Fixture Tasks'}</div>
           <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">
             {totalAttempts}
             {totalFailures > 0 && (
@@ -124,20 +159,26 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
             )}
           </div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">
-            Grouped from agent_tasks ({runFilter === 'all' ? 'all runs' : runFilter})
+            {hasLiveTasks
+              ? `Grouped from agent_tasks (${runFilter === 'all' ? 'all runs' : runFilter})`
+              : 'Demo fixture preview (fixtures/workspace.json)'}
           </div>
         </div>
 
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Total Cost</div>
           <div className="text-[32px] font-bold mt-2 text-[#f97316] font-mono">${totalCost.toFixed(3)}</div>
-          <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">Aggregated task cost</div>
+          <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">
+            {hasLiveTasks ? 'Measured task cost' : 'Demo fixture baseline'}
+          </div>
         </div>
 
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Average Latency</div>
           <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">{avgLatency} s</div>
-          <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">Mean task duration</div>
+          <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">
+            {hasLiveTasks ? 'Mean task duration' : 'Demo fixture baseline'}
+          </div>
         </div>
       </div>
 
@@ -158,9 +199,8 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
             </tr>
           </thead>
           <tbody>
-            {strategies.map((strat) => {
-              const isPreferred = Boolean(strat.preferred);
-              const barColor = isPreferred ? '#f97316' : 'var(--border-secondary)';
+            {rows.map((strat) => {
+              const barColor = strat.preferred ? '#f97316' : 'var(--border-secondary)';
               const percent = Math.round(strat.score * 100);
 
               return (
@@ -168,7 +208,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
                   <td className="p-3.5 m text-[var(--text-primary)] font-medium">{strat.taskKind}</td>
                   <td className="p-3.5 text-[var(--text-primary)]">
                     <span className="font-mono text-[13px]">{strat.strategyId}</span>
-                    {isPreferred && (
+                    {strat.preferred && (
                       <span className="badge-orange-outline ml-2.5 rounded-none">
                         PREFERRED
                       </span>
@@ -211,8 +251,8 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
         </table>
       </div>
 
-      {/* Explicit Failed Task Rows */}
-      {failedTasks.length > 0 && (
+      {/* Explicit Failed Task Rows (only when live agent_tasks are present) */}
+      {hasLiveTasks && failedTasks.length > 0 && (
         <div className="c p-4 bg-[var(--card-bg)] border border-red-500/30 rounded-none space-y-2.5">
           <div className="flex items-center gap-2 text-xs font-mono font-bold text-red-400 uppercase">
             <AlertTriangle className="h-3.5 w-3.5" />
@@ -226,7 +266,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
               >
                 <div className="flex items-center gap-2">
                   <span className="px-1.5 py-0.5 bg-red-500/10 border border-red-500/40 text-red-400 text-[10px]">
-                    FAILED
+                    {t.status.toUpperCase()}
                   </span>
                   <span className="text-[var(--text-primary)] font-semibold">{t.taskKind}</span>
                   <span className="text-[var(--text-dim)]">·</span>
@@ -242,9 +282,11 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
         </div>
       )}
 
-      {/* Illustrative Footer Note */}
+      {/* Footer Note */}
       <div className="text-[11px] text-[var(--text-dim)] font-mono">
-        Strategy Evaluation: Aggregated by (task_kind, strategy_id, run_id) using Thompson Sampling over task outcomes.
+        {hasLiveTasks
+          ? 'Strategy Evaluation: Aggregated by (task_kind, strategy_id, run_id) using Thompson Sampling over task outcomes.'
+          : 'Strategy Evaluation (Demo Fixture): Displays illustrative fixture values from fixtures/workspace.json until live agent_tasks rows are recorded.'}
       </div>
     </div>
   );
