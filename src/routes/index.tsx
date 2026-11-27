@@ -42,6 +42,7 @@ const VALID_PAGES: ReadonlySet<PageId> = new Set([
 export interface WorkspaceSearchParams {
   page?: PageId;
   workspace?: string;
+  experimentId?: string;
   preview?: string;
   redirect?: string;
 }
@@ -50,12 +51,7 @@ const WORKSPACES = [
   {
     id: 'research-graph',
     name: 'Research Graph',
-    subtitle: '3 sources · 1 claim · OpenML:52350',
-  },
-  {
-    id: 'strobl-repro',
-    name: 'Strobl 2007/2008 Repro',
-    subtitle: 'Hero experiment lineage · RF bias audit',
+    subtitle: '3 sources · 1 claim · OpenML:52350 (fixture)',
   },
 ];
 
@@ -65,6 +61,7 @@ export const Route = createFileRoute('/')({
     return {
       page: rawPage && VALID_PAGES.has(rawPage) ? rawPage : undefined,
       workspace: typeof search.workspace === 'string' ? search.workspace : undefined,
+      experimentId: typeof search.experimentId === 'string' ? search.experimentId : undefined,
       preview: typeof search.preview === 'string' ? search.preview : undefined,
       redirect: typeof search.redirect === 'string' ? search.redirect : undefined,
     };
@@ -178,22 +175,27 @@ function WorkspacePage() {
   ]);
 
   // Pipeline backend integration state
-  const [experimentId, setExperimentId] = useState<string | null>(null);
+  const [experimentId, setExperimentId] = useState<string | null>(search.experimentId ?? null);
   const [gateSeq, setGateSeq] = useState<number | null>(null);
   const [activeGateSpec, setActiveGateSpec] = useState<ExperimentSpec | null>(null);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const streamCleanupRef = useRef<(() => void) | null>(null);
 
-  // Load graph from API if configured, falling back to fixture
+  // Load graph from API if workspace UUID is provided, falling back to fixture
   useEffect(() => {
     let active = true;
-    fetchWorkspaceGraph().then((res) => {
+    fetchWorkspaceGraph(search.workspace).then((res) => {
       if (active && res.source === 'api') {
         setNodes(res.nodes);
         setEdges(res.edges);
       }
     });
+
+    if (search.experimentId) {
+      handleOpenPipelineRun(search.experimentId);
+    }
 
     return () => {
       active = false;
@@ -202,7 +204,7 @@ function WorkspacePage() {
         streamCleanupRef.current = null;
       }
     };
-  }, []);
+  }, [search.workspace]);
 
   const selectedEdge = edges.find((e) => e.id === selectedEdgeId) || edges[0] || null;
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
@@ -225,12 +227,15 @@ function WorkspacePage() {
     const expId = targetExperimentId ?? experimentId;
 
     if (!expId) {
-      // No live experiment ID bound yet; open modal in preview inspection mode
+      // No live experiment ID bound yet; open modal in fixture preview mode (approve/reject disabled)
       setIsApprovalOpen(true);
       return;
     }
 
+    setExperimentId(expId);
+
     if (!streamCleanupRef.current) {
+      setIsStreaming(true);
       setIsConsoleOpen(true);
       setExecutionLogs((prev) => [
         ...prev,
@@ -255,9 +260,11 @@ function WorkspacePage() {
             `[${new Date().toLocaleTimeString()}] [SSE ERROR] ${msg}`,
           ]);
           showToast(msg);
+          setIsStreaming(false);
         },
         onComplete: () => {
           streamCleanupRef.current = null;
+          setIsStreaming(false);
         },
       });
     } else {
@@ -513,11 +520,13 @@ function WorkspacePage() {
         }}
         onApprove={handleApproveExperiment}
         onReject={handleRejectExperiment}
-        experimentId={experimentId ?? undefined}
-        gateSeq={gateSeq ?? undefined}
+        onStartStream={(id) => handleOpenPipelineRun(id)}
+        experimentId={experimentId}
+        gateSeq={gateSeq}
         spec={activeGateSpec}
         errorMessage={approvalError}
         isSubmitting={isSubmittingApproval}
+        isStreaming={isStreaming}
       />
 
       <ExportModal

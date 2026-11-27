@@ -1,18 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../../fixtures/hero-spec';
 import type { ExperimentSpec } from '../../shared/types';
-import { ShieldCheck, Cpu, HardDrive, WifiOff, X, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Cpu, HardDrive, WifiOff, X, AlertCircle, Play } from 'lucide-react';
 
 interface ApprovalModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onApprove: (experimentId?: string, gateSeq?: number) => void;
-  onReject: (experimentId?: string, gateSeq?: number) => void;
-  experimentId?: string;
-  gateSeq?: number;
+  onApprove: (experimentId: string, gateSeq: number) => void;
+  onReject: (experimentId: string, gateSeq: number) => void;
+  onStartStream?: (experimentId: string) => void;
+  experimentId?: string | null;
+  gateSeq?: number | null;
   spec?: ExperimentSpec | null;
   errorMessage?: string | null;
   isSubmitting?: boolean;
+  isStreaming?: boolean;
 }
 
 export const ApprovalModal: React.FC<ApprovalModalProps> = ({
@@ -20,14 +22,19 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
   onClose,
   onApprove,
   onReject,
-  experimentId = 'exp-hero-run-a',
-  gateSeq = 1,
+  onStartStream,
+  experimentId,
+  gateSeq,
   spec: liveSpec,
   errorMessage,
   isSubmitting = false,
+  isStreaming = false,
 }) => {
+  const [inputExperimentId, setInputExperimentId] = useState('');
+
   if (!isOpen) return null;
 
+  const hasLiveGate = Boolean(experimentId && gateSeq != null && gateSeq > 0 && liveSpec);
   const spec = liveSpec ?? HERO_EXPERIMENT_SPEC_RUN_A;
   const primaryDataset = spec.datasets[0];
   const criteriaText = spec.criteria.checks
@@ -49,11 +56,17 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
                   Human Approval Gate: Experiment Plan
                 </h2>
                 <span className="badge-orange-outline rounded-none">
-                  AWAIT_APPROVAL
+                  {hasLiveGate ? 'AWAIT_APPROVAL' : 'FIXTURE PREVIEW · NO LIVE GATE'}
                 </span>
               </div>
               <p className="text-xs text-[var(--text-dim)] mt-0.5 font-mono">
-                Experiment: <span className="text-[#f97316] font-semibold">{experimentId}</span> · Gate Seq: #{gateSeq} · Python sandbox specification
+                {hasLiveGate ? (
+                  <>
+                    Experiment: <span className="text-[#f97316] font-semibold">{experimentId}</span> · Gate Seq: #{gateSeq} · Python sandbox specification
+                  </>
+                ) : (
+                  'Showing HERO_EXPERIMENT_SPEC_RUN_A fixture preview. Open a pipeline stream for a live experiment ID to approve or reject.'
+                )}
               </p>
             </div>
           </div>
@@ -73,6 +86,28 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
               <span>{errorMessage}</span>
             </div>
           )}
+
+          {!hasLiveGate && onStartStream && (
+            <div className="c p-3.5 bg-[var(--card-bg)] border border-[var(--border-primary)] flex items-center gap-2 flex-wrap font-mono text-xs">
+              <input
+                type="text"
+                value={inputExperimentId}
+                onChange={(e) => setInputExperimentId(e.target.value)}
+                placeholder="Enter experiment UUID to stream..."
+                className="flex-1 min-w-[220px] border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-1.5 text-xs text-[var(--text-primary)] placeholder-[var(--text-dim)] focus:border-[#f97316] focus:outline-none"
+              />
+              <button
+                type="button"
+                disabled={!inputExperimentId.trim() || isStreaming}
+                onClick={() => onStartStream(inputExperimentId.trim())}
+                className="h-8 px-3 bg-[#f97316] text-black font-bold uppercase text-[11px] hover:bg-[#ea580c] transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Play className="h-3 w-3 fill-current" />
+                <span>{isStreaming ? 'Streaming...' : 'Open Pipeline Stream'}</span>
+              </button>
+            </div>
+          )}
+
           {/* Resource & Isolation Boundary Cards with Sharp Corners */}
           <div className="grid grid-cols-3 gap-3">
             <div className="c p-3 flex items-center gap-3 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
@@ -147,7 +182,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
               </span>
             </div>
             <pre className="max-h-60 overflow-y-auto rounded-none border border-[var(--border-primary)] bg-[var(--card-bg)] p-4 font-mono text-[11px] text-[var(--text-primary)] leading-relaxed">
-              <code>{spec.files['main.py']}</code>
+              <code>{spec.files[spec.entrypoint] ?? spec.files['main.py']}</code>
             </pre>
           </div>
         </div>
@@ -155,16 +190,18 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
         {/* Footer Actions with Sharp Corners */}
         <div className="flex items-center justify-end gap-3 border-t border-[var(--border-primary)] p-4 bg-[var(--bg-surface)]">
           <button
-            onClick={() => onReject(experimentId, gateSeq)}
-            disabled={isSubmitting}
-            className="h-8 px-4 rounded-none border border-[var(--border-primary)] bg-transparent text-xs font-mono uppercase text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition disabled:opacity-50"
+            onClick={() => hasLiveGate && experimentId && gateSeq != null && onReject(experimentId, gateSeq)}
+            disabled={!hasLiveGate || isSubmitting}
+            title={!hasLiveGate ? 'Open a live pipeline stream to receive an approval gate' : undefined}
+            className="h-8 px-4 rounded-none border border-[var(--border-primary)] bg-transparent text-xs font-mono uppercase text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Reject Plan
           </button>
           <button
-            onClick={() => onApprove(experimentId, gateSeq)}
-            disabled={isSubmitting}
-            className="h-8 px-4 rounded-none bg-[#f97316] text-black font-mono uppercase text-xs font-bold hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)] disabled:opacity-50 flex items-center gap-1.5"
+            onClick={() => hasLiveGate && experimentId && gateSeq != null && onApprove(experimentId, gateSeq)}
+            disabled={!hasLiveGate || isSubmitting}
+            title={!hasLiveGate ? 'Open a live pipeline stream to receive an approval gate' : undefined}
+            className="h-8 px-4 rounded-none bg-[#f97316] text-black font-mono uppercase text-xs font-bold hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
           >
             {isSubmitting ? 'Posting Approval...' : 'Confirm Plan Specification'}
           </button>

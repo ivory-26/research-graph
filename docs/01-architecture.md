@@ -91,7 +91,7 @@ A heartbeat comment is written every 15 seconds so intermediaries do not drop an
 | branch | — not built | clone a spec, change one parameter, link lineage | mutate the parent run |
 | UI | `src/routes/index.tsx`, `src/components/` | canvas, evidence, approval, comparison, dashboard | be mistaken for a live database client |
 
-The UI on `main` is driven by `fixtures/workspace.json` and `fixtures/hero-spec.ts`. It is the intended design rendered against recorded data, not a client of the API.
+The UI is driven by `fixtures/workspace.json` and `fixtures/hero-spec.ts` when no database workspace UUID is active, with `GET /api/graph` reading workspace-scoped graph rows from Postgres, `/sign-in` and `/sign-up` backed by Neon Auth, and `src/utils/pipelineClient.ts` providing the browser SSE/approval client when an `experimentId` is supplied.
 
 ## Deployment
 

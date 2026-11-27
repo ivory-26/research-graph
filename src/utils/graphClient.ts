@@ -6,12 +6,15 @@ export const GRAPH_POSITIONS_STORAGE_KEY = 'rg_node_positions';
 export type CanvasViewMode = 'memory' | 'cards';
 export type PositionMap = Record<string, { x: number; y: number }>;
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function getStorageKey(viewMode?: CanvasViewMode): string {
   return viewMode ? `${GRAPH_POSITIONS_STORAGE_KEY}_${viewMode}` : GRAPH_POSITIONS_STORAGE_KEY;
 }
 
 /**
- * Loads user-dragged node coordinates from localStorage for a given view mode.
+ * Loads user-dragged node coordinates from localStorage for a given view mode,
+ * validating each entry's shape so tampered values cannot break the canvas.
  */
 export function loadPersistedPositions(
   viewMode: CanvasViewMode = 'cards',
@@ -22,7 +25,23 @@ export function loadPersistedPositions(
     const raw = storage.getItem(getStorageKey(viewMode));
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+    const validated: PositionMap = {};
+    for (const [id, pos] of Object.entries(parsed as Record<string, unknown>)) {
+      if (
+        pos &&
+        typeof pos === 'object' &&
+        !Array.isArray(pos) &&
+        typeof (pos as any).x === 'number' &&
+        Number.isFinite((pos as any).x) &&
+        typeof (pos as any).y === 'number' &&
+        Number.isFinite((pos as any).y)
+      ) {
+        validated[id] = { x: (pos as any).x, y: (pos as any).y };
+      }
+    }
+    return validated;
   } catch {
     return {};
   }
@@ -99,31 +118,33 @@ export interface WorkspaceGraphData {
 }
 
 /**
- * Fetches workspace graph from the backend API when configured,
- * falling back gracefully to the workspace fixture when unavailable.
+ * Fetches workspace graph from `/api/graph?workspaceId=...` when a workspace UUID
+ * is provided, falling back to the workspace fixture when no database graph exists.
  */
 export async function fetchWorkspaceGraph(
-  endpoint = '/api/graph',
+  workspaceId?: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<WorkspaceGraphData> {
-  try {
-    const res = await fetchImpl(endpoint, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    });
+  if (workspaceId && UUID_PATTERN.test(workspaceId)) {
+    try {
+      const res = await fetchImpl(`/api/graph?workspaceId=${encodeURIComponent(workspaceId)}`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
 
-    if (res.ok) {
-      const data = await res.json().catch(() => null);
-      if (isValidGraphPayload(data)) {
-        return {
-          nodes: data.nodes,
-          edges: data.edges,
-          source: 'api',
-        };
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (isValidGraphPayload(data) && data.nodes.length > 0) {
+          return {
+            nodes: data.nodes,
+            edges: data.edges,
+            source: 'api',
+          };
+        }
       }
+    } catch {
+      // Fall back to fixture
     }
-  } catch {
-    // Fall back to fixture
   }
 
   return {

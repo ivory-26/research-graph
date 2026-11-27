@@ -143,15 +143,17 @@ function SignUpPage() {
             </Link>
           </div>
 
-          <div className="pt-2 text-center">
-            <Link
-              to="/"
-              search={{ preview: 'true' }}
-              className="text-[#666] hover:text-[#999] transition text-[11px] underline"
-            >
-              Explore workspace in preview mode
-            </Link>
-          </div>
+          {import.meta.env.DEV && (
+            <div className="pt-2 text-center">
+              <Link
+                to="/"
+                search={{ preview: 'true' }}
+                className="text-[#666] hover:text-[#999] transition text-[11px] underline"
+              >
+                Explore workspace in preview mode
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     </div>

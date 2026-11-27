@@ -1,16 +1,16 @@
-export interface AuthUser {
-  id: string;
-  email: string | null;
-  name: string | null;
-}
+import { createAuthClient } from '@neon/auth';
+import { BetterAuthReactAdapter } from '@neon/auth/react/adapters';
 
-export interface AuthSession {
-  user: AuthUser;
-}
+/**
+ * Neon Auth browser client configured with the documented React adapter
+ * against the same-origin `/api/auth/*` proxy.
+ */
+export const authClient = createAuthClient('', {
+  adapter: BetterAuthReactAdapter(),
+});
 
 export interface AuthResult<T = unknown> {
   ok: boolean;
-  status: number;
   data?: T;
   error?: string;
 }
@@ -26,45 +26,31 @@ export interface SignUpCredentials {
   name?: string;
 }
 
-/**
- * Neon Auth client utility to communicate with the same-origin proxy at /api/auth/*
- */
 export async function signIn(
   credentials: SignInCredentials,
-  fetchImpl: typeof fetch = fetch,
-): Promise<AuthResult<AuthSession>> {
+  client: typeof authClient = authClient,
+): Promise<AuthResult> {
   const { email, password } = credentials;
 
   if (!email || !email.includes('@')) {
-    return { ok: false, status: 400, error: 'A valid email address is required' };
+    return { ok: false, error: 'A valid email address is required' };
   }
   if (!password) {
-    return { ok: false, status: 400, error: 'Password is required' };
+    return { ok: false, error: 'Password is required' };
   }
 
   try {
-    const res = await fetchImpl('/api/auth/sign-in/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-
-    const contentType = res.headers.get('content-type') || '';
-    const body = contentType.includes('application/json') ? await res.json().catch(() => null) : null;
-
-    if (!res.ok) {
-      const errorMsg =
-        (body && typeof body.message === 'string' && body.message) ||
-        (body && typeof body.error === 'string' && body.error) ||
-        `Sign in failed (HTTP ${res.status})`;
-      return { ok: false, status: res.status, error: errorMsg, data: body };
+    const res = await client.signIn.email({ email, password });
+    if (res?.error) {
+      return {
+        ok: false,
+        error: res.error.message || 'Sign in failed',
+      };
     }
-
-    return { ok: true, status: res.status, data: body };
-  } catch (err: any) {
+    return { ok: true, data: res?.data };
+  } catch (err: unknown) {
     return {
       ok: false,
-      status: 0,
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -72,94 +58,50 @@ export async function signIn(
 
 export async function signUp(
   credentials: SignUpCredentials,
-  fetchImpl: typeof fetch = fetch,
-): Promise<AuthResult<AuthSession>> {
+  client: typeof authClient = authClient,
+): Promise<AuthResult> {
   const { email, password, name } = credentials;
 
   if (!email || !email.includes('@')) {
-    return { ok: false, status: 400, error: 'A valid email address is required' };
+    return { ok: false, error: 'A valid email address is required' };
   }
   if (!password || password.length < 8) {
-    return { ok: false, status: 400, error: 'Password must be at least 8 characters' };
+    return { ok: false, error: 'Password must be at least 8 characters' };
   }
 
   try {
-    const res = await fetchImpl('/api/auth/sign-up/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name: name || email.split('@')[0] }),
+    const res = await client.signUp.email({
+      email,
+      password,
+      name: name || email.split('@')[0],
     });
-
-    const contentType = res.headers.get('content-type') || '';
-    const body = contentType.includes('application/json') ? await res.json().catch(() => null) : null;
-
-    if (!res.ok) {
-      const errorMsg =
-        (body && typeof body.message === 'string' && body.message) ||
-        (body && typeof body.error === 'string' && body.error) ||
-        `Sign up failed (HTTP ${res.status})`;
-      return { ok: false, status: res.status, error: errorMsg, data: body };
+    if (res?.error) {
+      return {
+        ok: false,
+        error: res.error.message || 'Sign up failed',
+      };
     }
-
-    return { ok: true, status: res.status, data: body };
-  } catch (err: any) {
+    return { ok: true, data: res?.data };
+  } catch (err: unknown) {
     return {
       ok: false,
-      status: 0,
       error: err instanceof Error ? err.message : String(err),
     };
   }
 }
 
 export async function signOut(
-  fetchImpl: typeof fetch = fetch,
+  client: typeof authClient = authClient,
 ): Promise<AuthResult<void>> {
   try {
-    const res = await fetchImpl('/api/auth/sign-out', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-
-    if (!res.ok) {
-      return { ok: false, status: res.status, error: `Sign out failed (HTTP ${res.status})` };
+    const res = await client.signOut();
+    if (res?.error) {
+      return { ok: false, error: res.error.message || 'Sign out failed' };
     }
-
-    return { ok: true, status: res.status };
-  } catch (err: any) {
+    return { ok: true };
+  } catch (err: unknown) {
     return {
       ok: false,
-      status: 0,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
-export async function getSession(
-  fetchImpl: typeof fetch = fetch,
-): Promise<AuthResult<AuthSession | null>> {
-  try {
-    const res = await fetchImpl('/api/auth/get-session', {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
-
-    if (res.status === 401 || res.status === 403) {
-      return { ok: true, status: res.status, data: null };
-    }
-
-    if (!res.ok) {
-      return { ok: false, status: res.status, error: `Failed to check session (HTTP ${res.status})` };
-    }
-
-    const contentType = res.headers.get('content-type') || '';
-    const body = contentType.includes('application/json') ? await res.json().catch(() => null) : null;
-
-    return { ok: true, status: res.status, data: body };
-  } catch (err: any) {
-    return {
-      ok: false,
-      status: 0,
       error: err instanceof Error ? err.message : String(err),
     };
   }

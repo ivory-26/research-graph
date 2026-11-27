@@ -55,6 +55,16 @@ describe('graphClient', () => {
       expect(loadPersistedPositions('memory', storageAdapter)).toEqual({});
     });
 
+    it('discards tampered non-coordinate entries in localStorage', () => {
+      mockStorage[`${GRAPH_POSITIONS_STORAGE_KEY}_cards`] = JSON.stringify({
+        'node-1': 'bad',
+        'node-2': { x: NaN, y: 10 },
+        'node-3': { x: 100, y: 200 },
+      });
+      const loaded = loadPersistedPositions('cards', storageAdapter);
+      expect(loaded).toEqual({ 'node-3': { x: 100, y: 200 } });
+    });
+
     it('clears persisted positions', () => {
       savePersistedPositions({ 'node-1': { x: 10, y: 20 } }, 'memory', storageAdapter);
       clearPersistedPositions('memory', storageAdapter);
@@ -63,7 +73,7 @@ describe('graphClient', () => {
   });
 
   describe('fetchWorkspaceGraph', () => {
-    it('returns API nodes and edges when the endpoint responds with valid shape', async () => {
+    it('returns API nodes and edges when a valid workspace UUID returns database rows', async () => {
       const customNodes = [{ id: 'n1', type: 'claim', position: { x: 0, y: 0 }, data: {} }];
       const customEdges = [{ id: 'e1', source: 'n1', target: 'n2', relation: 'supports' }];
 
@@ -72,26 +82,24 @@ describe('graphClient', () => {
         json: async () => ({ nodes: customNodes, edges: customEdges }),
       });
 
-      const res = await fetchWorkspaceGraph('/api/graph', mockFetch as any);
+      const wsId = '11111111-1111-4111-8111-111111111111';
+      const res = await fetchWorkspaceGraph(wsId, mockFetch as any);
       expect(res.source).toBe('api');
       expect(res.nodes).toEqual(customNodes);
       expect(res.edges).toEqual(customEdges);
     });
 
-    it('falls back cleanly to workspace fixture when endpoint returns invalid shape or 404', async () => {
-      const badFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ nodes: [{ invalid: true }], edges: [] }),
-      });
-      const resBad = await fetchWorkspaceGraph('/api/graph', badFetch as any);
-      expect(resBad.source).toBe('fixture');
+    it('falls back cleanly to workspace fixture when UUID is absent, invalid, or endpoint fails', async () => {
+      const resNoUuid = await fetchWorkspaceGraph(undefined);
+      expect(resNoUuid.source).toBe('fixture');
+      expect(resNoUuid.nodes).toEqual(DEMO_NODES);
 
       const mockFetch = vi.fn().mockResolvedValue({
         ok: false,
-        status: 404,
+        status: 401,
       });
 
-      const res = await fetchWorkspaceGraph('/api/graph', mockFetch as any);
+      const res = await fetchWorkspaceGraph('11111111-1111-4111-8111-111111111111', mockFetch as any);
       expect(res.source).toBe('fixture');
       expect(res.nodes).toEqual(DEMO_NODES);
       expect(res.edges).toEqual(DEMO_EDGES);

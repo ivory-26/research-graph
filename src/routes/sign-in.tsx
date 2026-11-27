@@ -26,11 +26,18 @@ function SignInPage() {
     try {
       const res = await signIn({ email, password });
       if (res.ok) {
-        if (redirectTo && redirectTo.startsWith('/') && !redirectTo.startsWith('//')) {
-          window.location.assign(redirectTo);
-        } else {
-          navigate({ to: '/' });
+        if (redirectTo) {
+          try {
+            const parsed = new URL(redirectTo, window.location.origin);
+            if (parsed.origin === window.location.origin) {
+              window.location.assign(parsed.href);
+              return;
+            }
+          } catch {
+            // Invalid redirect URL; fall through to root
+          }
         }
+        navigate({ to: '/' });
       } else {
         setErrorMessage(res.error || 'Sign in failed');
       }
@@ -129,15 +136,17 @@ function SignInPage() {
             </Link>
           </div>
 
-          <div className="pt-2 text-center">
-            <Link
-              to="/"
-              search={{ preview: 'true' }}
-              className="text-[#666] hover:text-[#999] transition text-[11px] underline"
-            >
-              Explore workspace in preview mode
-            </Link>
-          </div>
+          {import.meta.env.DEV && (
+            <div className="pt-2 text-center">
+              <Link
+                to="/"
+                search={{ preview: 'true' }}
+                className="text-[#666] hover:text-[#999] transition text-[11px] underline"
+              >
+                Explore workspace in preview mode
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     </div>

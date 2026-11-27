@@ -125,11 +125,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                         name: currentWorkspace,
                         subtitle: `${sourceCount} sources · ${claimCount} claim (fixture)`,
                       },
-                      {
-                        id: 'strobl-repro',
-                        name: 'Strobl 2007/2008 Repro',
-                        subtitle: 'Hero experiment lineage · OpenML:52350',
-                      },
                     ]
                 ).map((ws) => {
                   const isActive = ws.name === currentWorkspace || ws.id === currentWorkspace;
