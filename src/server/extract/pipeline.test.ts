@@ -7,6 +7,7 @@ import type { EdgeRow, NodeRow, SourceChunkRow, SourceRow } from '../../db/schem
 import { ingestSourceToGraphForWorkspace } from './pipeline'
 import { proposeEdgesForWorkspace } from './edges'
 import { verifyVerbatimQuote } from './quote'
+import { DEFAULT_META_MODEL_ID, DEFAULT_MODEL_ID, callModel, type CallModel } from '../model'
 import {
   ProposeEdgesResultSchema,
   type ProposeEdgesResult,
@@ -874,141 +875,169 @@ describe('Workspace-scoped ingest -> extractClaims -> proposeEdges pipeline (doc
     60_000,
   )
 
-  const canRunLiveFull =
-    hasDb && hasGeminiKey && hasAllPapers && process.env.RUN_LIVE_GEMINI_PIPELINE === '1'
+  const hasMetaKey = Boolean(process.env.META_API_KEY)
+  const canRunLiveGemini =
+    hasDb &&
+    hasGeminiKey &&
+    hasAllPapers &&
+    process.env.RUN_LIVE_GEMINI_PIPELINE === '1'
+  const canRunLiveMeta =
+    hasDb &&
+    hasGeminiKey &&
+    hasMetaKey &&
+    hasAllPapers &&
+    process.env.RUN_LIVE_META_PIPELINE === '1'
 
-  it.skipIf(!canRunLiveFull)(
-    'LIVE END-TO-END (OPT-IN): ingests all 3 demo PDFs through Gemini + pgvector + Neon Postgres accumulating >= 6 accepted edges with verified verbatim quotes',
-    async () => {
-      const { getDb } = await import('../../db/client')
-      const { edges, sourceChunks, sources, workspaces } = await import('../../db/schema')
-      const { embedChunksForWorkspace } = await import('../ingest/embed')
-      const { and, eq } = await import('drizzle-orm')
+  async function runLiveThreePaperPipeline(pinnedModelId: string) {
+    const { getDb } = await import('../../db/client')
+    const { edges, sourceChunks, sources, workspaces } = await import('../../db/schema')
+    const { embedChunksForWorkspace } = await import('../ingest/embed')
+    const { and, eq } = await import('drizzle-orm')
 
-      const db = getDb()
-      const wsId = crypto.randomUUID()
-      const allReturnedEdges: ValidatedEdge[] = []
+    const db = getDb()
+    const wsId = crypto.randomUUID()
+    const allReturnedEdges: ValidatedEdge[] = []
+    const pinnedCallModel: CallModel = (schema, prompt, ctx) =>
+      callModel(schema, prompt, { ...ctx, modelId: pinnedModelId })
 
-      // Rate-limit guard ONLY for live multi-PDF run: gemini-embedding-2 free tier has 30k TPM
-      let charsSinceWindow = 0
-      const throttledEmbedChunks: typeof embedChunksForWorkspace = async (
-        wId,
-        items,
-        opts,
-        deps,
-      ) => {
-        const batchChars = items.reduce(
-          (sum, it) => sum + (typeof it === 'string' ? it.length : it.text.length),
-          0,
-        )
-        if (charsSinceWindow > 0 && charsSinceWindow + batchChars > 95_000) {
-          await new Promise((r) => setTimeout(r, 62_000))
-          charsSinceWindow = 0
-        }
-        charsSinceWindow += batchChars
-        return embedChunksForWorkspace(wId, items, opts, deps)
+    // Rate-limit guard ONLY for live multi-PDF run: gemini-embedding-2 free tier has 30k TPM
+    let charsSinceWindow = 0
+    const throttledEmbedChunks: typeof embedChunksForWorkspace = async (
+      wId,
+      items,
+      opts,
+      deps,
+    ) => {
+      const batchChars = items.reduce(
+        (sum, it) => sum + (typeof it === 'string' ? it.length : it.text.length),
+        0,
+      )
+      if (charsSinceWindow > 0 && charsSinceWindow + batchChars > 95_000) {
+        await new Promise((r) => setTimeout(r, 62_000))
+        charsSinceWindow = 0
       }
+      charsSinceWindow += batchChars
+      return embedChunksForWorkspace(wId, items, opts, deps)
+    }
 
-      try {
-        await db.insert(workspaces).values({
-          id: wsId,
-          name: 'Three Papers Live Pipeline Test',
-          slug: `ws-three-papers-live-${Date.now()}`,
+    try {
+      await db.insert(workspaces).values({
+        id: wsId,
+        name: 'Three Papers Live Pipeline Test',
+        slug: `ws-three-papers-live-${Date.now()}`,
+      })
+
+      const paperSpecs = [
+        {
+          file: 'strobl-2007.pdf',
+          title: 'Strobl et al. (2007) — Bias in random forest variable importance measures',
+          strategy: 'single_pass' as const,
+        },
+        {
+          file: 'strobl-2008.pdf',
+          title: 'Strobl et al. (2008) — Conditional variable importance for random forests',
+          strategy: 'sectioned' as const,
+        },
+        {
+          file: 'kursa-2010.pdf',
+          title: 'Kursa & Rudnicki (2010) — Feature Selection with the Boruta Package',
+          strategy: 'table_first' as const,
+        },
+      ]
+
+      let latestAllNodes: Array<{
+        id: string
+        type: string
+        title: string
+        summary?: string
+        sourceId?: string | null
+      }> = []
+
+      for (const p of paperSpecs) {
+        const outcome = await ingestSourceToGraphForWorkspace({
+          db,
+          workspaceId: wsId,
+          strategy: p.strategy,
+          topKChunks: 8,
+          source: {
+            kind: 'pdf',
+            data: fs.readFileSync(path.join(papersDir, p.file)),
+            title: p.title,
+          },
+          callModelFn: pinnedCallModel,
+          embedChunksFn: (items, opts, deps) =>
+            throttledEmbedChunks(wsId, items, opts, deps),
         })
 
-        const paperSpecs = [
-          {
-            file: 'strobl-2007.pdf',
-            title: 'Strobl et al. (2007) — Bias in random forest variable importance measures',
-            strategy: 'single_pass' as const,
-          },
-          {
-            file: 'strobl-2008.pdf',
-            title: 'Strobl et al. (2008) — Conditional variable importance for random forests',
-            strategy: 'sectioned' as const,
-          },
-          {
-            file: 'kursa-2010.pdf',
-            title: 'Kursa & Rudnicki (2010) — Feature Selection with the Boruta Package',
-            strategy: 'table_first' as const,
-          },
-        ]
-
-        let latestAllNodes: Array<{ id: string; type: string; title: string; summary?: string; sourceId?: string | null }> = []
-
-        for (const p of paperSpecs) {
-          const outcome = await ingestSourceToGraphForWorkspace({
-            db,
-            workspaceId: wsId,
-            strategy: p.strategy,
-            topKChunks: 8,
-            source: {
-              kind: 'pdf',
-              data: fs.readFileSync(path.join(papersDir, p.file)),
-              title: p.title,
-            },
-            embedChunksFn: (items, opts, deps) =>
-              throttledEmbedChunks(wsId, items, opts, deps),
-          })
-
-          expect(outcome.needsOcr).toBe(false)
-          latestAllNodes = outcome.allNodes
-          allReturnedEdges.push(...outcome.edges.acceptedEdges)
-        }
-
-        // Wait briefly before workspace-wide cross-paper consolidation retrieval if total accepted edges < 6
-        let acceptedCount = allReturnedEdges.filter((e) => e.status === 'accepted').length
-        if (acceptedCount < 6) {
-          await new Promise((r) => setTimeout(r, 62_000))
-          const crossOutcome = await proposeEdgesForWorkspace(db, {
-            workspaceId: wsId,
-            nodes: latestAllNodes,
-            topKChunks: 12,
-            maxPairs: 6,
-            topKPerPair: 3,
-          })
-          allReturnedEdges.push(...crossOutcome.acceptedEdges)
-        }
-
-        const persistedAccepted = await db
-          .select({
-            edge: edges,
-            chunkText: sourceChunks.text,
-            page: sourceChunks.page,
-            sourceTitle: sources.title,
-          })
-          .from(edges)
-          .innerJoin(sourceChunks, eq(edges.evidenceChunkId, sourceChunks.id))
-          .innerJoin(sources, eq(sourceChunks.sourceId, sources.id))
-          .where(and(eq(edges.workspaceId, wsId), eq(edges.status, 'accepted')))
-
-        expect(persistedAccepted.length).toBeGreaterThanOrEqual(6)
-
-        console.log('\n### Live Neon + Gemini 3-Paper End-to-End Evidence Join:')
-        console.log(
-          '| # | Edge ID | Source | Page | Relation | Confidence | Status | Evidence Chunk ID | Quote Verified? | Matched Quote Snippet |',
-        )
-        console.log('|---|---|---|---|---|---|---|---|---|---|')
-
-        let idx = 1
-        for (const row of persistedAccepted) {
-          const matched = allReturnedEdges.find(
-            (e) =>
-              e.fromNodeId === row.edge.sourceNodeId &&
-              e.toNodeId === row.edge.targetNodeId &&
-              e.evidenceChunkId === row.edge.evidenceChunkId,
-          )
-          expect(matched).toBeDefined()
-          expect(verifyVerbatimQuote(matched!.matchedQuote, row.chunkText)).toBe(true)
-          const snippet = matched!.matchedQuote.slice(0, 60).replace(/\n/g, ' ') + '...'
-          console.log(
-            `| ${idx++} | \`${row.edge.id}\` | ${row.sourceTitle.slice(0, 24)} | ${row.page ?? '?'} | \`${row.edge.relation}\` | ${row.edge.confidence} | \`${row.edge.status}\` | \`${row.edge.evidenceChunkId}\` | VERIFIED_VERBATIM | "${snippet}" |`,
-          )
-        }
-      } finally {
-        await cleanupLiveWorkspace(db, wsId)
+        expect(outcome.needsOcr).toBe(false)
+        latestAllNodes = outcome.allNodes
+        allReturnedEdges.push(...outcome.edges.acceptedEdges)
       }
-    },
+
+      // Wait briefly before workspace-wide cross-paper consolidation retrieval if total accepted edges < 6
+      const acceptedCount = allReturnedEdges.filter((e) => e.status === 'accepted').length
+      if (acceptedCount < 6) {
+        await new Promise((r) => setTimeout(r, 62_000))
+        const crossOutcome = await proposeEdgesForWorkspace(db, {
+          workspaceId: wsId,
+          nodes: latestAllNodes,
+          topKChunks: 12,
+          maxPairs: 6,
+          topKPerPair: 3,
+          callModelFn: pinnedCallModel,
+        })
+        allReturnedEdges.push(...crossOutcome.acceptedEdges)
+      }
+
+      const persistedAccepted = await db
+        .select({
+          edge: edges,
+          chunkText: sourceChunks.text,
+          page: sourceChunks.page,
+          sourceTitle: sources.title,
+        })
+        .from(edges)
+        .innerJoin(sourceChunks, eq(edges.evidenceChunkId, sourceChunks.id))
+        .innerJoin(sources, eq(sourceChunks.sourceId, sources.id))
+        .where(and(eq(edges.workspaceId, wsId), eq(edges.status, 'accepted')))
+
+      expect(persistedAccepted.length).toBeGreaterThanOrEqual(6)
+
+      console.log(`\n### Live Neon + ${pinnedModelId} 3-Paper End-to-End Evidence Join:`)
+      console.log(
+        '| # | Edge ID | Source | Page | Relation | Confidence | Status | Evidence Chunk ID | Quote Verified? | Matched Quote Snippet |',
+      )
+      console.log('|---|---|---|---|---|---|---|---|---|---|')
+
+      let idx = 1
+      for (const row of persistedAccepted) {
+        const matched = allReturnedEdges.find(
+          (e) =>
+            e.fromNodeId === row.edge.sourceNodeId &&
+            e.toNodeId === row.edge.targetNodeId &&
+            e.evidenceChunkId === row.edge.evidenceChunkId,
+        )
+        expect(matched).toBeDefined()
+        expect(verifyVerbatimQuote(matched!.matchedQuote, row.chunkText)).toBe(true)
+        const snippet = matched!.matchedQuote.slice(0, 60).replace(/\n/g, ' ') + '...'
+        console.log(
+          `| ${idx++} | \`${row.edge.id}\` | ${row.sourceTitle.slice(0, 24)} | ${row.page ?? '?'} | \`${row.edge.relation}\` | ${row.edge.confidence} | \`${row.edge.status}\` | \`${row.edge.evidenceChunkId}\` | VERIFIED_VERBATIM | "${snippet}" |`,
+        )
+      }
+    } finally {
+      await cleanupLiveWorkspace(db, wsId)
+    }
+  }
+
+  it.skipIf(!canRunLiveGemini)(
+    'LIVE END-TO-END (OPT-IN): ingests all 3 demo PDFs through Gemini + pgvector + Neon Postgres accumulating >= 6 accepted edges with verified verbatim quotes',
+    async () => runLiveThreePaperPipeline(DEFAULT_MODEL_ID),
     300_000,
+  )
+
+  it.skipIf(!canRunLiveMeta)(
+    'LIVE END-TO-END META (OPT-IN): ingests all 3 demo PDFs through Meta muse-spark-1.3-contributor + pgvector + Neon Postgres accumulating >= 6 accepted edges with verified verbatim quotes',
+    async () => runLiveThreePaperPipeline(DEFAULT_META_MODEL_ID),
+    600_000,
   )
 })

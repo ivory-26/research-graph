@@ -32,14 +32,12 @@ The graph is the presentation, not the product. The product is the claim:
 **Not on `main` yet**
 
 - writing a completed run back as result/run nodes and the `produced` edge (#7)
-- `pnpm seed` (#8)
 - the production deploy (#9)
 - sign-in screens (#16)
-- what-if branch execution, the repair loop and multi-strategy selection
-- server-side notebook generation from `run_artifacts` (the UI builds one from the fixture)
+- strategy selection (the repair loop and what-if branch are built)
 - the browser calling the pipeline endpoint or reading from Postgres
 
-**Verified 25 November 2026:** `pnpm typecheck`, `pnpm db:check` and `pnpm test` pass. The run reports 303 tests passing and 29 skipped: 27 `node:test` transport checks plus Vitest's 276 passed / 29 skipped. The skipped files are the opt-in Postgres/E2B/Gemini integration suites; they run only with `TEST_DATABASE_URL` (and `LIVE_SMOKE=1` for the credentialed smoke). See [docs/09-pipeline-delivery-handoff.md](./docs/09-pipeline-delivery-handoff.md).
+**Verified 27 November 2026:** `pnpm typecheck`, `pnpm db:check`, `pnpm test` and `pnpm build` pass on this branch after merging current `main`: 27 `node:test` transport checks, 393 Vitest tests passed and 64 skipped, plus 90 seed tests. The skipped files are the opt-in Postgres/E2B/Gemini integration suites; they run only with `TEST_DATABASE_URL` (and `LIVE_SMOKE=1` for the credentialed smoke). See [docs/09-pipeline-delivery-handoff.md](./docs/09-pipeline-delivery-handoff.md).
 
 | Document | Contents |
 |---|---|
@@ -76,9 +74,9 @@ pnpm seed:compare   # compare two seeded databases as one logical workspace
 
 ## Stack
 
-TanStack Start 1.169.x · React 19 · TypeScript 7 · Neon Postgres (pgvector) · Drizzle · Vercel AI SDK 7 · Google Gemini (`gemini-3.8-flash`, `gemini-4-hydrogen` for `explain_gap`, `gemini-embedding-2`) · E2B · Firecrawl · `@xyflow/react` 13
+TanStack Start 1.169.x · React 19 · TypeScript 7 · Neon Postgres (pgvector) · Drizzle · Vercel AI SDK 7 · Google Gemini (`gemini-3.8-flash`, `gemini-4-hydrogen` for `explain_gap`, `gemini-embedding-2`) · optional Meta Model API (`muse-spark-1.3-contributor` via `META_API_KEY`) · E2B · Firecrawl · `@xyflow/react` 13
 
-The seed injects Meta Model API's `muse-spark-1.3-contributor` (Contributor mode) for its text calls only; the application runtime stays on Gemini.
+Text calls use Meta Model API's `muse-spark-1.3-contributor` (Contributor mode) when `META_API_KEY` is set; otherwise they use `gemini-3.8-flash`. The evaluator's `explain_gap` stays on `gemini-4-hydrogen`, embeddings stay on `gemini-embedding-2`, and the seed pins Meta for its recording.
 
 Node 26.x, ESM only. `.nvmrc` and `.node-version` pin 26.13.1.
 

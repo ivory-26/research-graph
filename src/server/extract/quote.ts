@@ -1,5 +1,8 @@
 import type { ChunkRef, ExtractedClaim, RejectedClaim, ValidatedClaim } from './types'
 
+/** Documented maximum verbatim quote character length (docs/03-agent-pipeline.md). */
+export const MAX_QUOTE_CHARS = 400
+
 /**
  * Normalises text for verbatim quote comparison.
  *
@@ -72,6 +75,12 @@ export function validateClaimQuotes(
       continue
     }
 
+    const normalized = normalizeQuote(rawQuote)
+    if (normalized.length > MAX_QUOTE_CHARS) {
+      rejected.push({ claim, reason: 'QUOTE_TOO_LONG' })
+      continue
+    }
+
     // 1. Resolve chunk explicitly cited by claim.chunkId (ID lookup first so numeric IDs cannot be shadowed by another chunk's ordinal)
     const targetChunk = chunkById.get(claim.chunkId) ?? chunkByOrdinal.get(claim.chunkId)
     if (!targetChunk) {
@@ -90,7 +99,7 @@ export function validateClaimQuotes(
       ...claim,
       chunkOrdinal: targetChunk.ordinal,
       page: targetChunk.page ?? null,
-      matchedQuote: normalizeQuote(rawQuote),
+      matchedQuote: normalized,
     })
   }
 

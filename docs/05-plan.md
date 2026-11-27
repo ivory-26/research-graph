@@ -73,7 +73,7 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 | Server-side notebook export | Built into production run evaluation | a notebook generated from a real run |
 | Browser→pipeline bridge | — | every live UI beat |
 
-`pnpm typecheck` and `pnpm db:check` pass. `pnpm test` runs 27 `node:test` transport checks plus the Vitest suites: without `TEST_DATABASE_URL`, 387 app tests and 90 seed tests pass and 62 app tests skip on 27 November. The skipped files are the opt-in Postgres, E2B and Gemini integration suites.
+`pnpm typecheck` and `pnpm db:check` pass. `pnpm test` runs 27 `node:test` transport checks plus the Vitest suites: without `TEST_DATABASE_URL`, 393 app tests and 90 seed tests pass and 64 app tests skip on 27 November. The skipped files are the opt-in Postgres, E2B and Gemini integration suites.
 
 ## Workstreams
 

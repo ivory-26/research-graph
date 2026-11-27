@@ -27,7 +27,6 @@
   },
   "dependencies": {
     "@ai-sdk/google": "4.0.124",
-    "@ai-sdk/openai-compatible": "3.0.96",
     "@ai-sdk/react": "4.0.184",
     "@neon/auth": "0.8.2",
     "@neondatabase/serverless": "1.2.1",

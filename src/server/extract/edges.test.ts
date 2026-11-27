@@ -1162,6 +1162,72 @@ describe('Issue #13 contract hardening: RATIONALE_EMPTY reachability, persistenc
     expect(outcome.persisted).toBe(false)
   })
 
+  it('allows callModel schema.parse to pass over-400-char edge quotes so validateProposedEdges rejects QUOTE_TOO_LONG per edge without aborting sibling edges', async () => {
+    const { createCallModel } = await import('../model')
+    const validChunk = '11111111-1111-4111-8111-111111111111'
+    const overlongQuote = 'Q'.repeat(405)
+
+    const baseCallModel = createCallModel({
+      generate: async () => ({
+        output: {
+          edges: [
+            {
+              fromNodeId: 'node-1',
+              toNodeId: 'node-2',
+              relation: 'supports',
+              confidence: 0.9,
+              evidenceChunkId: validChunk,
+              quote: overlongQuote,
+              rationale: 'Supported by long passage',
+            },
+            {
+              fromNodeId: 'node-2',
+              toNodeId: 'node-1',
+              relation: 'tests',
+              confidence: 0.85,
+              evidenceChunkId: validChunk,
+              quote: 'Concise verbatim evidence.',
+              rationale: 'Supported by concise passage',
+            },
+          ],
+        },
+        inputTokens: 100,
+        outputTokens: 50,
+      }),
+      now: () => 0,
+      sleep: async () => {},
+    })
+
+    const fakeCallModel: typeof baseCallModel = (schema, prompt, ctx) =>
+      baseCallModel(schema, prompt, {
+        ...ctx,
+        store: { insert: async () => ({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }) },
+      })
+
+    const outcome = await proposeEdges({
+      workspaceId: 'ws-quote-len-edge-level',
+      nodes: [
+        { id: 'node-1', type: 'claim', title: 'Claim 1' },
+        { id: 'node-2', type: 'method', title: 'Method 2' },
+      ],
+      chunks: [
+        {
+          id: validChunk,
+          ordinal: 0,
+          page: 1,
+          text: `${overlongQuote} Concise verbatim evidence.`,
+        },
+      ],
+      callModelFn: fakeCallModel,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(outcome.rejectedEdges).toHaveLength(1)
+    expect(outcome.rejectedEdges[0]?.reason).toBe('QUOTE_TOO_LONG')
+    expect(outcome.acceptedEdges).toHaveLength(1)
+    expect(outcome.acceptedEdges[0]?.relation).toBe('tests')
+  })
+
   it('signals persisted explicitly and fails fast when requirePersistence is set without a db handle', async () => {
     const validChunk = '11111111-1111-4111-8111-111111111111'
     const callSpy = vi.fn()

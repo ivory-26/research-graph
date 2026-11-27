@@ -21,7 +21,7 @@ import { ingestSourceToGraphForWorkspace } from '../src/server/extract/pipeline.
 import { embedChunks, embedQuery } from '../src/server/ingest/embed.ts'
 import {
   createDrizzleAgentTaskStore,
-  MODEL_API_KEY_ENV,
+  META_API_KEY_ENV,
   type CallModel,
 } from '../src/server/model.ts'
 import { MODEL_OUTPUT_REPLAY_ENV } from '../src/server/model-replay.ts'
@@ -122,12 +122,12 @@ function requireCredentials(env: NodeJS.ProcessEnv): string {
   }
 
   if (
-    !env[MODEL_API_KEY_ENV]?.trim() &&
+    !env[META_API_KEY_ENV]?.trim() &&
     !env[MODEL_OUTPUT_REPLAY_ENV]?.trim()
   ) {
     throw new SeedError(
-      'MISSING_MODEL_API_KEY',
-      `Set ${MODEL_API_KEY_ENV}: the seed runs real claim extraction and edge proposal through Meta Model API.`,
+      'MISSING_META_API_KEY',
+      `Set ${META_API_KEY_ENV}: the seed runs real claim extraction and edge proposal through Meta Model API.`,
       `A replay run may set ${MODEL_OUTPUT_REPLAY_ENV} instead. The Gemini key remains required for embeddings; E2B is needed for Run A/Run B.`,
     )
   }
@@ -704,7 +704,7 @@ Default (interactive):
 
 Required environment for the complete seed:
   DATABASE_URL                    fresh application database
-  MODEL_API_KEY                   Meta Model API key for every text call
+  META_API_KEY                    Meta Model API key for every text call
   GOOGLE_GENERATIVE_AI_API_KEY    or GEMINI_API_KEY, for gemini-embedding-2
   E2B_API_KEY                     access to the pinned runtime template
   NEON_AUTH_BASE_URL              workspace account's Neon Auth service

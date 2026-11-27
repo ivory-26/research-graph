@@ -1,5 +1,7 @@
 # The seed's text provider is injected, not the application's
 
+> **Superseded by [ADR 0014](./0014-meta-muse-spark-contributor-provider.md).** Meta was subsequently adopted as the application's text provider when `META_API_KEY` is set; this ADR records the earlier seed-only scope and the reasons it was chosen first.
+
 The application's text provider stays Google Gemini ([ADR 0009](./0009-gemini-only.md)). The seed (`scripts/seed/model.ts`) is the one caller that injects a different generator: Meta Model API's `muse-spark-1.3-contributor` through the OpenAI-compatible provider.
 
 ## Context

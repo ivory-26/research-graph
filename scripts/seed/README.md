@@ -77,7 +77,7 @@ recorded by the production gate. Node positions remain at the schema default
 | Variable | Why |
 |---|---|
 | `DATABASE_URL` | Fresh, migrated application database. The seed refuses a non-empty schema and runs the committed migrations itself. |
-| `MODEL_API_KEY` | Meta Model API key for the seed's text calls (claim extraction, edge proposal, planning, `explain_gap`). Contributor mode is the pinned `muse-spark-1.3-contributor` model. The application runtime does not use this key. Not needed when replaying a recording. |
+| `META_API_KEY` | Meta Model API key for text calls (claim extraction, edge proposal, planning, `explain_gap`). Contributor mode is the pinned `muse-spark-1.3-contributor` model. The application runtime selects Meta when this key is set; the seed pins it regardless. Not needed when replaying a recording. |
 | `SEED_RECORD_MODEL_OUTPUTS` / `SEED_REPLAY_MODEL_OUTPUTS` | Optional seed-only capture or replay of structured model responses for the deterministic two-seed baseline. Set at most one; paths are described below. |
 | `SEED_EMBEDDING_PACING_MS` | Optional pause between sources; use `65000` for a replay burst on the Gemini free tier. Defaults to 0. |
 | `GOOGLE_GENERATIVE_AI_API_KEY` or `GEMINI_API_KEY` | Gemini embeddings only (`gemini-embedding-2`). |
@@ -146,7 +146,7 @@ pnpm seed --print-approval
 
 # 2. After reviewing both JSON specs, replay that review on a fresh database.
 SEED_APPROVED_LOGICAL_SPEC_HASHES="run-a=<64 hex>,run-b=<64 hex>" \
-DATABASE_URL=... MODEL_API_KEY=... GOOGLE_GENERATIVE_AI_API_KEY=... E2B_API_KEY=... \
+DATABASE_URL=... META_API_KEY=... GOOGLE_GENERATIVE_AI_API_KEY=... E2B_API_KEY=... \
 SEED_AUTH_COOKIE=... NEON_AUTH_BASE_URL=... NEON_AUTH_COOKIE_SECRET=... \
   pnpm seed --non-interactive
 ```
@@ -242,13 +242,13 @@ validation, verbatim quote/evidence checks, DB writes, approval gates, E2B
 runs and artifacts still execute. Database UUIDs in prompts and responses are
 normalised to ordered tokens and remapped to each seed's own rows, so the
 recording is not a graph fixture and cannot supply row ids. A prompt that
-changes shape is a hard error rather than a fuzzy match. `MODEL_API_KEY` is
+changes shape is a hard error rather than a fuzzy match. `META_API_KEY` is
 optional in replay mode; the Gemini embedding key is still required.
 
-The Meta generator and the record/replay wrapper are selected only in
-`scripts/seed/model.ts`. The application's default `callModel` remains on the
-pinned Gemini stack and never reads `SEED_RECORD_MODEL_OUTPUTS` or
-`SEED_REPLAY_MODEL_OUTPUTS`.
+The Meta generator is the application's text provider when `META_API_KEY` is
+set (`gemini-3.8-flash` otherwise). The seed pins Meta and its record/replay
+wrapper in `scripts/seed/model.ts`; the application runtime never reads
+`SEED_RECORD_MODEL_OUTPUTS` or `SEED_REPLAY_MODEL_OUTPUTS`.
 
 The recording is intentionally committed: it is the model-output baseline, not
 `fixtures/workspace.json`. Recapture only when the prompts, model or pin
@@ -339,7 +339,7 @@ pnpm seed --print-approval
 
 # 3. Complete seed, replaying that review.
 DATABASE_URL="postgresql://postgres:$PGPASSWORD@127.0.0.1:55433/postgres" \
-MODEL_API_KEY="<Meta Model API key>" \
+META_API_KEY="<Meta Model API key>" \
 GOOGLE_GENERATIVE_AI_API_KEY="<Gemini embedding key>" \
 E2B_API_KEY="<key>" \
 NEON_AUTH_BASE_URL="<url>" \
@@ -358,7 +358,7 @@ SEED_CANDIDATE_DATABASE_URL="postgresql://...second..." \
 Graph-only mode is useful when only the extraction half is being exercised:
 
 ```bash
-DATABASE_URL=... MODEL_API_KEY=... GOOGLE_GENERATIVE_AI_API_KEY=... \
+DATABASE_URL=... META_API_KEY=... GOOGLE_GENERATIVE_AI_API_KEY=... \
 SEED_ACTOR_USER_ID=... \
   pnpm seed --graph-only
 ```
@@ -371,12 +371,12 @@ seed never resets it for you.
 
 1. **Live baseline.** Resolved with recorded model outputs. The capture seed
    completed live (5m29s); two fresh replay seeds completed with no
-   `MODEL_API_KEY` and `seed:compare` returned `RESULT: MATCH` (both sides:
+   `META_API_KEY` and `seed:compare` returned `RESULT: MATCH` (both sides:
    3 sources, 46 chunks, 65 nodes, 40 edges, 2 experiments, 2 runs, 4
    artifacts). The seed's text generator is Meta Model API's
-   `muse-spark-1.3-contributor` (Contributor mode), injected only by
-   `scripts/seed/model.ts`; the application runtime stays on the pinned Gemini
-   stack, and Gemini remains the embedding provider. Contributor mode permits
+   `muse-spark-1.3-contributor` (Contributor mode), pinned by
+   `scripts/seed/model.ts`; the application uses Meta when `META_API_KEY` is
+   set, and Gemini remains the embedding provider. Contributor mode permits
    Meta to train on prompts and responses; the seed sends only public paper
    text and generated specs. No credential is committed.
 2. **Exactness of two live seeds.** A live pair without replay still varies:
@@ -463,7 +463,7 @@ seed never resets it for you.
   Replay then hit the Gemini free-tier embedding quota on paper 2 (30k tokens
   per minute; the seed needs ~45k).
 - On `d228cea` the canonical baseline passed: replay A and B each exited 0
-  with no `MODEL_API_KEY` (3m07s each with `SEED_EMBEDDING_PACING_MS=65000`),
+  with no `META_API_KEY` (3m07s each with `SEED_EMBEDDING_PACING_MS=65000`),
   both runs `succeeded`/`match`, four inline artifacts per seed, both gates
   approved, five lineage edges per seed, and `seed:compare` returned
   `RESULT: MATCH` across all ten checks. The one-minute budget remains unmet.
