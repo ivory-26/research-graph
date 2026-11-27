@@ -292,6 +292,7 @@ export type ParentRunSnapshot = {
   id: string
   experimentId: string
   workspaceId: string
+  claimNodeId: string
   status: RunStatus
   spec: ExperimentSpec
 }
@@ -342,6 +343,7 @@ export function createDrizzleWhatIfBranchStore(
           id: runs.id,
           experimentId: runs.experimentId,
           workspaceId: experiments.workspaceId,
+          claimNodeId: experiments.claimNodeId,
           status: runs.status,
           spec: runs.spec,
         })
@@ -508,6 +510,16 @@ export async function branchWhatIf(
     )
   }
 
+  // The child experiment inherits the owning experiment's claim node (the
+  // authoritative `experiments.claim_node_id`), not the frozen spec's copy.
+  // Cross-check the two before persisting so a drifted parent fails closed.
+  if (activeParent.claimNodeId !== activeParent.spec.claimNodeId) {
+    throw new BranchValidationError(
+      `Parent experiment claim node "${activeParent.claimNodeId}" does not match its frozen spec claim node "${activeParent.spec.claimNodeId}"`,
+      'INVALID_SPEC',
+    )
+  }
+
   let childSpec: ExperimentSpec
   if ('candidateSpec' in change) {
     if (!isPlainObject(change.candidateSpec)) {
@@ -624,7 +636,7 @@ export async function branchWhatIf(
 
   const { experiment, run } = await options.store.createExperimentAndRun({
     workspaceId: activeParent.workspaceId,
-    claimNodeId: activeParent.spec.claimNodeId,
+    claimNodeId: activeParent.claimNodeId,
     parentRunId: activeParent.id,
     spec: childSpec,
     environment: initialBranchEnvironment(childSpec),

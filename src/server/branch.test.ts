@@ -76,6 +76,7 @@ function makeCompletedParentRun(): ParentRunSnapshot {
     id: 'run-a-1',
     experimentId: 'exp-a-1',
     workspaceId: 'ws-1',
+    claimNodeId: HERO_EXPERIMENT_SPEC_RUN_A.claimNodeId,
     status: 'succeeded',
     spec: structuredClone(HERO_EXPERIMENT_SPEC_RUN_A),
   }
@@ -438,6 +439,7 @@ describe('branchWhatIf (Issue #27)', () => {
                         id: parentRun.id,
                         experimentId: parentRun.experimentId,
                         workspaceId: parentRun.workspaceId,
+                        claimNodeId: parentRun.claimNodeId,
                         status: parentRun.status,
                         spec: parentRun.spec,
                       },
@@ -535,6 +537,23 @@ describe('branchWhatIf (Issue #27)', () => {
     ).rejects.toMatchObject({
       name: 'BranchValidationError',
       code: 'PARENT_WORKSPACE_MISMATCH',
+    })
+  })
+
+  it('rejects a parent whose experiment claim node diverges from its frozen spec', async () => {
+    const parentRun = makeCompletedParentRun()
+    parentRun.claimNodeId = 'divergent-claim-node'
+    const store = new MemoryWhatIfBranchStore([parentRun])
+
+    await expect(
+      branchWhatIf(
+        parentRun,
+        { parameterName: 'importance_method', value: 'permutation' },
+        { store },
+      ),
+    ).rejects.toMatchObject({
+      name: 'BranchValidationError',
+      code: 'INVALID_SPEC',
     })
   })
 
@@ -717,6 +736,7 @@ describeIntegration('createDrizzleWhatIfBranchStore over real Postgres', () => {
         id: parentRunId,
         experimentId: seed.experimentId,
         workspaceId: seed.workspaceId,
+        claimNodeId: seed.claimNodeId,
         status: 'succeeded',
         spec: seed.spec,
       }
