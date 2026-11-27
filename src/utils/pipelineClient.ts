@@ -104,6 +104,7 @@ export interface PipelineStreamHandlers {
   onLog?: (line: string) => void;
   onError?: (error: unknown) => void;
   onApprovalRequested?: (event: ApprovalRequestedEvent) => void;
+  onApprovalResolved?: () => void;
   onComplete?: (
     event: PipelineCompletedEvent | PipelineCancelledEvent | PipelineFailedEvent,
   ) => void;
@@ -111,7 +112,6 @@ export interface PipelineStreamHandlers {
 
 export interface PipelineStreamOptions {
   EventSourceClass?: typeof EventSource;
-  lastEventId?: string;
 }
 
 /**
@@ -132,10 +132,7 @@ export function subscribeToPipelineStream(
     return () => {};
   }
 
-  const baseUrl = `/api/pipeline/${encodeURIComponent(experimentId)}`;
-  const url = options?.lastEventId
-    ? `${baseUrl}?lastEventId=${encodeURIComponent(options.lastEventId)}`
-    : baseUrl;
+  const url = `/api/pipeline/${encodeURIComponent(experimentId)}`;
   const es = new ES(url);
 
   es.onmessage = (e: MessageEvent) => {
@@ -143,9 +140,7 @@ export function subscribeToPipelineStream(
       const data = JSON.parse(e.data) as PipelineEvent;
       handlers.onEvent?.(data);
 
-      if (data.type === 'run.stdout') {
-        handlers.onLog?.(data.chunk);
-      } else if (data.type === 'stage.started') {
+      if (data.type === 'stage.started') {
         handlers.onLog?.(`[STAGE] Started ${data.stage} (seq #${data.seq})`);
       } else if (data.type === 'stage.finished') {
         handlers.onLog?.(`[STAGE] Finished ${data.stage}: ${data.status}`);
@@ -154,6 +149,7 @@ export function subscribeToPipelineStream(
         handlers.onApprovalRequested?.(data);
       } else if (data.type === 'approval.resolved') {
         handlers.onLog?.(`[APPROVAL] Gate seq #${data.seq} resolved as ${data.state.toUpperCase()}`);
+        handlers.onApprovalResolved?.();
       } else if (
         data.type === 'pipeline.completed' ||
         data.type === 'pipeline.cancelled' ||

@@ -129,10 +129,11 @@ function WorkspacePage() {
 
   const [nodes, setNodes] = useState<WorkspaceNode[]>(DEMO_NODES);
   const [edges, setEdges] = useState<WorkspaceEdge[]>(DEMO_EDGES);
+  const [workspaces, setWorkspaces] = useState(WORKSPACES);
 
   // URL-addressable active page and workspace
   const currentPage: PageId = search.page ?? 'graph';
-  const activeWorkspaceObj = WORKSPACES.find((w) => w.id === search.workspace) ?? WORKSPACES[0];
+  const activeWorkspaceObj = workspaces.find((w) => w.id === search.workspace) ?? workspaces[0];
 
   const setCurrentPage = (page: PageId) => {
     navigate({
@@ -141,7 +142,7 @@ function WorkspacePage() {
   };
 
   const handleSelectWorkspace = (workspaceId: string) => {
-    const target = WORKSPACES.find((w) => w.id === workspaceId);
+    const target = workspaces.find((w) => w.id === workspaceId);
     if (!target) return;
     navigate({
       search: (prev) => ({ ...prev, workspace: target.id }),
@@ -183,6 +184,24 @@ function WorkspacePage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const streamCleanupRef = useRef<(() => void) | null>(null);
 
+  // Load live user workspaces (with UUIDs) on mount
+  useEffect(() => {
+    let active = true;
+    fetch('/api/workspaces', { headers: { Accept: 'application/json' } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data && Array.isArray(data.workspaces) && data.workspaces.length > 0) {
+          setWorkspaces(data.workspaces);
+        }
+      })
+      .catch(() => {
+        // Keep fixture workspace fallback
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   // Load graph from API if workspace UUID is provided, falling back to fixture
   useEffect(() => {
     let active = true;
@@ -190,6 +209,13 @@ function WorkspacePage() {
       if (active && res.source === 'api') {
         setNodes(res.nodes);
         setEdges(res.edges);
+        setWorkspaces((prev) =>
+          prev.map((w) =>
+            w.id === search.workspace
+              ? { ...w, subtitle: `${res.nodes.length} nodes · ${res.edges.length} edges (database)` }
+              : w,
+          ),
+        );
       }
     });
 
@@ -203,8 +229,9 @@ function WorkspacePage() {
         streamCleanupRef.current();
         streamCleanupRef.current = null;
       }
+      setIsStreaming(false);
     };
-  }, [search.workspace]);
+  }, [search.workspace, search.experimentId]);
 
   const selectedEdge = edges.find((e) => e.id === selectedEdgeId) || edges[0] || null;
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
@@ -232,6 +259,18 @@ function WorkspacePage() {
       return;
     }
 
+    // Close previous stream if reconnecting or switching to a new experiment ID
+    if (targetExperimentId && streamCleanupRef.current) {
+      streamCleanupRef.current();
+      streamCleanupRef.current = null;
+      setIsStreaming(false);
+    }
+
+    if (targetExperimentId && targetExperimentId !== experimentId) {
+      setGateSeq(null);
+      setActiveGateSpec(null);
+    }
+
     setExperimentId(expId);
 
     if (!streamCleanupRef.current) {
@@ -253,6 +292,10 @@ function WorkspacePage() {
           setApprovalError(null);
           setIsApprovalOpen(true);
         },
+        onApprovalResolved: () => {
+          setGateSeq(null);
+          setActiveGateSpec(null);
+        },
         onError: () => {
           const msg = `Pipeline stream error for ${expId}`;
           setExecutionLogs((prev) => [
@@ -260,11 +303,17 @@ function WorkspacePage() {
             `[${new Date().toLocaleTimeString()}] [SSE ERROR] ${msg}`,
           ]);
           showToast(msg);
+          if (streamCleanupRef.current) {
+            streamCleanupRef.current();
+            streamCleanupRef.current = null;
+          }
           setIsStreaming(false);
         },
         onComplete: () => {
           streamCleanupRef.current = null;
           setIsStreaming(false);
+          setGateSeq(null);
+          setActiveGateSpec(null);
         },
       });
     } else {
@@ -297,6 +346,8 @@ function WorkspacePage() {
         return;
       }
 
+      setGateSeq(null);
+      setActiveGateSpec(null);
       setIsApprovalOpen(false);
       setIsConsoleOpen(true);
       showToast(`Plan confirmed for ${expId} (gate #${seq})`);
@@ -333,6 +384,8 @@ function WorkspacePage() {
         return;
       }
 
+      setGateSeq(null);
+      setActiveGateSpec(null);
       setIsApprovalOpen(false);
       showToast('Experiment plan rejected');
       setExecutionLogs((prev) => [
@@ -369,7 +422,7 @@ function WorkspacePage() {
         {/* Top Navbar */}
         <Navbar
           currentWorkspace={activeWorkspaceObj.name}
-          workspaces={WORKSPACES}
+          workspaces={workspaces}
           onSelectWorkspace={handleSelectWorkspace}
           isInspectorOpen={isInspectorOpen}
           onToggleInspector={() => setIsInspectorOpen(!isInspectorOpen)}

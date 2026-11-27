@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as ApiGraphRouteImport } from './routes/api/graph'
+import { Route as ApiWorkspacesRouteImport } from './routes/api/workspaces'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiPipelineExperimentIdRouteImport } from './routes/api/pipeline/$experimentId'
 import { Route as ApiPipelineExperimentIdApproveRouteImport } from './routes/api/pipeline/$experimentId/approve'
@@ -37,6 +38,11 @@ const ApiGraphRoute = ApiGraphRouteImport.update({
   path: '/api/graph',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWorkspacesRoute = ApiWorkspacesRouteImport.update({
+  id: '/api/workspaces',
+  path: '/api/workspaces',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/api/graph': typeof ApiGraphRoute
+  '/api/workspaces': typeof ApiWorkspacesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/pipeline/$experimentId': typeof ApiPipelineExperimentIdRouteWithChildren
   '/api/pipeline/$experimentId/approve': typeof ApiPipelineExperimentIdApproveRoute
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/api/graph': typeof ApiGraphRoute
+  '/api/workspaces': typeof ApiWorkspacesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/pipeline/$experimentId': typeof ApiPipelineExperimentIdRouteWithChildren
   '/api/pipeline/$experimentId/approve': typeof ApiPipelineExperimentIdApproveRoute
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
   '/api/graph': typeof ApiGraphRoute
+  '/api/workspaces': typeof ApiWorkspacesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/pipeline/$experimentId': typeof ApiPipelineExperimentIdRouteWithChildren
   '/api/pipeline/$experimentId/approve': typeof ApiPipelineExperimentIdApproveRoute
@@ -89,6 +98,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-up'
     | '/api/graph'
+    | '/api/workspaces'
     | '/api/auth/$'
     | '/api/pipeline/$experimentId'
     | '/api/pipeline/$experimentId/approve'
@@ -98,6 +108,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-up'
     | '/api/graph'
+    | '/api/workspaces'
     | '/api/auth/$'
     | '/api/pipeline/$experimentId'
     | '/api/pipeline/$experimentId/approve'
@@ -107,6 +118,7 @@ export interface FileRouteTypes {
     | '/sign-in'
     | '/sign-up'
     | '/api/graph'
+    | '/api/workspaces'
     | '/api/auth/$'
     | '/api/pipeline/$experimentId'
     | '/api/pipeline/$experimentId/approve'
@@ -117,6 +129,7 @@ export interface RootRouteChildren {
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
   ApiGraphRoute: typeof ApiGraphRoute
+  ApiWorkspacesRoute: typeof ApiWorkspacesRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiPipelineExperimentIdRoute: typeof ApiPipelineExperimentIdRouteWithChildren
 }
@@ -149,6 +162,13 @@ declare module '@tanstack/react-router' {
       path: '/api/graph'
       fullPath: '/api/graph'
       preLoaderRoute: typeof ApiGraphRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/workspaces': {
+      id: '/api/workspaces'
+      path: '/api/workspaces'
+      fullPath: '/api/workspaces'
+      preLoaderRoute: typeof ApiWorkspacesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -194,6 +214,7 @@ const rootRouteChildren: RootRouteChildren = {
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
   ApiGraphRoute: ApiGraphRoute,
+  ApiWorkspacesRoute: ApiWorkspacesRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiPipelineExperimentIdRoute: ApiPipelineExperimentIdRouteWithChildren,
 }

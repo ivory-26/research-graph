@@ -42,10 +42,12 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
   const delta = typeof rankA === 'number' && typeof rankB === 'number' ? rankB - rankA : null;
 
   const datasetNode = DEMO_NODES.find((n) => n.type === 'dataset');
-  const sampleCount = (datasetNode?.data?.rows as number) || 569;
-  const featureCount = (datasetNode?.data?.features as number) || 9;
-  const noiseCount = ((datasetNode?.data?.noiseColumns as string) || '').split(',').filter(Boolean).length || 3;
-  const maxRank = featureCount + noiseCount;
+  const sampleCount = typeof datasetNode?.data?.rows === 'number' ? datasetNode.data.rows : null;
+  const featureCount = typeof datasetNode?.data?.features === 'number' ? datasetNode.data.features : null;
+  const noiseCount = typeof datasetNode?.data?.noiseColumns === 'string'
+    ? datasetNode.data.noiseColumns.split(',').filter(Boolean).length
+    : null;
+  const maxRank = featureCount != null && noiseCount != null ? featureCount + noiseCount : 12;
   const barWidthA = typeof rankA === 'number' ? `${Math.max(5, Math.min(100, Math.round((1 - (rankA - 1) / maxRank) * 100)))}%` : '50%';
   const barWidthB = typeof rankB === 'number' ? `${Math.max(5, Math.min(100, Math.round((1 - (rankB - 1) / maxRank) * 100)))}%` : '50%';
 
@@ -124,7 +126,9 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               <span className="m text-[12px] text-[#f97316] w-9 text-right font-bold">#{rankA}</span>
             </div>
             <div className="flex items-center justify-between text-[11px] font-mono text-[var(--text-dim)] pt-1">
-              <span>Dataset: {sampleCount} samples · {featureCount} base + {noiseCount} noise</span>
+              <span>
+                Dataset: {sampleCount != null ? `${sampleCount} samples` : 'unknown samples'} · {featureCount != null ? `${featureCount} base` : 'unknown base'} + {noiseCount != null ? `${noiseCount} noise` : 'unknown noise'}
+              </span>
               <span>Method: {String(paramA.importance_method ?? 'impurity')}</span>
             </div>
           </div>
@@ -167,7 +171,9 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               <span className="m text-[12px] text-[var(--text-primary)] w-9 text-right font-bold">#{rankB}</span>
             </div>
             <div className="flex items-center justify-between text-[11px] font-mono text-[var(--text-dim)] pt-1">
-              <span>Dataset: {sampleCount} samples · {featureCount} base + {noiseCount} noise</span>
+              <span>
+                Dataset: {sampleCount != null ? `${sampleCount} samples` : 'unknown samples'} · {featureCount != null ? `${featureCount} base` : 'unknown base'} + {noiseCount != null ? `${noiseCount} noise` : 'unknown noise'}
+              </span>
               <span>Method: {String(paramB.importance_method ?? 'permutation')}</span>
             </div>
           </div>

@@ -171,22 +171,10 @@ describe('subscribeToPipelineStream', () => {
       }),
     });
 
-    // 3. Run stdout event
+    // 3. Pipeline completed event
     messageListener!({
       data: JSON.stringify({
         seq: 3,
-        experimentId: 'exp-test-123',
-        at: new Date().toISOString(),
-        type: 'run.stdout',
-        runId: 'run-1',
-        chunk: 'Training scikit-learn Random Forest model...',
-      }),
-    });
-
-    // 4. Pipeline completed event
-    messageListener!({
-      data: JSON.stringify({
-        seq: 4,
         experimentId: 'exp-test-123',
         at: new Date().toISOString(),
         type: 'pipeline.completed',
@@ -194,10 +182,9 @@ describe('subscribeToPipelineStream', () => {
       }),
     });
 
-    expect(events.length).toBe(4);
+    expect(events.length).toBe(3);
     expect(logs).toContain('[STAGE] Started PLAN_EXPERIMENT (seq #1)');
     expect(logs).toContain('[APPROVAL] Gate seq #2 requested');
-    expect(logs).toContain('Training scikit-learn Random Forest model...');
     expect(logs).toContain('[PIPELINE] Completed successfully (runId: run-1)');
     expect(approvalRequestedGateSeq).toBe(2);
     expect(completed).toBe(true);

@@ -14,10 +14,12 @@ function SignUpPage() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setVerificationNotice(null);
 
     if (password.length < 8) {
       setErrorMessage('Password must be at least 8 characters long');
@@ -29,7 +31,12 @@ function SignUpPage() {
     try {
       const res = await signUp({ name, email, password });
       if (res.ok) {
-        navigate({ to: '/' });
+        const hasSession = Boolean((res.data as any)?.session);
+        if (hasSession) {
+          navigate({ to: '/' });
+        } else {
+          setVerificationNotice('Account created. If email verification is enabled, check your inbox before signing in.');
+        }
       } else {
         setErrorMessage(res.error || 'Sign up failed');
       }
@@ -63,6 +70,16 @@ function SignUpPage() {
           <div className="mb-5 flex items-center gap-2 border border-red-500/40 bg-red-950/20 p-3 text-xs text-red-300 font-mono">
             <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
             <span>{errorMessage}</span>
+          </div>
+        )}
+
+        {/* Verification Notice */}
+        {verificationNotice && (
+          <div className="mb-5 border border-emerald-500/40 bg-emerald-950/20 p-3 text-xs text-emerald-300 font-mono space-y-2">
+            <div>{verificationNotice}</div>
+            <Link to="/sign-in" className="text-[#f97316] hover:underline inline-block font-semibold">
+              Proceed to Sign In →
+            </Link>
           </div>
         )}
 

@@ -31,8 +31,11 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
   isStreaming = false,
 }) => {
   const [inputExperimentId, setInputExperimentId] = useState('');
+  const [uuidError, setUuidError] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   const hasLiveGate = Boolean(experimentId && gateSeq != null && gateSeq > 0 && liveSpec);
   const spec = liveSpec ?? HERO_EXPERIMENT_SPEC_RUN_A;
@@ -88,23 +91,39 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
           )}
 
           {!hasLiveGate && onStartStream && (
-            <div className="c p-3.5 bg-[var(--card-bg)] border border-[var(--border-primary)] flex items-center gap-2 flex-wrap font-mono text-xs">
-              <input
-                type="text"
-                value={inputExperimentId}
-                onChange={(e) => setInputExperimentId(e.target.value)}
-                placeholder="Enter experiment UUID to stream..."
-                className="flex-1 min-w-[220px] border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-1.5 text-xs text-[var(--text-primary)] placeholder-[var(--text-dim)] focus:border-[#f97316] focus:outline-none"
-              />
-              <button
-                type="button"
-                disabled={!inputExperimentId.trim() || isStreaming}
-                onClick={() => onStartStream(inputExperimentId.trim())}
-                className="h-8 px-3 bg-[#f97316] text-black font-bold uppercase text-[11px] hover:bg-[#ea580c] transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
-              >
-                <Play className="h-3 w-3 fill-current" />
-                <span>{isStreaming ? 'Streaming...' : 'Open Pipeline Stream'}</span>
-              </button>
+            <div className="c p-3.5 bg-[var(--card-bg)] border border-[var(--border-primary)] space-y-2 font-mono text-xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  type="text"
+                  value={inputExperimentId}
+                  onChange={(e) => {
+                    setInputExperimentId(e.target.value);
+                    setUuidError(null);
+                  }}
+                  placeholder="Enter experiment UUID to stream..."
+                  className="flex-1 min-w-[220px] border border-[var(--border-primary)] bg-[var(--bg-primary)] px-3 py-1.5 text-xs text-[var(--text-primary)] placeholder-[var(--text-dim)] focus:border-[#f97316] focus:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={!inputExperimentId.trim() || isStreaming}
+                  onClick={() => {
+                    const trimmed = inputExperimentId.trim();
+                    if (!UUID_RE.test(trimmed)) {
+                      setUuidError('Experiment ID must be a valid UUID.');
+                      return;
+                    }
+                    setUuidError(null);
+                    onStartStream(trimmed);
+                  }}
+                  className="h-8 px-3 bg-[#f97316] text-black font-bold uppercase text-[11px] hover:bg-[#ea580c] transition disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Play className="h-3 w-3 fill-current" />
+                  <span>{isStreaming ? 'Streaming...' : 'Open Pipeline Stream'}</span>
+                </button>
+              </div>
+              {uuidError && (
+                <div className="text-[11px] text-red-400">{uuidError}</div>
+              )}
             </div>
           )}
 
