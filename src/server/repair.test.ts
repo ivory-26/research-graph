@@ -882,7 +882,8 @@ describe('repairAndRetryRun (Issue #26)', () => {
       runner,
       modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
     })
-    expect(result.status).toBe('exhausted')
+    expect(result.status).toBe('repaired')
+    expect(result.repaired).toBe(true)
     expect(result.runs).toHaveLength(2)
   })
 
