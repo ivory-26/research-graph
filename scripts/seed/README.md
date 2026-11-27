@@ -77,7 +77,7 @@ recorded by the production gate. Node positions remain at the schema default
 | Variable | Why |
 |---|---|
 | `DATABASE_URL` | Fresh, migrated application database. The seed refuses a non-empty schema and runs the committed migrations itself. |
-| `MODEL_API_KEY` | Meta Model API key for every text call (claim extraction, edge proposal, planning, `explain_gap`). Contributor mode is the pinned `muse-spark-1.3-contributor` model. Not needed when replaying a recording. |
+| `MODEL_API_KEY` | Meta Model API key for the seed's text calls (claim extraction, edge proposal, planning, `explain_gap`). Contributor mode is the pinned `muse-spark-1.3-contributor` model. The application runtime does not use this key. Not needed when replaying a recording. |
 | `SEED_RECORD_MODEL_OUTPUTS` / `SEED_REPLAY_MODEL_OUTPUTS` | Optional seed-only capture or replay of structured model responses for the deterministic two-seed baseline. Set at most one; paths are described below. |
 | `SEED_EMBEDDING_PACING_MS` | Optional pause between sources; use `65000` for a replay burst on the Gemini free tier. Defaults to 0. |
 | `GOOGLE_GENERATIVE_AI_API_KEY` or `GEMINI_API_KEY` | Gemini embeddings only (`gemini-embedding-2`). |
@@ -245,6 +245,11 @@ recording is not a graph fixture and cannot supply row ids. A prompt that
 changes shape is a hard error rather than a fuzzy match. `MODEL_API_KEY` is
 optional in replay mode; the Gemini embedding key is still required.
 
+The Meta generator and the record/replay wrapper are selected only in
+`scripts/seed/model.ts`. The application's default `callModel` remains on the
+pinned Gemini stack and never reads `SEED_RECORD_MODEL_OUTPUTS` or
+`SEED_REPLAY_MODEL_OUTPUTS`.
+
 The recording is intentionally committed: it is the model-output baseline, not
 `fixtures/workspace.json`. Recapture only when the prompts, model or pin
 changes.
@@ -368,21 +373,24 @@ seed never resets it for you.
    completed live (5m29s); two fresh replay seeds completed with no
    `MODEL_API_KEY` and `seed:compare` returned `RESULT: MATCH` (both sides:
    3 sources, 46 chunks, 65 nodes, 40 edges, 2 experiments, 2 runs, 4
-   artifacts). Text generation is Meta Model API's
-   `muse-spark-1.3-contributor` (Contributor mode); Gemini remains the
-   embedding provider. Contributor mode permits Meta to train on prompts and
-   responses; the seed sends only public paper text and generated specs. No
-   credential is committed.
+   artifacts). The seed's text generator is Meta Model API's
+   `muse-spark-1.3-contributor` (Contributor mode), injected only by
+   `scripts/seed/model.ts`; the application runtime stays on the pinned Gemini
+   stack, and Gemini remains the embedding provider. Contributor mode permits
+   Meta to train on prompts and responses; the seed sends only public paper
+   text and generated specs. No credential is committed.
 2. **Exactness of two live seeds.** A live pair without replay still varies:
    Meta extraction produced different claims and edges. The canonical
    baseline therefore uses the committed recording. Production prompts, Zod
    validation, evidence checks and every DB write still run; only the
    structured model responses are replayed. Recapture when prompts or the
    model pin change; do not replace this with fixture rows.
-3. **Runtime budget.** The issue's "under a minute" is **not met**: capture
-   took 5m29s, and replay took 3m07s with the 65s free-tier embedding pacing.
-   `timing.underOneMinute` is false. A billed Gemini embedding key, or
-   recording embeddings as well, is needed to reach the budget.
+3. **Runtime budget.** Accepted by the maintainer's 27 November amendment on
+   issue #8: replay must complete within five minutes on the free-tier
+   embedding quota. Capture took 5m29s, and replay took 3m07s with the 65s
+   pacing, so `timing.underOneMinute` is false but the amended budget is met.
+   The original one-minute target remains a follow-up: a billed Gemini
+   embedding key, or recording embeddings as well, is needed for it.
 4. **Node positions.** The seed leaves `nodes.position_x/y` at `(0, 0)`. The
    canvas/force layout owns placement.
 5. **Merged dependencies.** The what-if branch (#66), repair loop (#65) and
@@ -459,6 +467,8 @@ seed never resets it for you.
   both runs `succeeded`/`match`, four inline artifacts per seed, both gates
   approved, five lineage edges per seed, and `seed:compare` returned
   `RESULT: MATCH` across all ten checks. The one-minute budget remains unmet.
-- The two-seed baseline passes with replay (`RESULT: MATCH`). The "under one
-  minute" budget is **not met**: replay is 3m07s with free-tier pacing and
-  capture is 5m29s.
+- The two-seed baseline passes with replay (`RESULT: MATCH`). The original
+  "under one minute" target is unmet (replay 3m07s with free-tier pacing,
+  capture 5m29s); issue #8's 27 November amendment accepts a five-minute
+  free-tier replay and keeps one minute as a billed-key/recorded-embedding
+  follow-up.

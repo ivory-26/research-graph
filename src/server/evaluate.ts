@@ -7,12 +7,7 @@ import type {
   VerdictCheck,
   VerdictDetail,
 } from '../shared/types'
-import {
-  callModel,
-  DEFAULT_MODEL_ID,
-  type CallModelContext,
-  type CallModel,
-} from './model'
+import { callModel, type CallModelContext, type CallModel } from './model'
 import {
   evaluateCheck,
   createVerdictCheck,
@@ -33,11 +28,12 @@ const ExplainGapSchema = z.object({
 
 /**
  * The text model pinned for this evaluator's `explain_gap` explanation (#6).
- * It is also `DEFAULT_MODEL_ID` today, but the pin stays explicit so a future
- * default change cannot silently change the explanation model. The wrapper
+ * This is a deliberate evaluator-only exception: every other text call site
+ * keeps `DEFAULT_MODEL_ID` and embeddings stay on `gemini-embedding-2`. The
+ * literal stays here so a default change cannot silently move it. The wrapper
  * costs the call from this model's `DEFAULT_PRICING` entry.
  */
-export const EXPLAIN_GAP_MODEL_ID = DEFAULT_MODEL_ID
+export const EXPLAIN_GAP_MODEL_ID = 'gemini-4-hydrogen'
 
 export interface ExplainGapOptions {
   callModelFn?: CallModel

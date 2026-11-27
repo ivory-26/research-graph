@@ -211,6 +211,59 @@ export interface SeedGraphResult {
   elapsedMs: number
 }
 
+/**
+ * The run slice's error codes. They live here, with the other seed contracts,
+ * so `runs.ts` and `run-edges.ts` cannot drift apart; both modules re-export
+ * the types they use.
+ *
+ * Prerequisite codes (`WHAT_IF_UNAVAILABLE`, `QUEUED_RUN_ADOPTION_UNAVAILABLE`)
+ * are detected before any write and mean an owner integration is missing.
+ * Every other code is a verification failure: the seed ran, but what it read
+ * back is not the recorded workspace this issue promises.
+ */
+export type SeedRunErrorCode =
+  | 'INVALID_INPUT'
+  | 'WORKSPACE_NOT_FRESH'
+  | 'APPROVER_NOT_WORKSPACE_MEMBER'
+  | 'APPROVER_NOT_OPERATOR'
+  | 'APPROVAL_SPEC_MISMATCH'
+  | 'APPROVAL_REJECTED'
+  | 'CLAIM_NOT_ACQUIRED'
+  | 'PLAN_SPEC_MISMATCH'
+  | 'REPAIR_APPROVAL_UNAVAILABLE'
+  | 'PIPELINE_STAGE_FAILED'
+  | 'PIPELINE_DB_FAILED'
+  | 'RUN_NOT_CREATED'
+  | 'RUN_ABORTED'
+  | 'RUN_NOT_FOUND'
+  | 'RUN_NOT_SUCCEEDED'
+  | 'RUN_APPROVAL_MISMATCH'
+  | 'RUN_SPEC_MISMATCH'
+  | 'RUN_METRICS_INVALID'
+  | 'RUN_VERDICT_MISMATCH'
+  | 'RUN_ENVIRONMENT_MISMATCH'
+  | 'RUN_ARTIFACTS_MISSING'
+  | 'RUN_ARTIFACT_HASH_MISMATCH'
+  | 'RUN_PROJECTION_MISMATCH'
+  | 'RUN_LINEAGE_MISMATCH'
+  | 'RUNS_NOT_DISTINCT'
+  | 'WHAT_IF_UNAVAILABLE'
+  | 'QUEUED_RUN_ADOPTION_UNAVAILABLE'
+  | 'WHAT_IF_CONTRACT_VIOLATION'
+  | 'BASELINE_SHAPE_MISMATCH'
+  | 'BASELINE_MISMATCH'
+
+/** A refused anchor or run-lineage edge write; the message is operator-safe. */
+export type RunEdgeErrorCode =
+  | 'INVALID_INPUT'
+  | 'WORKSPACE_NOT_FOUND'
+  | 'IMPORTANCE_METHOD_UNSUPPORTED'
+  | 'METHOD_ANCHOR_AMBIGUOUS'
+  | 'DATASET_SPEC_MISSING'
+  | 'DATASET_ANCHOR_AMBIGUOUS'
+  | 'EDGE_ENDPOINT_INVALID'
+  | 'EDGE_EVIDENCE_RUN_INVALID'
+
 export type SeedErrorCode =
   | 'MISSING_DATABASE_URL'
   | 'MISSING_GEMINI_KEY'

@@ -20,7 +20,7 @@ INGEST_SOURCE → EXTRACT_CLAIMS → PROPOSE_EDGES → PLAN_EXPERIMENT
 | `AWAIT_APPROVAL` | `src/server/pipeline-delivery/`, `src/db/pipeline-*` | Built: durable gate, same-origin POST, verified actor |
 | `EXECUTE` | `src/server/runner.ts` | Built: real E2B runner with pinned-package verification |
 | `EVALUATE` | `src/server/evaluate.ts`, `evaluate-verdict.ts` | Built: deterministic verdict, then `explain_gap` |
-| `BRANCH_WHAT_IF` | `src/server/branch.ts` | Built as a module; EXECUTE adoption of the queued Run B is #62 |
+| `BRANCH_WHAT_IF` | `src/server/branch.ts` | Built; EXECUTE adopts the queued Run B (#62) |
 | repair loop (`REPAIR_SCRIPT`) | `src/server/branch.ts` | Built; wired into EXECUTE after a failed run |
 | strategy selection | — | Not built; `agent_strategies` exists but nothing picks a strategy |
 
@@ -129,13 +129,13 @@ mode 'any': at least one check passes             → 'match', else 'mismatch'
 
 Every check is recorded in `verdict_detail.checks` with its measured value, threshold and pass flag, so per-check outcomes stay visible whatever the aggregate says.
 
-The model is then called **only** to write a two-sentence explanation of the gap, given the spec, the metrics and the criteria. It cannot change the verdict; the verdict is already a row by the time the explanation is requested. That call is pinned to `muse-spark-1.3-contributor` (`EXPLAIN_GAP_MODEL_ID`), and its `agent_tasks` row id becomes the `taskId` on the `EVALUATE` `stage.finished` event.
+The model is then called **only** to write a two-sentence explanation of the gap, given the spec, the metrics and the criteria. It cannot change the verdict; the verdict is already a row by the time the explanation is requested. That call is pinned to `gemini-4-hydrogen` (`EXPLAIN_GAP_MODEL_ID`), and its `agent_tasks` row id becomes the `taskId` on the `EVALUATE` `stage.finished` event.
 
 This is worth restating because it is the cheapest possible defence against the thing that makes AI research tools untrustworthy: the explanation is prose, the verdict is arithmetic.
 
 ### BRANCH_WHAT_IF
 
-**Status on `main`: built as a module.** `src/server/branch.ts` clones the frozen spec, enforces the one-parameter diff and persists the branched experiment plus a queued Run B with `parentRunId`. EXECUTE does not yet adopt that queued row, so the comparison view still renders the recorded fixture; adoption is tracked in #62.
+**Status on `main`: built.** `src/server/branch.ts` clones the frozen spec, enforces the one-parameter diff and persists the branched experiment plus a queued Run B with `parentRunId`. EXECUTE adopts that queued attempt-1 row under the experiment row lock (#62) instead of inserting an unlinked run, freezes the approved spec and refuses a duplicate. The comparison view still renders the recorded fixture until the browser→pipeline bridge lands.
 
 Input: a completed run and a parameter name. The branch copies the frozen `spec`, applies exactly one change, re-runs `PLAN_EXPERIMENT`'s validation (not its generation), and creates a new `experiment` with `parentRunId` pointing at the ancestor. The parent row is never touched.
 
@@ -195,15 +195,16 @@ The dashboard is designed as a `GROUP BY` over `agent_tasks`, with no separate s
 
 ## Model discipline
 
-Because structured-output support differs by provider ([ADR 0009](./adr/0009-gemini-only.md)):
+Because of Gemini's structured-output subset ([ADR 0009](./adr/0009-gemini-only.md)):
 
-- Every schema is flat or one level of nesting. No recursive `$ref`; Meta rejects recursive schemas.
-- Meta's strict schema mode also rejects optional properties; the extraction contract has them, so text calls use a non-strict schema plus Zod revalidation.
-- Never rely on `minLength`, `maxLength`, `uniqueItems` as a portable guarantee — Gemini silently ignores them. Enforce in Zod after the call, not in the schema before it.
+- Every schema is flat or one level of nesting. No recursive `$ref`.
+- Never rely on `minLength`, `maxLength`, `uniqueItems` — they are silently ignored. Enforce in Zod after the call, not in the schema before it.
 - Never exceed 12 items in a top-level array; large arrays increase truncation risk and make validation all-or-nothing.
 
-Every call is sequential. Provider quotas are per project and unpublished, so the pipeline never issues parallel requests. Text calls go through one `callModel()` wrapper (`src/server/model.ts`) that implements exponential backoff with jitter on 429/503, disables the SDK's own retries, and writes one `agent_tasks` row per **physical attempt** with cost, tokens and latency. Embeddings use the same queue and task-row helpers but call `embedMany` directly.
+Every call is sequential. Gemini's quotas are per project and unpublished, so the pipeline never issues parallel requests. Text calls go through one `callModel()` wrapper (`src/server/model.ts`) that implements exponential backoff with jitter on 429/503, disables the SDK's own retries, and writes one `agent_tasks` row per **physical attempt** with cost, tokens and latency. Embeddings use the same queue and task-row helpers but call `embedMany` directly.
 
 429 rate-limit and 503 provider-capacity responses (`high demand`) are retried with bounded exponential backoff and jitter; every other provider failure is persisted immediately and surfaces as a missing explanation. The deterministic verdict still completes. `DEFAULT_MAX_ATTEMPTS` and the 240-second stream budget bound the retry chain.
 
-Every text call uses Meta Model API's `muse-spark-1.3-contributor` through the OpenAI-compatible provider at `https://api.meta.ai/v1`; the Stage 7 `explain_gap` call pins the same model (`src/server/evaluate.ts`). The verdict is computed by `evaluateExperiment` before that call and the model cannot alter it. Gemini's `gemini-embedding-2` remains the embedding model. Contributor mode costs $0.10 per million input tokens and $0.20 per million output tokens, in exchange for Meta being permitted to use prompts and responses to train future models; prompts contain public paper text and generated specs, never a secret or personal document. The price table is an accounting estimate from published prices, not billing telemetry or a statement about account entitlement.
+The one model exception is the Stage 7 `explain_gap` call, which pins `gemini-4-hydrogen` for the two-sentence explanation (`src/server/evaluate.ts`). The verdict is computed by `evaluateExperiment` before that call and the model cannot alter it. Every other text call site uses `gemini-3.8-flash`, and embeddings stay on `gemini-embedding-2`. `DEFAULT_PRICING` costs the evaluator call from the published Standard paid rate: $1.50 per million input tokens and $7.50 per million output tokens, with thinking billed at the output rate. The table is an accounting estimate from published prices, not billing telemetry or a statement about account entitlement.
+
+The seed is the only caller that injects a different text provider: `scripts/seed/model.ts` selects Meta Model API's `muse-spark-1.3-contributor` through the OpenAI-compatible provider, because sustained Gemini 503s blocked the live capture. That generator is not reachable from the application runtime, which never reads the seed's record/replay variables. The seed's Meta calls run the same schemas non-strictly and revalidate with Zod; Contributor mode permits Meta to train on prompts and responses, and the seed sends only public paper text and generated specs.

@@ -242,14 +242,16 @@ export function createReplayGenerator(path: string): StructuredGenerator {
 }
 
 /**
- * Pick the generator from the seed's environment. Normal application runtime
- * leaves both variables unset and gets the real Meta generator.
+ * Pick the generator from the seed's environment. Only `scripts/seed` calls
+ * this; the application runtime never reads these variables. With both
+ * variables unset the seed uses its real (Meta) generator.
  */
 export function defaultGeneratorFromEnv(
   real: StructuredGenerator,
+  env: NodeJS.ProcessEnv = process.env,
 ): StructuredGenerator {
-  const replay = process.env[MODEL_OUTPUT_REPLAY_ENV]?.trim()
-  const record = process.env[MODEL_OUTPUT_RECORD_ENV]?.trim()
+  const replay = env[MODEL_OUTPUT_REPLAY_ENV]?.trim()
+  const record = env[MODEL_OUTPUT_RECORD_ENV]?.trim()
 
   if (replay && record) {
     throw new Error(

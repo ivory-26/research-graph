@@ -14,6 +14,7 @@
     "./contracts.test.ts",
     "./hero-claim.ts",
     "./hero-claim.test.ts",
+    "./model.ts",
     "./run-edges.ts",
     "./run-edges.test.ts",
     "./run-edges.integration.test.ts",

@@ -20,13 +20,14 @@ import { applySingleLeafChange, branchWhatIf, createDrizzleWhatIfBranchStore } f
 import { ingestSourceToGraphForWorkspace } from '../src/server/extract/pipeline.ts'
 import { embedChunks, embedQuery } from '../src/server/ingest/embed.ts'
 import {
-  callModel,
   createDrizzleAgentTaskStore,
   MODEL_API_KEY_ENV,
+  type CallModel,
 } from '../src/server/model.ts'
 import { MODEL_OUTPUT_REPLAY_ENV } from '../src/server/model-replay.ts'
 import type { NodeType } from '../src/shared/types.ts'
 import { loadLocalAssets, type LocalAsset } from './seed/assets.ts'
+import { createSeedCallModel } from './seed/model.ts'
 import {
   SEED_ACTOR_ENV,
   SEED_ALLOW_EXISTING_DATA_ENV,
@@ -81,6 +82,12 @@ export interface SeedGraphOptions {
   /** Defaults to the repository root derived from this file. */
   repoRoot?: string
   logger?: SeedLogger
+  /**
+   * The seed's text call wrapper. Defaults to `createSeedCallModel(env)`; the
+   * entrypoint creates one wrapper and reuses it for the run half so a live
+   * recording accumulates across both phases.
+   */
+  callModel?: CallModel
 }
 
 function pgErrorCode(error: unknown): string | undefined {
@@ -218,6 +225,7 @@ async function ingestAssets(
   prepared: readonly LocalAsset[],
   logger: SeedLogger,
   embeddingPacingMs: number,
+  callModelFn: CallModel,
 ): Promise<SeedSourceReport[]> {
   const reports: SeedSourceReport[] = []
   const taskStore = createDrizzleAgentTaskStore(db)
@@ -253,7 +261,7 @@ async function ingestAssets(
       strategy: 'single_pass',
       embedChunksFn: (chunks, options, deps) => embedChunks(chunks, { ...options, taskStore }, deps),
       embedQueryFn: (query, options, deps) => embedQuery(query, { ...options, taskStore }, deps),
-      callModelFn: (schema, prompt, context) => callModel(schema, prompt, { ...context, store: taskStore }),
+      callModelFn: (schema, prompt, context) => callModelFn(schema, prompt, { ...context, store: taskStore }),
       updateTaskStatusFn: async (id, status, error) => {
         await db.update(agentTasks).set({ status, error: error ?? null }).where(eq(agentTasks.id, id))
       },
@@ -406,6 +414,7 @@ export async function seedWorkspaceGraph(
   const env = options.env ?? process.env
   const repoRoot = options.repoRoot ?? REPO_ROOT
   const logger = options.logger ?? consoleLogger
+  const callModelFn = options.callModel ?? createSeedCallModel(env)
   requireCredentials(env)
   const actor = resolveSeedActor(env)
 
@@ -434,7 +443,13 @@ export async function seedWorkspaceGraph(
 
   logger.info(`Workspace ${SEED_WORKSPACE_SLUG} (${SEED_WORKSPACE_ID}) created for actor ${actor.userId}`)
 
-  const sources = await ingestAssets(db, prepared, logger, embeddingPacingMs)
+  const sources = await ingestAssets(
+    db,
+    prepared,
+    logger,
+    embeddingPacingMs,
+    callModelFn,
+  )
   const counts = await readCounts(db, sources)
 
   const heroSource = sources.find(
@@ -780,10 +795,17 @@ export async function main(argv: string[] = []): Promise<number> {
   resolveSeedActor(env)
 
   const started = performance.now()
+  // One wrapper for both phases: in record mode it accumulates every text call
+  // into the same recording, and in replay mode it keys both phases off one file.
+  const callModelFn = createSeedCallModel(env)
   const opened = openSeedDatabase(url)
   try {
     await opened.migrate()
-    const graph = await seedWorkspaceGraph({ db: opened.db, env })
+    const graph = await seedWorkspaceGraph({
+      db: opened.db,
+      env,
+      callModel: callModelFn,
+    })
     if (!verifySession || !actor) {
       console.log(JSON.stringify({ graph }, null, 2))
       return 0
@@ -825,6 +847,7 @@ export async function main(argv: string[] = []): Promise<number> {
       workspaceId: graph.workspaceId,
       claimNodeId: graph.heroClaim.claimNodeId,
       operatorUserId: actor.id,
+      callModel: callModelFn,
       runASpec,
       runBCandidateSpec,
       change: importanceChange,

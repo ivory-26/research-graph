@@ -207,7 +207,7 @@ describe('evaluateAndExplainExperiment (Stage 7 with explain_gap model call)', (
     expect(outcome.detail.explanation).toContain('Gini impurity importance')
   })
 
-  it('routes and prices the explain_gap call on muse-spark-1.3-contributor through the real wrapper', async () => {
+  it('routes and prices the explain_gap call on gemini-4-hydrogen through the real wrapper', async () => {
     const store = new MemoryTaskStore()
     const seenModelIds: string[] = []
 
@@ -244,8 +244,8 @@ describe('evaluateAndExplainExperiment (Stage 7 with explain_gap model call)', (
       promptTokens: 1_000_000,
       completionTokens: 1_000_000,
     })
-    // Contributor-mode price: $0.10 input + $0.20 output per million
+    // Published Standard paid price: $1.50 input + $7.50 output per million
     // tokens. The wrapper fills cost_usd from DEFAULT_PRICING by model id.
-    expect(store.rows[0]!.costUsd).toBe('0.300000')
+    expect(store.rows[0]!.costUsd).toBe('9.000000')
   })
 })

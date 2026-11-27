@@ -193,10 +193,12 @@ print(f"Computed metrics: {metrics}")
  * Not used as seed data or rendered in the UI as pipeline-measured numbers (docs/05-plan.md:91).
  *
  * Metrics, stdout, python version, and environment packages were directly verified against the
- * container runtime. Duration is an observed wall-clock execution time (1420ms) and startedAt
- * is an ISO run timestamp. Image digest is recorded as 'unknown' because /etc/image-digest is only
- * written when an image is published to the registry; defaultReadEnvironment falls back to
- * 'unknown' in local execution.
+ * container runtime before the parameterised script gained `rank_noise_20`; the recorded stdout
+ * therefore predates that metric, while the rank values remain the verification targets that
+ * `pnpm verify:hero` re-measures against the current script. Duration is an observed wall-clock
+ * execution time (1420ms) and startedAt is an ISO run timestamp. Image digest is recorded as
+ * 'unknown' because /etc/image-digest is only written when an image is published to the registry;
+ * defaultReadEnvironment falls back to 'unknown' in local execution.
  *
  * Can be reproduced via: pnpm run verify:hero (or node scripts/verify-hero-run.mjs) with Docker active.
  */

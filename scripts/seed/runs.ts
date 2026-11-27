@@ -135,6 +135,8 @@ import {
 } from '../../src/db/schema'
 import type { branchWhatIf, ParentRunSnapshot, WhatIfBranchStore } from '../../src/server/branch'
 import { evaluateExperiment } from '../../src/server/evaluate-verdict'
+import type { CallModel } from '../../src/server/model'
+import type { SeedRunErrorCode } from './contracts'
 import {
   PipelineStageError,
   type PipelineEmit,
@@ -176,43 +178,7 @@ export const SEED_BASELINE_SCHEMA_VERSION = 1
 // Errors
 // ---------------------------------------------------------------------------
 
-/**
- * Prerequisite codes (`WHAT_IF_UNAVAILABLE`, `QUEUED_RUN_ADOPTION_UNAVAILABLE`)
- * are detected before any write and mean an owner integration is missing.
- * Every other code is a verification failure: the seed ran, but what it read
- * back is not the recorded workspace this issue promises.
- */
-export type SeedRunErrorCode =
-  | 'INVALID_INPUT'
-  | 'WORKSPACE_NOT_FRESH'
-  | 'APPROVER_NOT_WORKSPACE_MEMBER'
-  | 'APPROVER_NOT_OPERATOR'
-  | 'APPROVAL_SPEC_MISMATCH'
-  | 'APPROVAL_REJECTED'
-  | 'CLAIM_NOT_ACQUIRED'
-  | 'PLAN_SPEC_MISMATCH'
-  | 'REPAIR_APPROVAL_UNAVAILABLE'
-  | 'PIPELINE_STAGE_FAILED'
-  | 'PIPELINE_DB_FAILED'
-  | 'RUN_NOT_CREATED'
-  | 'RUN_ABORTED'
-  | 'RUN_NOT_FOUND'
-  | 'RUN_NOT_SUCCEEDED'
-  | 'RUN_APPROVAL_MISMATCH'
-  | 'RUN_SPEC_MISMATCH'
-  | 'RUN_METRICS_INVALID'
-  | 'RUN_VERDICT_MISMATCH'
-  | 'RUN_ENVIRONMENT_MISMATCH'
-  | 'RUN_ARTIFACTS_MISSING'
-  | 'RUN_ARTIFACT_HASH_MISMATCH'
-  | 'RUN_PROJECTION_MISMATCH'
-  | 'RUN_LINEAGE_MISMATCH'
-  | 'RUNS_NOT_DISTINCT'
-  | 'WHAT_IF_UNAVAILABLE'
-  | 'QUEUED_RUN_ADOPTION_UNAVAILABLE'
-  | 'WHAT_IF_CONTRACT_VIOLATION'
-  | 'BASELINE_SHAPE_MISMATCH'
-  | 'BASELINE_MISMATCH'
+export type { SeedRunErrorCode }
 
 export class SeedRunError extends Error {
   readonly code: SeedRunErrorCode
@@ -342,6 +308,12 @@ export type SeedRunsInput = {
     branch: typeof branchWhatIf
     store: WhatIfBranchStore
   }
+  /**
+   * The seed's text call wrapper. Defaults to the production Gemini call,
+   * matching the application runtime; `scripts/seed.ts` injects the seed-only
+   * Meta/record-replay wrapper instead.
+   */
+  callModel?: CallModel
   /** Defaults to the real production stage provider. */
   executor?: SeedRunExecutorOverride
   /** Defaults to true: the recorded runs carry verifiable artifacts. */
@@ -1470,11 +1442,12 @@ async function assertWorkspaceMember(
  */
 export async function createProductionSeedExecutor(
   db: Database,
+  callModel?: CallModel,
 ): Promise<SeedRunExecutor> {
   const { createProductionPipelineStages } = await import(
     '../../src/server/pipeline-delivery/production-stages'
   )
-  const stages = createProductionPipelineStages({ db })
+  const stages = createProductionPipelineStages({ db, callModel })
   return {
     plan: (context) => stages.plan(context),
     execute: (context, spec) => stages.execute(context, spec),
@@ -1487,9 +1460,10 @@ export async function createProductionSeedExecutor(
 async function resolveExecutor(
   db: Database,
   override: SeedRunExecutorOverride | undefined,
+  callModel?: CallModel,
 ): Promise<SeedRunExecutor> {
   if (!override?.plan || !override.execute) {
-    const base = await createProductionSeedExecutor(db)
+    const base = await createProductionSeedExecutor(db, callModel)
     return {
       plan: override?.plan ?? base.plan,
       execute: override?.execute ?? base.execute,
@@ -1606,7 +1580,11 @@ export async function seedRuns(input: SeedRunsInput): Promise<SeedRunsResult> {
     )
   }
 
-  const executor = await resolveExecutor(input.db, input.executor)
+  const executor = await resolveExecutor(
+    input.db,
+    input.executor,
+    input.callModel,
+  )
   if (!executor.adoptsQueuedRun) {
     throw new SeedRunError(
       'QUEUED_RUN_ADOPTION_UNAVAILABLE',

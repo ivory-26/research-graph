@@ -56,20 +56,13 @@ import type {
   NodeType,
   RunStatus,
 } from '../../src/shared/types.ts'
+import type { RunEdgeErrorCode } from './contracts.ts'
 
 // ---------------------------------------------------------------------------
 // Errors and constants
 // ---------------------------------------------------------------------------
 
-export type RunEdgeErrorCode =
-  | 'INVALID_INPUT'
-  | 'WORKSPACE_NOT_FOUND'
-  | 'IMPORTANCE_METHOD_UNSUPPORTED'
-  | 'METHOD_ANCHOR_AMBIGUOUS'
-  | 'DATASET_SPEC_MISSING'
-  | 'DATASET_ANCHOR_AMBIGUOUS'
-  | 'EDGE_ENDPOINT_INVALID'
-  | 'EDGE_EVIDENCE_RUN_INVALID'
+export type { RunEdgeErrorCode }
 
 /** A refused anchor or edge write. The message is safe to show to an operator. */
 export class RunEdgeError extends Error {

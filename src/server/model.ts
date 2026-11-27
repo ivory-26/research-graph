@@ -21,28 +21,32 @@
  *
  * Structured output goes through the AI SDK's `Output.object`. The caller
  * passes a flat, non-recursive Zod schema; the wrapper still re-parses with
- * that schema because provider-side constraint support differs. Meta runs the
- * schema in non-strict mode (its strict validator rejects the extraction
- * contract's optional fields), so Zod revalidation is load-bearing. Gemini
+ * that schema because provider-side constraint support differs. Gemini
  * silently ignores `minLength`, `maxLength` and `uniqueItems` (ADR 0009).
+ * The seed's Meta generator runs the schema in non-strict mode (Meta's strict
+ * validator rejects the extraction contract's optional fields), so Zod
+ * revalidation is load-bearing there too.
  */
 import { APICallError, Output, generateText } from 'ai'
 import type { JSONValue, LanguageModel } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { google } from '@ai-sdk/google'
-import { defaultGeneratorFromEnv } from './model-replay'
 import type { z } from 'zod'
 import type { AgentTaskStatus, TaskKind } from '../shared/types'
 import { agentTasks, type NewAgentTask } from '../db/schema'
 import type { Database } from '../db/client'
 
 /**
- * The pinned text model (CLAUDE.md). Meta Model API's Contributor-mode
- * variant is used for every text call; Gemini remains the embedding provider.
+ * The pinned text model (CLAUDE.md). The application runtime stays on Gemini;
+ * the seed may inject a Meta generator for its recorded baseline, but nothing
+ * in this module selects Meta unless a caller does.
  */
-export const DEFAULT_MODEL_ID = 'muse-spark-1.3-contributor'
+export const DEFAULT_MODEL_ID = 'gemini-3.8-flash'
 
-/** Meta Model API's OpenAI-compatible base URL. */
+/**
+ * Meta Model API's OpenAI-compatible base URL. The seed-only generator uses
+ * it; the application default never does.
+ */
 export const DEFAULT_MODEL_BASE_URL = 'https://api.meta.ai/v1'
 
 /** Bearer token for the Meta Model API. Never logged or persisted. */
@@ -73,27 +77,32 @@ export type ModelPricing = {
  * `agent_tasks.cost_usd`. Override through `createCallModel({ pricing })` if
  * Google changes them; the row records the cost this table produced.
  *
- * `muse-spark-1.3-contributor` is the default text model. Its entry is Meta
- * Model API's Contributor-mode rate: $0.10 per million input tokens and $0.20
- * per million output tokens. Contributor mode permits Meta to use the prompts
- * and responses to train future models; the project sends only public paper
- * text and generated specs, never a secret or personal document. The two
- * Gemini entries are retained for a caller that explicitly overrides the
- * default and for the embedding-adjacent tests. This is an accounting
- * estimate from published prices, not billing telemetry.
+ * `gemini-4-hydrogen` is the evaluator's `explain_gap` pin (see
+ * `evaluate.ts`), not a general default. Its entry is the published Standard
+ * paid rate: $1.50 per million input tokens and $7.50 per million output
+ * tokens. Gemini bills thinking tokens at the output rate, and the SDK's
+ * `outputTokens` is the total output count, so thinking is included. This is
+ * an accounting estimate from published prices, not billing telemetry.
+ *
+ * `muse-spark-1.3-contributor` is the seed-only provider's model. Its entry is
+ * Meta Model API's Contributor-mode rate: $0.10 per million input tokens and
+ * $0.20 per million output tokens. Contributor mode permits Meta to use the
+ * prompts and responses to train future models; the seed sends only public
+ * paper text and generated specs, never a secret or personal document. The
+ * application runtime never selects this model.
  */
 export const DEFAULT_PRICING: Readonly<Record<string, ModelPricing>> = {
-  'muse-spark-1.3-contributor': {
-    inputUsdPerMillionTokens: 0.1,
-    outputUsdPerMillionTokens: 0.2,
+  [DEFAULT_MODEL_ID]: {
+    inputUsdPerMillionTokens: 0.3,
+    outputUsdPerMillionTokens: 2.5,
   },
   'gemini-4-hydrogen': {
     inputUsdPerMillionTokens: 1.5,
     outputUsdPerMillionTokens: 7.5,
   },
-  'gemini-3.8-flash': {
-    inputUsdPerMillionTokens: 0.3,
-    outputUsdPerMillionTokens: 2.5,
+  'muse-spark-1.3-contributor': {
+    inputUsdPerMillionTokens: 0.1,
+    outputUsdPerMillionTokens: 0.2,
   },
 }
 
@@ -196,7 +205,8 @@ export type StructuredGenerationResult = {
 
 /**
  * The only thing between `callModel` and the AI SDK. Tests inject a fake here;
- * production uses `generateWithMeta`.
+ * the application default uses `generateWithGemini`, and the seed injects
+ * `generateWithMeta` or its record/replay wrapper.
  */
 export type StructuredGenerator = (
   request: StructuredGenerationRequest,
@@ -331,13 +341,17 @@ export function createGeminiGenerator(
 }
 
 /**
- * The default text generator: Meta Model API, OpenAI-compatible.
+ * The seed's text generator: Meta Model API, OpenAI-compatible.
  *
  * Meta rejects strict-mode schemas that contain optional properties, and the
  * extraction contract legitimately has them (`codeUrls`, `datasets`, ...).
  * Non-strict mode accepts the same schema and still uses it to constrain the
  * response; the wrapper re-parses every result with the original Zod schema,
  * so an optional field cannot skip validation.
+ *
+ * This generator is never selected by the application runtime. Only
+ * `scripts/seed` injects it, because the live seed's text calls were blocked
+ * by sustained provider capacity errors on Gemini. See ADR 0009.
  */
 export function createMetaGenerator(
   deps: StructuredGeneratorDeps = {},
@@ -362,7 +376,7 @@ export type CallModelContext = {
   strategyId?: string | null
   /** Whatever identifies the inputs for this call, e.g. source or chunk ids. */
   inputRef?: Record<string, unknown>
-  /** Defaults to `muse-spark-1.3-contributor`. */
+  /** Defaults to `gemini-3.8-flash`. */
   modelId?: string
   /**
    * `undefined` uses the configured default price table; `null` records no
@@ -403,10 +417,11 @@ function sleep(ms: number): Promise<void> {
 }
 
 const DEFAULT_RUNTIME: CallModelRuntime = {
-  // Normal runtime uses Meta. The seed may set a record/replay path to make
-  // its two-database baseline deterministic; production ingestion, Zod
-  // validation and every DB write still run in that mode.
-  generate: defaultGeneratorFromEnv(generateWithMeta),
+  // The application runtime uses the pinned Gemini generator. The seed builds
+  // its own wrapper (`scripts/seed/model.ts`) with the Meta or record/replay
+  // generator; leaving those variables in a deployed environment cannot change
+  // what this default does.
+  generate: generateWithGemini,
   sleep,
   random: Math.random,
   now: Date.now,

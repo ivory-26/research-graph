@@ -174,7 +174,7 @@ describe('callModel task accounting', () => {
       status: 'succeeded',
       promptTokens: 120,
       completionTokens: 30,
-      costUsd: '0.000018',
+      costUsd: '0.000111',
       latencyMs: 25,
       error: null,
     })
@@ -347,7 +347,7 @@ describe('callModel task accounting', () => {
       now: steppingClock(),
     })
     await priced(ClaimSchema, 'p', context(pricedStore))
-    expect(pricedStore.rows[0]!.costUsd).toBe('0.300000')
+    expect(pricedStore.rows[0]!.costUsd).toBe('2.800000')
 
     const unpricedStore = new MemoryTaskStore()
     const unpriced = createCallModel({
