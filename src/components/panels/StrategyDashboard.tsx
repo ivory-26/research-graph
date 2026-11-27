@@ -146,7 +146,9 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
             {totalCost !== null ? `$${totalCost.toFixed(3)}` : '—'}
           </div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">
-            {isDatabaseMode ? 'Measured task cost' : 'Demo fixture baseline'}
+            {isDatabaseMode
+              ? 'Measured task cost'
+              : 'muse-spark-1.3-contributor + Embeddings · seeded recording'}
           </div>
         </div>
 

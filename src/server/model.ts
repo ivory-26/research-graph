@@ -5,9 +5,9 @@
  *
  * 1. Calls are sequential. Gemini's free-tier quota is per project and
  *    unpublished, so this wrapper queues every call behind the previous one.
- * 2. A 429 backs off exponentially with jitter. Other failures do not retry;
- *    they are the caller's problem (a repair is a new pipeline task, not a
- *    hidden retry).
+ * 2. A 429 rate-limit or 503 provider-capacity response backs off
+ *    exponentially with jitter. Other failures do not retry; they are the
+ *    caller's problem (a repair is a new pipeline task, not a hidden retry).
  * 3. Every physical request attempt writes exactly one `agent_tasks` row,
  *    including the attempts that fail. A retried attempt is `retried`; the
  *    final attempt is `succeeded` or `failed`.
@@ -19,26 +19,46 @@
  * workstream (issue #3); this file imports the published table only for the
  * thin Drizzle-backed adapter below and never duplicates the schema.
  *
- * Structured output stays inside Gemini's documented subset: the caller passes
- * a flat, non-recursive Zod schema. The wrapper parses the result with that
- * same Zod schema after the call, because Gemini silently ignores `minLength`,
- * `maxLength` and `uniqueItems` (ADR 0009).
+ * Structured output goes through the AI SDK's `Output.object`. The caller
+ * passes a flat, non-recursive Zod schema; the wrapper still re-parses with
+ * that schema because provider-side constraint support differs. Gemini
+ * silently ignores `minLength`, `maxLength` and `uniqueItems` (ADR 0009).
+ * The seed's Meta generator runs the schema in non-strict mode (Meta's strict
+ * validator rejects the extraction contract's optional fields), so Zod
+ * revalidation is load-bearing there too.
  */
 import { APICallError, Output, generateText } from 'ai'
-import type { LanguageModel } from 'ai'
+import type { JSONValue, LanguageModel } from 'ai'
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { google } from '@ai-sdk/google'
 import type { z } from 'zod'
 import type { AgentTaskStatus, TaskKind } from '../shared/types'
 import { agentTasks, type NewAgentTask } from '../db/schema'
 import type { Database } from '../db/client'
 
-/** The pinned text model (CLAUDE.md). */
+/**
+ * The pinned text model (CLAUDE.md). The application runtime stays on Gemini;
+ * the seed may inject a Meta generator for its recorded baseline, but nothing
+ * in this module selects Meta unless a caller does.
+ */
 export const DEFAULT_MODEL_ID = 'gemini-3.8-flash'
+
+/**
+ * Meta Model API's OpenAI-compatible base URL. The seed-only generator uses
+ * it; the application default never does.
+ */
+export const DEFAULT_MODEL_BASE_URL = 'https://api.meta.ai/v1'
+
+/** Bearer token for the Meta Model API. Never logged or persisted. */
+export const MODEL_API_KEY_ENV = 'MODEL_API_KEY'
+
+/** Optional override for self-hosted or proxied Meta Model API endpoints. */
+export const MODEL_API_BASE_URL_ENV = 'MODEL_API_BASE_URL'
 
 /**
  * One initial attempt plus two retries. docs/03-agent-pipeline.md sets the
  * ceiling for repair at two attempts and docs/06-risks.md budgets the pipeline
- * around that ceiling; the same bound keeps a 429 cascade inside the
+ * around that ceiling; the same bound keeps a 429/503 cascade inside the
  * 240-second stream budget.
  */
 export const DEFAULT_MAX_ATTEMPTS = 3
@@ -57,13 +77,19 @@ export type ModelPricing = {
  * `agent_tasks.cost_usd`. Override through `createCallModel({ pricing })` if
  * Google changes them; the row records the cost this table produced.
  *
- * `gemini-4-hydrogen` is the evaluator's `explain_gap` pin (see `evaluate.ts`),
- * not a general default. Its entry is the published Standard paid rate:
- * $1.50 per million input tokens and $7.50 per million output tokens. Gemini
- * bills thinking tokens at the output rate, and the SDK's `outputTokens` is
- * the total output count, so thinking is included. This is an accounting
- * estimate from published prices, not billing telemetry or a statement about
- * the account's entitlement; the Standard free tier is not charged.
+ * `gemini-4-hydrogen` is the evaluator's `explain_gap` pin (see
+ * `evaluate.ts`), not a general default. Its entry is the published Standard
+ * paid rate: $1.50 per million input tokens and $7.50 per million output
+ * tokens. Gemini bills thinking tokens at the output rate, and the SDK's
+ * `outputTokens` is the total output count, so thinking is included. This is
+ * an accounting estimate from published prices, not billing telemetry.
+ *
+ * `muse-spark-1.3-contributor` is the seed-only provider's model. Its entry is
+ * Meta Model API's Contributor-mode rate: $0.10 per million input tokens and
+ * $0.20 per million output tokens. Contributor mode permits Meta to use the
+ * prompts and responses to train future models; the seed sends only public
+ * paper text and generated specs, never a secret or personal document. The
+ * application runtime never selects this model.
  */
 export const DEFAULT_PRICING: Readonly<Record<string, ModelPricing>> = {
   [DEFAULT_MODEL_ID]: {
@@ -73,6 +99,10 @@ export const DEFAULT_PRICING: Readonly<Record<string, ModelPricing>> = {
   'gemini-4-hydrogen': {
     inputUsdPerMillionTokens: 1.5,
     outputUsdPerMillionTokens: 7.5,
+  },
+  'muse-spark-1.3-contributor': {
+    inputUsdPerMillionTokens: 0.1,
+    outputUsdPerMillionTokens: 0.2,
   },
 }
 
@@ -175,7 +205,8 @@ export type StructuredGenerationResult = {
 
 /**
  * The only thing between `callModel` and the AI SDK. Tests inject a fake here;
- * production uses `generateWithGemini`.
+ * the application default uses `generateWithGemini`, and the seed injects
+ * `generateWithMeta` or its record/replay wrapper.
  */
 export type StructuredGenerator = (
   request: StructuredGenerationRequest,
@@ -186,12 +217,18 @@ export type StructuredGenerator = (
  * make its exact type unusable as an injected dependency; the default generator
  * below calls the real function with the documented AI SDK 7 options.
  */
-export type GeminiGenerateText = (options: {
+export type StructuredProviderOptions = Record<
+  string,
+  Record<string, JSONValue>
+>
+
+export type StructuredGenerateText = (options: {
   model: LanguageModel
   prompt: string
   output: unknown
   maxRetries: number
   abortSignal?: AbortSignal
+  providerOptions?: StructuredProviderOptions
 }) => Promise<{
   output: unknown
   usage: {
@@ -200,32 +237,69 @@ export type GeminiGenerateText = (options: {
   }
 }>
 
-export type GeminiGeneratorDeps = {
+export type StructuredGeneratorDeps = {
   /** Injected in tests. Defaults to the AI SDK's `generateText`. */
-  generateText?: GeminiGenerateText
-  /** Injected in tests. Defaults to a cached `google(modelId)`. */
+  generateText?: StructuredGenerateText
+  /** Injected in tests. Defaults to the provider's cached model. */
   resolveModel?: (modelId: string) => LanguageModel
 }
 
-const modelCache = new Map<string, LanguageModel>()
+const geminiModelCache = new Map<string, LanguageModel>()
 
 function resolveGeminiModel(modelId: string): LanguageModel {
-  const cached = modelCache.get(modelId)
+  const cached = geminiModelCache.get(modelId)
   if (cached) return cached
   const model = google(modelId)
-  modelCache.set(modelId, model)
+  geminiModelCache.set(modelId, model)
+  return model
+}
+
+let metaProvider: ReturnType<typeof createOpenAICompatible> | null = null
+
+function getMetaProvider(): ReturnType<typeof createOpenAICompatible> {
+  if (metaProvider) return metaProvider
+
+  const apiKey = process.env[MODEL_API_KEY_ENV]?.trim()
+  if (!apiKey) {
+    throw new Error(
+      `${MODEL_API_KEY_ENV} is required for the Meta Model API text provider.`,
+    )
+  }
+
+  metaProvider = createOpenAICompatible({
+    name: 'meta-model-api',
+    baseURL:
+      process.env[MODEL_API_BASE_URL_ENV]?.trim() || DEFAULT_MODEL_BASE_URL,
+    apiKey,
+    // Meta constrains decoding to the supplied JSON Schema; without this the
+    // OpenAI-compatible provider would fall back to plain JSON mode.
+    supportsStructuredOutputs: true,
+  })
+  return metaProvider
+}
+
+const metaModelCache = new Map<string, LanguageModel>()
+
+function resolveMetaModel(modelId: string): LanguageModel {
+  const cached = metaModelCache.get(modelId)
+  if (cached) return cached
+  const model = getMetaProvider()(modelId)
+  metaModelCache.set(modelId, model)
   return model
 }
 
 /**
- * The default generator. `maxRetries: 0` is not a tuning knob: retries belong
- * to `createCallModel` so that every physical attempt gets a task row.
+ * The shared structured-output generator. `maxRetries: 0` is not a tuning
+ * knob: retries belong to `createCallModel` so every physical attempt gets a
+ * task row.
  */
-export function createGeminiGenerator(
-  deps: GeminiGeneratorDeps = {},
+function createStructuredGenerator(
+  defaultResolveModel: (modelId: string) => LanguageModel,
+  deps: StructuredGeneratorDeps,
+  providerOptions?: StructuredProviderOptions,
 ): StructuredGenerator {
-  const resolveModel = deps.resolveModel ?? resolveGeminiModel
-  const generate: GeminiGenerateText =
+  const resolveModel = deps.resolveModel ?? defaultResolveModel
+  const generate: StructuredGenerateText =
     deps.generateText ??
     (async (options) => {
       const result = await generateText({
@@ -236,6 +310,7 @@ export function createGeminiGenerator(
         output: options.output as ReturnType<typeof Output.object>,
         maxRetries: options.maxRetries,
         abortSignal: options.abortSignal,
+        providerOptions: options.providerOptions,
       })
       return { output: result.output as unknown, usage: result.usage }
     })
@@ -247,6 +322,7 @@ export function createGeminiGenerator(
       output: Output.object({ schema }),
       maxRetries: 0,
       abortSignal: signal,
+      providerOptions,
     })
 
     return {
@@ -257,7 +333,36 @@ export function createGeminiGenerator(
   }
 }
 
+/** The Gemini generator, retained for explicit overrides and tests. */
+export function createGeminiGenerator(
+  deps: StructuredGeneratorDeps = {},
+): StructuredGenerator {
+  return createStructuredGenerator(resolveGeminiModel, deps)
+}
+
+/**
+ * The seed's text generator: Meta Model API, OpenAI-compatible.
+ *
+ * Meta rejects strict-mode schemas that contain optional properties, and the
+ * extraction contract legitimately has them (`codeUrls`, `datasets`, ...).
+ * Non-strict mode accepts the same schema and still uses it to constrain the
+ * response; the wrapper re-parses every result with the original Zod schema,
+ * so an optional field cannot skip validation.
+ *
+ * This generator is never selected by the application runtime. Only
+ * `scripts/seed` injects it, because the live seed's text calls were blocked
+ * by sustained provider capacity errors on Gemini. See ADR 0009.
+ */
+export function createMetaGenerator(
+  deps: StructuredGeneratorDeps = {},
+): StructuredGenerator {
+  return createStructuredGenerator(resolveMetaModel, deps, {
+    openaiCompatible: { strictJsonSchema: false },
+  })
+}
+
 export const generateWithGemini: StructuredGenerator = createGeminiGenerator()
+export const generateWithMeta: StructuredGenerator = createMetaGenerator()
 
 // ---------------------------------------------------------------------------
 // The wrapper
@@ -312,6 +417,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 const DEFAULT_RUNTIME: CallModelRuntime = {
+  // The application runtime uses the pinned Gemini generator. The seed builds
+  // its own wrapper (`scripts/seed/model.ts`) with the Meta or record/replay
+  // generator; leaving those variables in a deployed environment cannot change
+  // what this default does.
   generate: generateWithGemini,
   sleep,
   random: Math.random,
@@ -344,18 +453,32 @@ function elapsedMs(startedAt: number, finishedAt: number): number {
 }
 
 /**
- * A 429 is the only error the wrapper retries. The fallback covers provider
- * errors that carry the status but are not the SDK's `APICallError` instance.
+ * Statuses the wrapper retries: rate limiting (429) and transient provider
+ * capacity (503, e.g. Gemini's "high demand"). Everything else is final.
  */
-export function isRateLimitError(error: unknown): boolean {
-  if (APICallError.isInstance(error)) return error.statusCode === 429
+const RETRYABLE_PROVIDER_STATUS_CODES = new Set([429, 503])
+
+function isRetryableStatus(value: unknown): boolean {
+  return (
+    typeof value === 'number' && RETRYABLE_PROVIDER_STATUS_CODES.has(value)
+  )
+}
+
+/**
+ * A 429 or 503 is retried. The fallback covers provider errors that carry the
+ * status but are not the SDK's `APICallError` instance.
+ */
+export function isRetryableProviderError(error: unknown): boolean {
+  if (APICallError.isInstance(error)) return isRetryableStatus(error.statusCode)
   if (typeof error !== 'object' || error === null) return false
-  if ((error as { statusCode?: unknown }).statusCode === 429) return true
+  if (isRetryableStatus((error as { statusCode?: unknown }).statusCode)) {
+    return true
+  }
   const cause = (error as { cause?: unknown }).cause
   return (
     typeof cause === 'object' &&
     cause !== null &&
-    (cause as { statusCode?: unknown }).statusCode === 429
+    isRetryableStatus((cause as { statusCode?: unknown }).statusCode)
   )
 }
 
@@ -518,7 +641,8 @@ async function executeCall<T>(
       return { output: outcome.output, task, attempts }
     }
 
-    const retry = isRateLimitError(outcome.error) && attempt < runtime.maxAttempts
+    const retry =
+      isRetryableProviderError(outcome.error) && attempt < runtime.maxAttempts
 
     // Persistence is deliberately outside the request handling above: if the
     // insert fails, it must surface as a database error, not trigger a second

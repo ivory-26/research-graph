@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node", "vite/client"]
+  },
+  "include": [
+    "../seed.ts",
+    "./assets.ts",
+    "./assets.test.ts",
+    "./compare.ts",
+    "./compare.test.ts",
+    "./contracts.ts",
+    "./contracts.test.ts",
+    "./hero-claim.ts",
+    "./hero-claim.test.ts",
+    "./model.ts",
+    "./run-edges.ts",
+    "./run-edges.test.ts",
+    "./run-edges.integration.test.ts",
+    "./runs.test.ts",
+    "./vitest.config.ts"
+  ]
+}
