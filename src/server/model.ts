@@ -30,6 +30,7 @@ import { APICallError, Output, generateText } from 'ai'
 import type { JSONValue, LanguageModel } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { google } from '@ai-sdk/google'
+import { defaultGeneratorFromEnv } from './model-replay'
 import type { z } from 'zod'
 import type { AgentTaskStatus, TaskKind } from '../shared/types'
 import { agentTasks, type NewAgentTask } from '../db/schema'
@@ -402,7 +403,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 const DEFAULT_RUNTIME: CallModelRuntime = {
-  generate: generateWithMeta,
+  // Normal runtime uses Meta. The seed may set a record/replay path to make
+  // its two-database baseline deterministic; production ingestion, Zod
+  // validation and every DB write still run in that mode.
+  generate: defaultGeneratorFromEnv(generateWithMeta),
   sleep,
   random: Math.random,
   now: Date.now,

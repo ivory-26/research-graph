@@ -77,7 +77,8 @@ recorded by the production gate. Node positions remain at the schema default
 | Variable | Why |
 |---|---|
 | `DATABASE_URL` | Fresh, migrated application database. The seed refuses a non-empty schema and runs the committed migrations itself. |
-| `MODEL_API_KEY` | Meta Model API key for every text call (claim extraction, edge proposal, planning, `explain_gap`). Contributor mode is the pinned `muse-spark-1.3-contributor` model. |
+| `MODEL_API_KEY` | Meta Model API key for every text call (claim extraction, edge proposal, planning, `explain_gap`). Contributor mode is the pinned `muse-spark-1.3-contributor` model. Not needed when replaying a recording. |
+| `SEED_RECORD_MODEL_OUTPUTS` / `SEED_REPLAY_MODEL_OUTPUTS` | Optional seed-only capture or replay of structured model responses for the deterministic two-seed baseline. Set at most one; paths are described below. |
 | `GOOGLE_GENERATIVE_AI_API_KEY` or `GEMINI_API_KEY` | Gemini embeddings only (`gemini-embedding-2`). |
 | `SEED_ACTOR_USER_ID` | Verified Neon Auth user id. Graph-only mode uses it directly; the complete seed derives it from the signed-in session and requires any supplied value to match. |
 | `E2B_API_KEY` | The pinned sandbox template for Run A and Run B. |
@@ -215,6 +216,35 @@ titles:
 
 The database check `edges_have_evidence` is never bypassed: every edge has a
 `evidence_run_id` (these five) or an `evidence_chunk_id` (knowledge edges).
+
+### Recorded model outputs (deterministic baseline)
+
+Live extraction is not deterministic: two seeds over the same PDFs produced
+different claims, method titles, counts and edges, so `seed:compare` failed
+even though the measured runs were identical. The seed can capture one live
+run's text responses and replay them for the canonical two-seed baseline:
+
+```bash
+# One capture run, with the real Meta key and a fresh database.
+SEED_RECORD_MODEL_OUTPUTS=scripts/seed/recordings/meta-muse-spark-1.3-contributor.json \
+  pnpm seed --non-interactive
+
+# Two fresh databases replay the same recorded responses.
+SEED_REPLAY_MODEL_OUTPUTS=scripts/seed/recordings/meta-muse-spark-1.3-contributor.json \
+  pnpm seed --non-interactive
+```
+
+Only the model's structured responses are replayed. Production prompts, Zod
+validation, verbatim quote/evidence checks, DB writes, approval gates, E2B
+runs and artifacts still execute. Database UUIDs in prompts and responses are
+normalised to ordered tokens and remapped to each seed's own rows, so the
+recording is not a graph fixture and cannot supply row ids. A prompt that
+changes shape is a hard error rather than a fuzzy match. `MODEL_API_KEY` is
+optional in replay mode; the Gemini embedding key is still required.
+
+The recording is intentionally committed: it is the model-output baseline, not
+`fixtures/workspace.json`. Recapture only when the prompts, model or pin
+changes.
 
 ## Canonical baseline: two live seeds
 
@@ -400,6 +430,13 @@ seed never resets it for you.
   `randomForest (Breiman original with CART, Gini)` in one insert, both
   containment matches, with no exact `Impurity importance`. Run anchors are now
   always the spec-derived method/dataset nodes, so the five run edges no longer
-  depend on model-written titles. No live pair has completed yet.
+  depend on model-written titles.
+- On `fb634d9` both live seeds completed: both runs `succeeded`/`match`, all
+  four artifacts per seed verified, both gates approved and all five lineage
+  edges written. `seed:compare` then returned `RESULT: DIFFERENCE` because
+  live extraction varied (64 vs 61 nodes, 42 vs 39 edges). Recorded model-output
+  replay was added to make the graph deterministic; capture/replay verification
+  is the remaining live check. The live seeds took ~5 minutes each, so the
+  "under one minute" budget depends on replaying the text calls.
 - The live two-seed baseline remains the outstanding gate; the "under one
   minute" budget is not yet measured.

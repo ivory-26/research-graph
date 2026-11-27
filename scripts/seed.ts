@@ -24,6 +24,7 @@ import {
   createDrizzleAgentTaskStore,
   MODEL_API_KEY_ENV,
 } from '../src/server/model.ts'
+import { MODEL_OUTPUT_REPLAY_ENV } from '../src/server/model-replay.ts'
 import type { NodeType } from '../src/shared/types.ts'
 import { loadLocalAssets, type LocalAsset } from './seed/assets.ts'
 import {
@@ -113,11 +114,14 @@ function requireCredentials(env: NodeJS.ProcessEnv): string {
     )
   }
 
-  if (!env[MODEL_API_KEY_ENV]?.trim()) {
+  if (
+    !env[MODEL_API_KEY_ENV]?.trim() &&
+    !env[MODEL_OUTPUT_REPLAY_ENV]?.trim()
+  ) {
     throw new SeedError(
       'MISSING_MODEL_API_KEY',
       `Set ${MODEL_API_KEY_ENV}: the seed runs real claim extraction and edge proposal through Meta Model API.`,
-      'The Gemini key remains required for embeddings; E2B is needed for Run A/Run B.',
+      `A replay run may set ${MODEL_OUTPUT_REPLAY_ENV} instead. The Gemini key remains required for embeddings; E2B is needed for Run A/Run B.`,
     )
   }
 
