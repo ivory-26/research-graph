@@ -236,6 +236,47 @@ describe('branchWhatIf (Issue #27)', () => {
     })
   })
 
+  it('rejects cyclic candidateSpec with INVALID_SPEC', async () => {
+    const parentRun = makeCompletedParentRun()
+    const store = new MemoryWhatIfBranchStore()
+    const cyclicSpec: any = structuredClone(parentRun.spec)
+    cyclicSpec.parameters.self = cyclicSpec
+
+    await expect(
+      branchWhatIf(parentRun, { candidateSpec: cyclicSpec }, { store }),
+    ).rejects.toMatchObject({
+      name: 'BranchValidationError',
+      code: 'INVALID_SPEC',
+    })
+  })
+
+  it('rejects non-string or empty importance_method value with INVALID_SPEC', async () => {
+    const parentRun = makeCompletedParentRun()
+    const store = new MemoryWhatIfBranchStore()
+
+    await expect(
+      branchWhatIf(
+        parentRun,
+        { path: 'parameters.importance_method', value: 123 },
+        { store },
+      ),
+    ).rejects.toMatchObject({
+      name: 'BranchValidationError',
+      code: 'INVALID_SPEC',
+    })
+
+    await expect(
+      branchWhatIf(
+        parentRun,
+        { path: 'parameters.importance_method', value: '' },
+        { store },
+      ),
+    ).rejects.toMatchObject({
+      name: 'BranchValidationError',
+      code: 'INVALID_SPEC',
+    })
+  })
+
   it('rejects changes to non-existent path segments or misspelled parameters', async () => {
     const parentRun = makeCompletedParentRun()
     const store = new MemoryWhatIfBranchStore()
