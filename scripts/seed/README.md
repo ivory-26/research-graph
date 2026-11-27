@@ -388,5 +388,11 @@ seed never resets it for you.
   sends the schema with `strictJsonSchema: false` and revalidates with the
   original Zod schema. A real call using the production extraction schema
   returned `claims`/`datasets`/`methods`/`codeUrls` successfully.
+- On `29090f2`, Meta extraction and edge proposal both succeeded for paper 1
+  (10 task rows, 12 accepted evidenced edges, 20 nodes). The seed then aborted
+  at its own asset check: unpdf detaches the input Buffer, so `bytes.length`
+  read `0` after ingestion even though the `sources` row correctly recorded
+  397660 bytes. The seed now captures `expectedBytes` before the call. No live
+  pair has completed yet.
 - The live two-seed baseline remains the outstanding gate; the "under one
   minute" budget is not yet measured.

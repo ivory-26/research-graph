@@ -219,7 +219,12 @@ async function ingestAssets(
 
   for (const { asset, bytes, sha256 } of prepared) {
     const started = Date.now()
-    logger.info(`Ingesting ${asset.key} (${bytes.length} bytes, sha256 ${sha256.slice(0, 12)}…)`)
+    // unpdf transfers the input ArrayBuffer to its worker inside
+    // `getDocumentProxy`, which detaches this Buffer. Capture the expected
+    // size before ingestion; the production `sources` row is the authority
+    // after the call returns.
+    const expectedBytes = bytes.length
+    logger.info(`Ingesting ${asset.key} (${expectedBytes} bytes, sha256 ${sha256.slice(0, 12)}…)`)
 
     const outcome = await ingestSourceToGraphForWorkspace({
       db,
@@ -243,11 +248,14 @@ async function ingestAssets(
       },
     })
 
-    if (outcome.source.sha256 !== sha256 || outcome.source.bytes !== bytes.length) {
+    if (
+      outcome.source.sha256 !== sha256 ||
+      outcome.source.bytes !== expectedBytes
+    ) {
       throw new SeedError(
         'ASSET_HASH_MISMATCH',
         `Production ingestion recorded a different fingerprint for ${asset.key}.`,
-        `Expected sha256 ${sha256} / ${bytes.length} bytes; got ${outcome.source.sha256} / ${outcome.source.bytes} bytes.`,
+        `Expected sha256 ${sha256} / ${expectedBytes} bytes; got ${outcome.source.sha256} / ${outcome.source.bytes} bytes.`,
       )
     }
 
