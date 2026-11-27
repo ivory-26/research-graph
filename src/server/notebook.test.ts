@@ -239,6 +239,26 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(auxCell2!.id.length).toBeLessThanOrEqual(64)
   })
 
+  it('escapes newline-bearing auxiliary file keys so they cannot inject executable lines', () => {
+    const evilSpec = structuredClone(HERO_EXPERIMENT_SPEC_RUN_A)
+    evilSpec.files['utils/evil.py\nimport os; os.system("echo injected")'] = 'x = 1\n'
+
+    const nb = buildNotebookDocument({
+      spec: evilSpec,
+      environment: HERO_RECORDED_RUN_RESULT.environment,
+      claim: HERO_CLAIM,
+      verdict: 'match',
+    })
+
+    const auxCell = nb.cells.find((c) => c.id.startsWith('cell-aux-'))
+    expect(auxCell).toBeDefined()
+
+    // A newline in the key must not become an executable statement: it is
+    // JSON-escaped inside the comment, never emitted as a raw line break.
+    const joined = auxCell!.source.join('')
+    expect(joined).not.toContain('\nimport os; os.system')
+  })
+
   it('validates against the nbformat v4.5 schema, excludes pip/setuptools/wheel, notes unknown versions, and omits unknown python version', () => {
     const nb = buildNotebookDocument({
       spec: HERO_EXPERIMENT_SPEC_RUN_A,

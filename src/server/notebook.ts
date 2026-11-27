@@ -347,7 +347,7 @@ function buildVerbatimScriptCell(spec: ExperimentSpec): NbformatCodeCell[] {
   for (const [filePath, content] of auxiliaryFiles) {
     const safeContent = JSON.stringify(content)
     const writeScript = [
-      `# Auxiliary file: ${filePath}`,
+      `# Auxiliary file: ${JSON.stringify(filePath)}`,
       'import pathlib',
       `target_path = pathlib.Path(${JSON.stringify(filePath)})`,
       'if target_path.is_absolute() or ".." in target_path.parts:',
