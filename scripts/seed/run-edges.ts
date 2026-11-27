@@ -21,35 +21,24 @@
  * Anchor resolution (before execution)
  * ---------------------------------------------------------------------------
  *
- * `ensureRunGraphAnchors` runs before `seedRuns`, so a missing or ambiguous
- * method/dataset anchor fails before any E2B or model spend. It is
- * workspace-scoped and transactional (the workspace row is locked), so a
- * concurrent caller observes the same nodes instead of creating duplicates.
+ * `ensureRunGraphAnchors` runs before `seedRuns`, so a missing anchor fails
+ * before any E2B or model spend. It is workspace-scoped and transactional (the
+ * workspace row is locked), so a concurrent caller observes the same nodes
+ * instead of creating duplicates.
  *
- * Extracted method titles come from Gemini and vary. The selector is:
- *
- * 1. Normalise every title: NFKC, lowercase, every non-letter/digit run folded
- *    to one space, trimmed. `Impurity-based importance` becomes
- *    `impurity based importance`.
- * 2. `importance_method = 'impurity'` matches titles containing `impurity` or
- *    `gini`; `'permutation'` matches titles containing `permutation`.
- * 3. An exact normalised title match (`impurity importance` or
- *    `permutation importance`) outranks any containment match.
- * 4. Within the best rank, the earliest `created_at` wins. Postgres gives one
- *    `now()` to every row of a single multi-row insert, so ties are real.
- * 5. A tie on both rank and `created_at` is `*_ANCHOR_AMBIGUOUS`: the seed
- *    fails closed rather than guessing.
- *
- * The three checked-in papers do not mention breast cancer or `breast-w`
- * (verified by extracting the PDFs), so the dataset anchor is normally created
- * from `runASpec.datasets[0]` — copying its name, url and sha256, never
- * inventing values. Likewise, when no extracted method node matches, the seed
- * creates a spec-derived method node titled `Impurity importance` /
- * `Permutation importance` with `sourceId = null`; it does not claim paper
- * provenance and writes no metric. Neither fallback fabricates evidence: the
- * edges still cite the real terminal run.
+ * The anchors are the frozen spec's methods and dataset, not model-written
+ * extracted titles. Extracted titles vary by provider and run (`Gini
+ * importance`, `randomForest (Breiman original with CART, Gini)`, ...), and
+ * two papers can produce the same title; selecting one would make two
+ * independent seeds disagree. The seed creates `Impurity importance` and
+ * `Permutation importance` with `sourceId = null` (reusing an identical
+ * spec-derived node on a retry) and the dataset from `runASpec.datasets[0]`,
+ * copying its name, url and sha256. The three checked-in papers do not mention
+ * `breast-w` (verified by extracting the PDFs). Extracted method/dataset nodes
+ * remain in the graph for evidence but are never run anchors. Neither anchor
+ * fabricates evidence: the five edges cite the real terminal runs.
  */
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 
 import type { Database } from '../../src/db/client.ts'
 import {
@@ -225,6 +214,11 @@ export function normalizeRunAnchorName(value: string): string {
     .trim()
 }
 
+/**
+ * Extracted-title selectors, retained for a caller that explicitly wants to
+ * attach a paper's method node. `ensureRunGraphAnchors` does not use them:
+ * model-written titles are not stable across providers or seeds.
+ */
 export type ExtractedMethodRow = {
   nodeId: string
   title: string
@@ -541,6 +535,65 @@ async function insertDatasetAnchor(
   return { nodeId: inserted.id, title: inserted.title, origin: 'spec' }
 }
 
+async function findOrCreateSpecMethodAnchor(
+  tx: SeedTransaction,
+  workspaceId: string,
+  method: ImportanceMethodValue,
+): Promise<RunGraphAnchor> {
+  const title = importanceMethodTitle(method)
+  const [existing] = await tx
+    .select({ id: nodesTable.id, title: nodesTable.title })
+    .from(nodesTable)
+    .where(
+      and(
+        eq(nodesTable.workspaceId, workspaceId),
+        eq(nodesTable.type, 'method'),
+        eq(nodesTable.title, title),
+        isNull(nodesTable.sourceId),
+      ),
+    )
+    .orderBy(nodesTable.createdAt, nodesTable.id)
+    .limit(1)
+
+  if (existing) {
+    return { nodeId: existing.id, title: existing.title, origin: 'spec' }
+  }
+  return insertMethodAnchor(tx, workspaceId, method)
+}
+
+async function findOrCreateSpecDatasetAnchor(
+  tx: SeedTransaction,
+  workspaceId: string,
+  ref: DatasetRef,
+): Promise<RunGraphAnchor> {
+  const expected = normalizeRunAnchorName(ref.name)
+  const rows = await tx
+    .select({
+      id: nodesTable.id,
+      title: nodesTable.title,
+      data: nodesTable.data,
+    })
+    .from(nodesTable)
+    .where(
+      and(
+        eq(nodesTable.workspaceId, workspaceId),
+        eq(nodesTable.type, 'dataset'),
+        isNull(nodesTable.sourceId),
+      ),
+    )
+    .orderBy(nodesTable.createdAt, nodesTable.id)
+
+  const existing = rows.find(
+    (row) =>
+      row.data.type === 'dataset' &&
+      normalizeRunAnchorName(row.data.name) === expected,
+  )
+  if (existing) {
+    return { nodeId: existing.id, title: existing.title, origin: 'spec' }
+  }
+  return insertDatasetAnchor(tx, workspaceId, ref)
+}
+
 /**
  * Resolves the three run-graph anchors before any run executes:
  *
@@ -548,12 +601,18 @@ async function insertDatasetAnchor(
  * - the method node for Run B's `importance_method`;
  * - the dataset node both runs use.
  *
- * Each is selected from extracted nodes by the documented rules, or created
- * from the frozen spec when extraction produced no match. The whole selection
- * and creation step runs in one transaction with the workspace row locked.
+ * The anchors are the frozen spec's methods and dataset, never model-written
+ * extracted titles. Extracted titles vary by provider and run ("Gini
+ * importance", "randomForest (... Gini)", ...), and two papers can produce the
+ * same title; selecting one would make two independent seeds non-deterministic.
+ * The seed therefore creates `Impurity importance` and `Permutation importance`
+ * from the spec (reusing an identical spec-derived node on a retry) and the
+ * dataset from `runASpec.datasets[0]`. Extracted nodes remain in the graph for
+ * evidence but are never run anchors.
  *
- * Throws `RunEdgeError` for an unsupported importance method, an ambiguous
- * extracted match, a missing dataset ref, or a missing workspace.
+ * The whole resolution runs in one transaction with the workspace row locked.
+ * Throws `RunEdgeError` for an unsupported importance method, a missing
+ * dataset ref, or a missing workspace.
  */
 export async function ensureRunGraphAnchors(
   db: Database,
@@ -595,88 +654,26 @@ export async function ensureRunGraphAnchors(
       )
     }
 
-    const methodRows = await tx
-      .select({
-        id: nodesTable.id,
-        title: nodesTable.title,
-        createdAt: nodesTable.createdAt,
-      })
-      .from(nodesTable)
-      .where(
-        and(
-          eq(nodesTable.workspaceId, workspaceId),
-          eq(nodesTable.type, 'method'),
-        ),
-      )
-
-    const methodCandidates: ExtractedMethodRow[] = methodRows.map((row) => ({
-      nodeId: row.id,
-      title: row.title,
-      createdAt: toIsoTimestamp(row.createdAt),
-    }))
-
-    const datasetRows = await tx
-      .select({
-        id: nodesTable.id,
-        title: nodesTable.title,
-        data: nodesTable.data,
-        createdAt: nodesTable.createdAt,
-      })
-      .from(nodesTable)
-      .where(
-        and(
-          eq(nodesTable.workspaceId, workspaceId),
-          eq(nodesTable.type, 'dataset'),
-        ),
-      )
-
-    const datasetCandidates: ExtractedDatasetRow[] = datasetRows.map((row) => ({
-      nodeId: row.id,
-      title: row.title,
-      name: row.data.type === 'dataset' ? row.data.name : row.title,
-      createdAt: toIsoTimestamp(row.createdAt),
-    }))
-
-    const runASelection = selectExtractedMethodAnchor(
-      methodCandidates,
+    const runAAnchor = await findOrCreateSpecMethodAnchor(
+      tx,
+      workspaceId,
       runAMethod,
     )
-    throwAnchorProblem(runASelection.problem)
-
-    const runBSelection = selectExtractedMethodAnchor(
-      methodCandidates,
+    const runBAnchor = await findOrCreateSpecMethodAnchor(
+      tx,
+      workspaceId,
       runBMethod,
     )
-    throwAnchorProblem(runBSelection.problem)
-
-    const datasetSelection = selectExtractedDatasetAnchor(
-      datasetCandidates,
-      datasetRef.name,
+    const datasetAnchor = await findOrCreateSpecDatasetAnchor(
+      tx,
+      workspaceId,
+      datasetRef,
     )
-    throwAnchorProblem(datasetSelection.problem)
 
-    const runAAnchor: RunGraphAnchor = runASelection.selection
-      ? { ...runASelection.selection, origin: 'extracted' }
-      : await insertMethodAnchor(tx, workspaceId, runAMethod)
-
-    const runBAnchor: RunGraphAnchor = runBSelection.selection
-      ? { ...runBSelection.selection, origin: 'extracted' }
-      : await insertMethodAnchor(tx, workspaceId, runBMethod)
-
-    const datasetAnchor: RunGraphAnchor = datasetSelection.selection
-      ? { ...datasetSelection.selection, origin: 'extracted' }
-      : await insertDatasetAnchor(tx, workspaceId, datasetRef)
-
-    // A single extracted node matching both importance methods would make the
-    // two runs' method edges indistinguishable. The selectors cannot detect
-    // this alone, so the cross-check belongs here.
-    if (
-      runAMethod !== runBMethod &&
-      runAAnchor.nodeId === runBAnchor.nodeId
-    ) {
+    if (runAMethod === runBMethod || runAAnchor.nodeId === runBAnchor.nodeId) {
       throw new RunEdgeError(
-        'METHOD_ANCHOR_AMBIGUOUS',
-        `one extracted method node ${runAAnchor.nodeId} matches both ${runAMethod} and ${runBMethod}; refusing to claim it produced both runs`,
+        'INVALID_INPUT',
+        'runASpec and runBSpec must name different importance methods: the recorded workspace has one method anchor per run',
       )
     }
 

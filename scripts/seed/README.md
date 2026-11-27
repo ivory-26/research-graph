@@ -197,20 +197,21 @@ evidenced by a terminal run:
 | dataset | `uses_dataset` | Run B node | Run B |
 | Run A node | `derived_from` | Run B node | Run B |
 
-Anchor selection is exact and fails closed:
+The run anchors come from the frozen spec, not from model-written extracted
+titles:
 
-- Normalise with NFKC, lowercase, and fold every non-letter/digit run to one
-  space. `impurity` matches titles containing `impurity` or `gini`;
-  `permutation` matches titles containing `permutation`. An exact normalised
-  title outranks containment; earliest `created_at` breaks the next tie; a
-  remaining tie is an ambiguity error.
-- The three papers do not mention `breast-w` (verified against the PDFs), so
-  when no extracted dataset node matches, the dataset anchor is created from
-  `runASpec.datasets[0]`, copying `name`, `url` and `sha256` and never
-  inventing rows or hashes.
-- When no extracted method node matches, a spec-derived method node is created
-  with title `Impurity importance` / `Permutation importance` and a factual
-  summary. It claims no paper provenance and carries no metric.
+- Run A's method is `Impurity importance`; Run B's is `Permutation importance`.
+  They are created with `sourceId = null` and a factual summary, and an
+  identical spec-derived node is reused on a retry. Extracted method titles
+  vary by provider and run (for example `Gini importance` and
+  `randomForest (Breiman original with CART, Gini)`), and two papers can
+  produce the same title; selecting one would make two independent seeds
+  disagree.
+- The dataset anchor is created from `runASpec.datasets[0]`, copying `name`,
+  `url` and `sha256` and never inventing rows or hashes. The three papers do
+  not mention `breast-w` (verified against the PDFs).
+- Extracted method and dataset nodes remain in the graph for evidence, but
+  they are never run anchors.
 
 The database check `edges_have_evidence` is never bypassed: every edge has a
 `evidence_run_id` (these five) or an `evidence_chunk_id` (knowledge edges).
@@ -392,7 +393,13 @@ seed never resets it for you.
   (10 task rows, 12 accepted evidenced edges, 20 nodes). The seed then aborted
   at its own asset check: unpdf detaches the input Buffer, so `bytes.length`
   read `0` after ingestion even though the `sources` row correctly recorded
-  397660 bytes. The seed now captures `expectedBytes` before the call. No live
-  pair has completed yet.
+  397660 bytes. The seed now captures `expectedBytes` before the call.
+- On `54bc233`, all three papers ingested (3 sources, 46 embedded chunks, 56
+  nodes, 32 accepted evidenced edges, 28 successful task rows). The seed then
+  refused the method anchor: Meta extraction produced `Gini importance` and
+  `randomForest (Breiman original with CART, Gini)` in one insert, both
+  containment matches, with no exact `Impurity importance`. Run anchors are now
+  always the spec-derived method/dataset nodes, so the five run edges no longer
+  depend on model-written titles. No live pair has completed yet.
 - The live two-seed baseline remains the outstanding gate; the "under one
   minute" budget is not yet measured.

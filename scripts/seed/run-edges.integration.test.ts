@@ -285,7 +285,7 @@ describeIntegration('seed run edges over real Postgres', () => {
       .where(eq(edgesTable.workspaceId, seed.workspaceId))
   }
 
-  it('selects an extracted method and creates the missing spec-derived anchors scoped to the workspace', async () => {
+  it('creates spec-derived anchors scoped to the workspace and ignores extracted titles', async () => {
     const sourceId = await insertSource(seed.workspaceId)
     const extractedMethodId = await insertMethodNode(
       seed.workspaceId,
@@ -314,10 +314,9 @@ describeIntegration('seed run edges over real Postgres', () => {
     })
 
     expect(anchors.workspaceId).toBe(seed.workspaceId)
-    expect(anchors.method.runA).toEqual({
-      nodeId: extractedMethodId,
-      title: 'Gini importance',
-      origin: 'extracted',
+    expect(anchors.method.runA).toMatchObject({
+      title: 'Impurity importance',
+      origin: 'spec',
     })
     expect(anchors.method.runB).toMatchObject({
       title: 'Permutation importance',
@@ -333,6 +332,7 @@ describeIntegration('seed run edges over real Postgres', () => {
       anchors.method.runB.nodeId,
       anchors.dataset.nodeId,
     ]
+    expect(anchorIds).not.toContain(extractedMethodId)
     expect(anchorIds).not.toContain(foreignMethodAId)
     expect(anchorIds).not.toContain(foreignMethodBId)
     expect(anchorIds).not.toContain(foreignDatasetId)
