@@ -360,6 +360,12 @@ function WorkspacePage() {
             setExperimentId(null);
             setGateSeq(null);
             setActiveGateSpec(null);
+            if (search.experimentId) {
+              navigate({
+                search: (prev) => ({ ...prev, experimentId: undefined }),
+                replace: true,
+              });
+            }
             if (approvalOpenedByStreamRef.current) {
               approvalOpenedByStreamRef.current = false;
               setIsApprovalOpen(false);

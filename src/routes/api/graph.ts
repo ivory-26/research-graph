@@ -58,7 +58,7 @@ export const Route = createFileRoute('/api/graph')({
           const nodeTitleById = new Map(dbNodes.map((n) => [n.id, n.title]));
 
           const MAX_ROWS_PER_COL = 5;
-          const COL_WIDTH = 240;
+          const COL_WIDTH = 260;
           const ROW_HEIGHT = 170;
           const GROUP_ORDER = ['source', 'claim', 'method_dataset', 'run', 'result'] as const;
           const bucketOf = (type: string): (typeof GROUP_ORDER)[number] => {
@@ -70,15 +70,20 @@ export const Route = createFileRoute('/api/graph')({
           };
 
           const originCounts = new Map<string, number>();
+          let maxStoredX = -Infinity;
           for (const n of dbNodes) {
             if (n.positionX === 0 && n.positionY === 0) {
               const b = bucketOf(n.type);
               originCounts.set(b, (originCounts.get(b) ?? 0) + 1);
+            } else if (n.positionX > maxStoredX) {
+              maxStoredX = n.positionX;
             }
           }
 
+          // Start fallback columns outside the bounding box of any already-positioned nodes
+          // (e.g. run/result nodes written by projectRunToGraph) so cards cannot overlap.
           const groupStartX = new Map<string, number>();
-          let cursorX = 40;
+          let cursorX = Number.isFinite(maxStoredX) ? maxStoredX + 280 : 40;
           for (const g of GROUP_ORDER) {
             groupStartX.set(g, cursorX);
             const count = originCounts.get(g) ?? 0;

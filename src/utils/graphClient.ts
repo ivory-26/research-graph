@@ -132,12 +132,13 @@ function isValidGraphPayload(data: unknown): data is { nodes: WorkspaceNode[]; e
 export interface WorkspaceGraphData {
   nodes: WorkspaceNode[];
   edges: WorkspaceEdge[];
-  source: 'api' | 'fixture';
+  source: 'api' | 'fixture' | 'error';
 }
 
 /**
  * Fetches workspace graph from `/api/graph?workspaceId=...` when a workspace UUID
- * is provided, falling back to the workspace fixture when no database graph exists.
+ * is provided (returning `source: 'error'` if the database fetch fails), or
+ * returns the demo fixture when no UUID workspace is active.
  */
 export async function fetchWorkspaceGraph(
   workspaceId?: string,
@@ -161,8 +162,14 @@ export async function fetchWorkspaceGraph(
         }
       }
     } catch {
-      // Fall back to fixture
+      // Fall through to explicit error source
     }
+
+    return {
+      nodes: [],
+      edges: [],
+      source: 'error',
+    };
   }
 
   return {

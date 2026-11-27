@@ -105,7 +105,7 @@ describe('graphClient', () => {
       expect(resEmpty.nodes).toEqual([]);
     });
 
-    it('falls back cleanly to workspace fixture when UUID is absent, invalid, or endpoint fails', async () => {
+    it('returns fixture when UUID is absent or invalid, and explicit error when database fetch fails', async () => {
       const resNoUuid = await fetchWorkspaceGraph(undefined);
       expect(resNoUuid.source).toBe('fixture');
       expect(resNoUuid.nodes).toEqual(DEMO_NODES);
@@ -116,9 +116,9 @@ describe('graphClient', () => {
       });
 
       const res = await fetchWorkspaceGraph('11111111-1111-4111-8111-111111111111', mockFetch as any);
-      expect(res.source).toBe('fixture');
-      expect(res.nodes).toEqual(DEMO_NODES);
-      expect(res.edges).toEqual(DEMO_EDGES);
+      expect(res.source).toBe('error');
+      expect(res.nodes).toEqual([]);
+      expect(res.edges).toEqual([]);
     });
   });
 });
