@@ -257,10 +257,12 @@ window; the embedding retry also honours a provider `retry-after` or
 "retry in Ns" message. Use a billed Gemini key if the one-minute budget
 matters; pacing makes a free-tier replay take a few minutes.
 
-## Canonical baseline: two live seeds
+## Canonical baseline: two fresh seeds
 
-Run two live end-to-end seeds on separate fresh databases and require them to
-match. `pnpm seed:compare` reads both without writing and checks:
+Run two fresh seeds on separate databases and require them to match. The
+canonical run replays the committed model-output recording; a live capture is
+how that recording was made. `pnpm seed:compare` reads both without writing
+and checks:
 
 - **Real asset hashes** — each source DOI has the checked-in PDF's sha256 and
   byte count; extra or missing demo sources fail.
@@ -362,23 +364,25 @@ seed never resets it for you.
 
 ## Remaining decisions / blockers
 
-1. **Live capacity and provider.** Credentials and the reviewed logical hash
-   pair were supplied for the 27 November live attempt, and the Neon Auth/E2B
-   preflight passed. Gemini returned 503 "high demand" on both text models, so
-   text generation moved to Meta Model API's `muse-spark-1.3-contributor`
-   (Contributor mode); Gemini remains the embedding provider. The Meta adapter
-   was verified with a real structured `{ "ok": true }` call. The live pair
-   still needs to complete on the new provider; no credential is committed.
-   Contributor mode permits Meta to train on prompts and responses; the seed
-   sends only public paper text and generated specs.
-2. **Exactness of two live seeds.** Live model extraction can vary between
-   runs. The baseline requires the two seeds to match; if `seed:compare`
-   reports node/edge differences, the project must accept process-level
-   reproducibility or add recorded model outputs. Do not paper over it with
-   fixture rows.
-3. **Runtime budget.** The issue's "under a minute" is unverified. The CLI
-   prints measured `elapsedMs` excluding human review; measure a real live
-   seed before claiming the budget.
+1. **Live baseline.** Resolved with recorded model outputs. The capture seed
+   completed live (5m29s); two fresh replay seeds completed with no
+   `MODEL_API_KEY` and `seed:compare` returned `RESULT: MATCH` (both sides:
+   3 sources, 46 chunks, 65 nodes, 40 edges, 2 experiments, 2 runs, 4
+   artifacts). Text generation is Meta Model API's
+   `muse-spark-1.3-contributor` (Contributor mode); Gemini remains the
+   embedding provider. Contributor mode permits Meta to train on prompts and
+   responses; the seed sends only public paper text and generated specs. No
+   credential is committed.
+2. **Exactness of two live seeds.** A live pair without replay still varies:
+   Meta extraction produced different claims and edges. The canonical
+   baseline therefore uses the committed recording. Production prompts, Zod
+   validation, evidence checks and every DB write still run; only the
+   structured model responses are replayed. Recapture when prompts or the
+   model pin change; do not replace this with fixture rows.
+3. **Runtime budget.** The issue's "under a minute" is **not met**: capture
+   took 5m29s, and replay took 3m07s with the 65s free-tier embedding pacing.
+   `timing.underOneMinute` is false. A billed Gemini embedding key, or
+   recording embeddings as well, is needed to reach the budget.
 4. **Node positions.** The seed leaves `nodes.position_x/y` at `(0, 0)`. The
    canvas/force layout owns placement.
 5. **Merged dependencies.** The what-if branch (#66), repair loop (#65) and
@@ -395,11 +399,11 @@ seed never resets it for you.
 - `pnpm typecheck` — pass (app + seed config).
 - `pnpm seed:test` — 6 files, 90 pure tests pass.
 - `scripts/seed/run-edges.integration.test.ts` — 4 real-Postgres tests pass:
-  selector/fallback anchors, the five persisted edges, non-terminal-run
-  refusal, foreign-workspace refusal.
+  spec-derived anchors, the five persisted edges, non-terminal-run refusal,
+  foreign-workspace refusal.
 - `pnpm test` with `TEST_DATABASE_URL` pointing at a disposable pgvector
-  container — 436 tests pass, 7 skipped, exit 0 (29 files), after merging
-  current `main` (#65/#66/#67) and adding the 429/503 retry matrix.
+  container — 439 tests pass, 7 skipped, exit 0 (30 files), after merging
+  current `main` (#65/#66/#67) and adding the replay and 429/503 retry tests.
 - `pnpm build` — pass; `pnpm db:check` — pass.
 - `pnpm verify:hero` — pass in Docker: Run A and Run B execute the frozen
   parameters, produce distinct measured metrics, write `importance.csv`, match
@@ -445,16 +449,16 @@ seed never resets it for you.
 - On `fb634d9` both live seeds completed: both runs `succeeded`/`match`, all
   four artifacts per seed verified, both gates approved and all five lineage
   edges written. `seed:compare` then returned `RESULT: DIFFERENCE` because
-  live extraction varied (64 vs 61 nodes, 42 vs 39 edges). Recorded model-output
-  replay was added to make the graph deterministic. The live seeds took ~5
-  minutes each, so the "under one minute" budget depends on replaying the text
-  calls.
+  live extraction varied (64 vs 61 nodes, 42 vs 39 edges).
 - On `db87a16` the capture seed completed (5m29s, 7 records, 272,978 bytes, no
   credentials) and replay reproduced paper 1 exactly in 6.5s with no Meta key.
   Replay then hit the Gemini free-tier embedding quota on paper 2 (30k tokens
-  per minute; the seed needs ~45k). `SEED_EMBEDDING_PACING_MS=65000` now spaces
-  sources and the embedding retry honours the provider's stated window; the
-  replay pair and `seed:compare` are the remaining live check. A billed
-  embedding key remains the only way to keep the one-minute budget.
-- The live two-seed baseline remains the outstanding gate; the "under one
-  minute" budget is not yet measured.
+  per minute; the seed needs ~45k).
+- On `d228cea` the canonical baseline passed: replay A and B each exited 0
+  with no `MODEL_API_KEY` (3m07s each with `SEED_EMBEDDING_PACING_MS=65000`),
+  both runs `succeeded`/`match`, four inline artifacts per seed, both gates
+  approved, five lineage edges per seed, and `seed:compare` returned
+  `RESULT: MATCH` across all ten checks. The one-minute budget remains unmet.
+- The two-seed baseline passes with replay (`RESULT: MATCH`). The "under one
+  minute" budget is **not met**: replay is 3m07s with free-tier pacing and
+  capture is 5m29s.
