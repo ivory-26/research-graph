@@ -126,7 +126,7 @@ function requireCredentials(env: NodeJS.ProcessEnv): string {
     !env[MODEL_OUTPUT_REPLAY_ENV]?.trim()
   ) {
     throw new SeedError(
-      'MISSING_MODEL_API_KEY',
+      'MISSING_META_API_KEY',
       `Set ${META_API_KEY_ENV}: the seed runs real claim extraction and edge proposal through Meta Model API.`,
       `A replay run may set ${MODEL_OUTPUT_REPLAY_ENV} instead. The Gemini key remains required for embeddings; E2B is needed for Run A/Run B.`,
     )
