@@ -189,7 +189,7 @@ Success is defined per task kind by verified outcomes only:
 
 A strategy that produces a claim with a fabricated quote is not a partial success. It is a failure with a longer explanation.
 
-The dashboard is designed as a `GROUP BY` over `agent_tasks`, with no separate score to keep in sync. The intended visible adaptation is one line in that table changing order between two extraction runs. Neither the query nor the selection is on `main`.
+The dashboard is designed as a `GROUP BY` over `agent_tasks`, with no separate score to keep in sync. `GET /api/strategies` and `StrategyDashboard` now read and aggregate `agent_tasks` rows when a database workspace UUID is active, while automated strategy selection and per-extraction-run `runId` attribution on `extract_claims` / `propose_edges` remain open.
 
 ## Model discipline
 

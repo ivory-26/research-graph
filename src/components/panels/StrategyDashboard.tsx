@@ -24,16 +24,25 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
   const hasLiveTasks = Boolean(tasks && tasks.length > 0);
   const liveTasks = tasks ?? [];
 
-  const availableRuns = useMemo(() => {
-    if (!hasLiveTasks) return ['all'];
-    const runs = new Set(liveTasks.map((t) => t.runId));
-    return ['all', ...Array.from(runs).sort()];
+  const availableFilters = useMemo(() => {
+    if (!hasLiveTasks) return [];
+    const runIds = Array.from(
+      new Set(liveTasks.map((t) => t.runId).filter((r): r is string => Boolean(r))),
+    ).sort();
+    const hasUnattributed = liveTasks.some((t) => t.runId === null);
+    if (runIds.length === 0 && !hasUnattributed) return [];
+    return [
+      'all',
+      ...runIds,
+      ...(hasUnattributed && runIds.length > 0 ? ['unattributed'] : []),
+    ];
   }, [hasLiveTasks, liveTasks]);
 
-  const filteredTasks = useMemo(
-    () => (runFilter === 'all' ? liveTasks : liveTasks.filter((t) => t.runId === runFilter)),
-    [liveTasks, runFilter],
-  );
+  const filteredTasks = useMemo(() => {
+    if (runFilter === 'all') return liveTasks;
+    if (runFilter === 'unattributed') return liveTasks.filter((t) => t.runId === null);
+    return liveTasks.filter((t) => t.runId === runFilter);
+  }, [liveTasks, runFilter]);
 
   const liveRows = useMemo(
     () => (hasLiveTasks ? aggregateAgentTasks(liveTasks, runFilter) : []),
@@ -64,7 +73,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
     : DEMO_STRATEGIES.map((s) => {
         const failures = Math.max(0, s.attempts - s.successes);
         const successRate = s.attempts > 0 ? (s.successes / s.attempts) * 100 : 0;
-        const avgCostUsd = s.attempts > 0 ? s.totalCostUsd / s.attempts : 0;
+        const avgCostUsd = s.attempts > 0 ? s.totalCostUsd / s.attempts : null;
         return {
           key: s.id,
           taskKind: s.taskKind,
@@ -86,16 +95,19 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
   const totalFailures = hasLiveTasks
     ? failedTasks.length
     : DEMO_STRATEGIES.reduce((sum, s) => sum + Math.max(0, s.attempts - s.successes), 0);
-  const totalCost = hasLiveTasks
-    ? filteredTasks.reduce((sum, t) => sum + t.costUsd, 0)
-    : DEMO_STRATEGIES.reduce((sum, s) => sum + s.totalCostUsd, 0);
-  const avgLatency = hasLiveTasks
-    ? filteredTasks.length > 0
-      ? (filteredTasks.reduce((sum, t) => sum + t.latencyMs, 0) / filteredTasks.length / 1000).toFixed(2)
-      : '0.00'
-    : DEMO_STRATEGIES.length > 0
-      ? (DEMO_STRATEGIES.reduce((sum, s) => sum + s.avgLatencyMs, 0) / DEMO_STRATEGIES.length / 1000).toFixed(1)
-      : '0.0';
+
+  const costValues = hasLiveTasks
+    ? filteredTasks.map((t) => t.costUsd).filter((c): c is number => c !== null && Number.isFinite(c))
+    : DEMO_STRATEGIES.map((s) => s.totalCostUsd);
+  const totalCost = costValues.length > 0 ? costValues.reduce((sum, c) => sum + c, 0) : null;
+
+  const latencyValues = hasLiveTasks
+    ? filteredTasks.map((t) => t.latencyMs).filter((l): l is number => l !== null && Number.isFinite(l))
+    : DEMO_STRATEGIES.map((s) => s.avgLatencyMs);
+  const avgLatency =
+    latencyValues.length > 0
+      ? (latencyValues.reduce((sum, l) => sum + l, 0) / latencyValues.length / 1000).toFixed(2)
+      : null;
 
   const content = (
     <div className="w-full max-w-[1200px] mx-auto p-6 flex flex-col gap-5 text-[var(--text-secondary)]">
@@ -116,20 +128,24 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
-          {hasLiveTasks && (
+          {hasLiveTasks && availableFilters.length > 0 && (
             <div className="flex items-center gap-1 border border-[var(--border-primary)] bg-[var(--bg-surface)] p-1 font-mono text-[11px]">
-              {availableRuns.map((runId) => (
+              {availableFilters.map((filterId) => (
                 <button
-                  key={runId}
+                  key={filterId}
                   type="button"
-                  onClick={() => setRunFilter(runId)}
+                  onClick={() => setRunFilter(filterId)}
                   className={`px-2.5 py-1 transition uppercase cursor-pointer ${
-                    runFilter === runId
+                    runFilter === filterId
                       ? 'bg-[#f97316] text-black font-bold'
                       : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
                   }`}
                 >
-                  {runId === 'all' ? 'All Runs' : runId}
+                  {filterId === 'all'
+                    ? 'All'
+                    : filterId === 'unattributed'
+                      ? 'Unattributed'
+                      : filterId}
                 </button>
               ))}
             </div>
@@ -160,14 +176,16 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
           </div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">
             {hasLiveTasks
-              ? `Grouped from agent_tasks (${runFilter === 'all' ? 'all runs' : runFilter})`
+              ? 'Grouped from agent_tasks'
               : 'Demo fixture preview (fixtures/workspace.json)'}
           </div>
         </div>
 
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Total Cost</div>
-          <div className="text-[32px] font-bold mt-2 text-[#f97316] font-mono">${totalCost.toFixed(3)}</div>
+          <div className="text-[32px] font-bold mt-2 text-[#f97316] font-mono">
+            {totalCost !== null ? `$${totalCost.toFixed(3)}` : '—'}
+          </div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">
             {hasLiveTasks ? 'Measured task cost' : 'Demo fixture baseline'}
           </div>
@@ -175,7 +193,9 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
 
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Average Latency</div>
-          <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">{avgLatency} s</div>
+          <div className="text-[32px] font-bold mt-2 text-[var(--text-primary)] font-mono">
+            {avgLatency !== null ? `${avgLatency} s` : '—'}
+          </div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">
             {hasLiveTasks ? 'Mean task duration' : 'Demo fixture baseline'}
           </div>
@@ -223,10 +243,10 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
                     {strat.successRate.toFixed(0)}%
                   </td>
                   <td className="p-3.5 text-right m font-mono text-[var(--text-muted)]">
-                    {(strat.avgLatencyMs / 1000).toFixed(2)}s
+                    {strat.avgLatencyMs !== null ? `${(strat.avgLatencyMs / 1000).toFixed(2)}s` : '—'}
                   </td>
                   <td className="p-3.5 text-right m font-mono text-[var(--text-muted)]">
-                    ${strat.avgCostUsd.toFixed(4)}
+                    {strat.avgCostUsd !== null ? `$${strat.avgCostUsd.toFixed(4)}` : '—'}
                   </td>
                   <td className="p-3.5 min-w-[160px]">
                     <div className="flex items-center gap-2.5">
@@ -271,7 +291,9 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
                   <span className="text-[var(--text-primary)] font-semibold">{t.taskKind}</span>
                   <span className="text-[var(--text-dim)]">·</span>
                   <span className="text-[#f97316]">{t.strategyId}</span>
-                  <span className="text-[var(--text-dim)]">({t.runId})</span>
+                  <span className="text-[var(--text-dim)]">
+                    ({t.runId ?? 'unattributed'})
+                  </span>
                 </div>
                 <div className="text-[var(--text-muted)] truncate max-w-[520px]">
                   {t.error || 'Execution error'}
@@ -285,7 +307,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
       {/* Footer Note */}
       <div className="text-[11px] text-[var(--text-dim)] font-mono">
         {hasLiveTasks
-          ? 'Strategy Evaluation: Filtered by run_id and aggregated by (task_kind, strategy_id) using Thompson Sampling over task outcomes.'
+          ? 'Strategy Evaluation: Aggregated by (task_kind, strategy_id) using Laplace-smoothed score (successes + 1) / (attempts + 2).'
           : 'Strategy Evaluation (Demo Fixture): Displays illustrative fixture values from fixtures/workspace.json until live agent_tasks rows are recorded.'}
       </div>
     </div>

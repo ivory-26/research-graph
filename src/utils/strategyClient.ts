@@ -4,10 +4,10 @@ export interface AgentTaskRow {
   id: string;
   taskKind: TaskKind;
   strategyId: string;
-  runId: string;
+  runId: string | null;
   status: AgentTaskStatus;
-  latencyMs: number;
-  costUsd: number;
+  latencyMs: number | null;
+  costUsd: number | null;
   error?: string | null;
 }
 
@@ -19,22 +19,28 @@ export interface AggregatedStrategyStat {
   successes: number;
   failures: number;
   successRate: number; // 0..100
-  avgLatencyMs: number;
-  avgCostUsd: number;
+  avgLatencyMs: number | null;
+  avgCostUsd: number | null;
   totalCostUsd: number;
   score: number; // (successes + 1) / (attempts + 2)
   preferred: boolean;
 }
 
 /**
- * Aggregates `agent_tasks` rows by `(taskKind, strategyId)` optionally filtered by `runId`.
+ * Aggregates `agent_tasks` rows by `(taskKind, strategyId)` optionally filtered by `runId`
+ * (or `'unattributed'` for rows with `runId === null`).
+ * Rows with missing telemetry (`null` latency or cost) are excluded from those averages.
  */
 export function aggregateAgentTasks(
   tasks: AgentTaskRow[],
   runFilter: string = 'all',
 ): AggregatedStrategyStat[] {
   const filtered =
-    runFilter === 'all' ? tasks : tasks.filter((t) => t.runId === runFilter);
+    runFilter === 'all'
+      ? tasks
+      : runFilter === 'unattributed'
+        ? tasks.filter((t) => t.runId === null)
+        : tasks.filter((t) => t.runId === runFilter);
 
   const groups = new Map<
     string,
@@ -45,7 +51,9 @@ export function aggregateAgentTasks(
       successes: number;
       failures: number;
       totalLatencyMs: number;
+      latencyCount: number;
       totalCostUsd: number;
+      costCount: number;
     }
   >();
 
@@ -58,7 +66,9 @@ export function aggregateAgentTasks(
       successes: 0,
       failures: 0,
       totalLatencyMs: 0,
+      latencyCount: 0,
       totalCostUsd: 0,
+      costCount: 0,
     };
 
     existing.attempts += 1;
@@ -67,8 +77,14 @@ export function aggregateAgentTasks(
     } else if (t.status === 'failed' || t.status === 'rejected') {
       existing.failures += 1;
     }
-    existing.totalLatencyMs += t.latencyMs;
-    existing.totalCostUsd += t.costUsd;
+    if (typeof t.latencyMs === 'number' && Number.isFinite(t.latencyMs)) {
+      existing.totalLatencyMs += t.latencyMs;
+      existing.latencyCount += 1;
+    }
+    if (typeof t.costUsd === 'number' && Number.isFinite(t.costUsd)) {
+      existing.totalCostUsd += t.costUsd;
+      existing.costCount += 1;
+    }
     groups.set(key, existing);
   }
 
@@ -81,8 +97,8 @@ export function aggregateAgentTasks(
       successes: g.successes,
       failures: g.failures,
       successRate: g.attempts > 0 ? (g.successes / g.attempts) * 100 : 0,
-      avgLatencyMs: g.attempts > 0 ? g.totalLatencyMs / g.attempts : 0,
-      avgCostUsd: g.attempts > 0 ? g.totalCostUsd / g.attempts : 0,
+      avgLatencyMs: g.latencyCount > 0 ? g.totalLatencyMs / g.latencyCount : null,
+      avgCostUsd: g.costCount > 0 ? g.totalCostUsd / g.costCount : null,
       totalCostUsd: g.totalCostUsd,
       score: (g.successes + 1) / (g.attempts + 2),
       preferred: false,

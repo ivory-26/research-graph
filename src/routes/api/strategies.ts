@@ -54,11 +54,11 @@ export const Route = createFileRoute('/api/strategies')({
           const tasks: AgentTaskRow[] = rows.map((r) => ({
             id: r.id,
             taskKind: r.taskKind,
-            strategyId: r.strategyName ?? r.strategyId ?? 'default',
-            runId: typeof r.inputRef?.runId === 'string' ? r.inputRef.runId : 'workspace',
+            strategyId: r.strategyName ?? r.strategyId ?? 'unassigned',
+            runId: typeof r.inputRef?.runId === 'string' ? r.inputRef.runId : null,
             status: r.status,
-            latencyMs: r.latencyMs ?? 0,
-            costUsd: r.costUsd != null ? Number(r.costUsd) : 0,
+            latencyMs: r.latencyMs ?? null,
+            costUsd: r.costUsd != null ? Number(r.costUsd) : null,
             error: r.error,
           }));
 

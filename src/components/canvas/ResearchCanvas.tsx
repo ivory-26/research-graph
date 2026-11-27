@@ -521,14 +521,12 @@ function CanvasInner({
         onEdgesChange={onEdgesChange}
         onNodeDragStop={(_, node) => {
           userDraggedNodeIdsRef.current.add(node.id);
-          setPersistedPositions((prev) => {
-            const next = {
-              ...prev,
-              [node.id]: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
-            };
-            savePersistedPositions(next, viewMode);
-            return next;
-          });
+          const next = {
+            ...persistedPositions,
+            [node.id]: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
+          };
+          savePersistedPositions(next, viewMode);
+          setPersistedPositions(next);
         }}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}

@@ -131,6 +131,7 @@ function WorkspacePage() {
   const [nodes, setNodes] = useState<WorkspaceNode[]>(DEMO_NODES);
   const [edges, setEdges] = useState<WorkspaceEdge[]>(DEMO_EDGES);
   const [workspaces, setWorkspaces] = useState(WORKSPACES);
+  const [graphSource, setGraphSource] = useState<'api' | 'fixture'>('fixture');
   const [agentTasks, setAgentTasks] = useState<AgentTaskRow[] | undefined>(undefined);
 
   // URL-addressable active page and workspace
@@ -186,14 +187,14 @@ function WorkspacePage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const streamCleanupRef = useRef<(() => void) | null>(null);
 
-  // Load live user workspaces (with UUIDs) on mount
+  // Load live user workspaces (with UUIDs) on mount, preserving the demo fixture entry
   useEffect(() => {
     let active = true;
     fetch('/api/workspaces', { headers: { Accept: 'application/json' } })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (active && data && Array.isArray(data.workspaces) && data.workspaces.length > 0) {
-          setWorkspaces(data.workspaces);
+          setWorkspaces([...WORKSPACES, ...data.workspaces]);
         }
       })
       .catch(() => {
@@ -204,13 +205,28 @@ function WorkspacePage() {
     };
   }, []);
 
-  // Load graph and strategy agent_tasks from API if workspace UUID is provided, falling back to fixture
+  // Load graph and strategy agent_tasks from API if workspace UUID is provided, or reset to fixture
   useEffect(() => {
     let active = true;
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const isDbWorkspace = Boolean(search.workspace && UUID_RE.test(search.workspace));
+
+    if (!isDbWorkspace) {
+      setNodes(DEMO_NODES);
+      setEdges(DEMO_EDGES);
+      setAgentTasks(undefined);
+      setGraphSource('fixture');
+      return () => {
+        active = false;
+      };
+    }
+
     fetchWorkspaceGraph(search.workspace).then((res) => {
-      if (active && res.source === 'api') {
+      if (!active) return;
+      if (res.source === 'api') {
         setNodes(res.nodes);
         setEdges(res.edges);
+        setGraphSource('api');
         setWorkspaces((prev) =>
           prev.map((w) =>
             w.id === search.workspace
@@ -218,26 +234,29 @@ function WorkspacePage() {
               : w,
           ),
         );
+      } else {
+        setNodes([]);
+        setEdges([]);
+        setGraphSource('api');
+        showToast('Failed to load workspace graph from database');
       }
     });
 
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (search.workspace && UUID_RE.test(search.workspace)) {
-      fetch(`/api/strategies?workspaceId=${encodeURIComponent(search.workspace)}`, {
-        headers: { Accept: 'application/json' },
+    fetch(`/api/strategies?workspaceId=${encodeURIComponent(search.workspace!)}`, {
+      headers: { Accept: 'application/json' },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!active) return;
+        if (data && Array.isArray(data.tasks)) {
+          setAgentTasks(data.tasks);
+        } else {
+          setAgentTasks([]);
+        }
       })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (active && data && Array.isArray(data.tasks)) {
-            setAgentTasks(data.tasks);
-          }
-        })
-        .catch(() => {
-          if (active) setAgentTasks(undefined);
-        });
-    } else {
-      setAgentTasks(undefined);
-    }
+      .catch(() => {
+        if (active) setAgentTasks([]);
+      });
 
     return () => {
       active = false;
@@ -447,7 +466,7 @@ function WorkspacePage() {
       <div className="flex flex-1 flex-col overflow-hidden min-w-0 bg-[var(--bg-primary)]">
         {/* Top Navbar */}
         <Navbar
-          currentWorkspace={activeWorkspaceObj.name}
+          currentWorkspace={`${activeWorkspaceObj.name} · ${graphSource === 'api' ? 'database' : 'demo fixture'}`}
           workspaces={workspaces}
           onSelectWorkspace={handleSelectWorkspace}
           isInspectorOpen={isInspectorOpen}

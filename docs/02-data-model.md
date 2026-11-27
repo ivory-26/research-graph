@@ -192,7 +192,7 @@ export const agentTasks = pgTable('agent_tasks', {
 });
 ```
 
-Every model call writes exactly one `agent_tasks` row per physical attempt, including failures. The scoring dashboard is designed as a `GROUP BY task_kind, strategy_id` over this table and nothing else — there is no separate score table to drift out of sync. On `main` that query is not wired and the dashboard renders fixture rows.
+Every model call writes exactly one `agent_tasks` row per physical attempt, including failures. The scoring dashboard is designed as a `GROUP BY task_kind, strategy_id` over this table and nothing else — there is no separate score table to drift out of sync. `GET /api/strategies` reads `agent_tasks` for an authorized workspace UUID and `StrategyDashboard` aggregates them via `aggregateAgentTasks`, falling back to `DEMO_STRATEGIES` when no database workspace is active.
 
 ## Pipeline foundation
 
