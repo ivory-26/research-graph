@@ -8,21 +8,25 @@ export type PositionMap = Record<string, { x: number; y: number }>;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function getStorageKey(viewMode?: CanvasViewMode): string {
-  return viewMode ? `${GRAPH_POSITIONS_STORAGE_KEY}_${viewMode}` : GRAPH_POSITIONS_STORAGE_KEY;
+function getStorageKey(viewMode?: CanvasViewMode, workspaceId?: string): string {
+  const scope = workspaceId ? `_${workspaceId}` : '';
+  return viewMode
+    ? `${GRAPH_POSITIONS_STORAGE_KEY}_${viewMode}${scope}`
+    : `${GRAPH_POSITIONS_STORAGE_KEY}${scope}`;
 }
 
 /**
- * Loads user-dragged node coordinates from localStorage for a given view mode,
+ * Loads user-dragged node coordinates from localStorage for a given view mode and workspace,
  * validating each entry's shape so tampered values cannot break the canvas.
  */
 export function loadPersistedPositions(
   viewMode: CanvasViewMode = 'cards',
   storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
+  workspaceId?: string,
 ): PositionMap {
   if (!storage) return {};
   try {
-    const raw = storage.getItem(getStorageKey(viewMode));
+    const raw = storage.getItem(getStorageKey(viewMode, workspaceId));
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
@@ -54,10 +58,11 @@ export function savePersistedPositions(
   positions: PositionMap,
   viewMode: CanvasViewMode = 'cards',
   storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
+  workspaceId?: string,
 ): void {
   if (!storage) return;
   try {
-    storage.setItem(getStorageKey(viewMode), JSON.stringify(positions));
+    storage.setItem(getStorageKey(viewMode, workspaceId), JSON.stringify(positions));
   } catch {
     // Gracefully handle storage quota or privacy restrictions
   }
@@ -69,14 +74,15 @@ export function savePersistedPositions(
 export function clearPersistedPositions(
   viewMode?: CanvasViewMode,
   storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
+  workspaceId?: string,
 ): void {
   if (!storage) return;
   try {
     if (viewMode) {
-      storage.removeItem(getStorageKey(viewMode));
+      storage.removeItem(getStorageKey(viewMode, workspaceId));
     } else {
-      storage.removeItem(getStorageKey('cards'));
-      storage.removeItem(getStorageKey('memory'));
+      storage.removeItem(getStorageKey('cards', workspaceId));
+      storage.removeItem(getStorageKey('memory', workspaceId));
       storage.removeItem(GRAPH_POSITIONS_STORAGE_KEY);
     }
   } catch {

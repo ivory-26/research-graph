@@ -131,7 +131,7 @@ function WorkspacePage() {
   const [nodes, setNodes] = useState<WorkspaceNode[]>(DEMO_NODES);
   const [edges, setEdges] = useState<WorkspaceEdge[]>(DEMO_EDGES);
   const [workspaces, setWorkspaces] = useState(WORKSPACES);
-  const [graphSource, setGraphSource] = useState<'api' | 'fixture'>('fixture');
+  const [graphSource, setGraphSource] = useState<'api' | 'fixture' | 'error'>('fixture');
   const [agentTasks, setAgentTasks] = useState<AgentTaskRow[] | undefined>(undefined);
 
   // URL-addressable active page and workspace
@@ -237,7 +237,7 @@ function WorkspacePage() {
       } else {
         setNodes([]);
         setEdges([]);
-        setGraphSource('api');
+        setGraphSource('error');
         showToast('Failed to load workspace graph from database');
       }
     });
@@ -466,7 +466,14 @@ function WorkspacePage() {
       <div className="flex flex-1 flex-col overflow-hidden min-w-0 bg-[var(--bg-primary)]">
         {/* Top Navbar */}
         <Navbar
-          currentWorkspace={`${activeWorkspaceObj.name} · ${graphSource === 'api' ? 'database' : 'demo fixture'}`}
+          currentWorkspace={`${activeWorkspaceObj.name} · ${
+            graphSource === 'api'
+              ? 'database'
+              : graphSource === 'error'
+                ? 'unavailable'
+                : 'demo fixture'
+          }`}
+          activeWorkspaceId={activeWorkspaceObj.id}
           workspaces={workspaces}
           onSelectWorkspace={handleSelectWorkspace}
           isInspectorOpen={isInspectorOpen}
@@ -535,6 +542,7 @@ function WorkspacePage() {
               <ResearchCanvas
                 initialNodes={nodes}
                 initialEdges={edges}
+                workspaceId={activeWorkspaceObj.id}
                 selectedEdgeId={selectedEdgeId}
                 selectedNodeId={selectedNodeId}
                 onSelectEdge={(id) => {

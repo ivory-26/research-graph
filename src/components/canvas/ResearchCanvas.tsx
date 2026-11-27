@@ -52,6 +52,7 @@ export type VisualizationMode = 'cards' | 'memory';
 interface ResearchCanvasProps {
   initialNodes: WorkspaceNode[];
   initialEdges: WorkspaceEdge[];
+  workspaceId?: string;
   selectedEdgeId: string | null;
   selectedNodeId: string | null;
   onSelectEdge: (edgeId: string) => void;
@@ -61,6 +62,7 @@ interface ResearchCanvasProps {
 function CanvasInner({
   initialNodes,
   initialEdges,
+  workspaceId,
   selectedEdgeId,
   selectedNodeId,
   onSelectEdge,
@@ -159,12 +161,12 @@ function CanvasInner({
   const nodesRef = useRef<Node[]>([]);
   const [persistedPositions, setPersistedPositions] = useState<PositionMap>({});
 
-  // Load persisted node coordinates on the client after mount / viewMode switch (SSR-safe)
+  // Load persisted node coordinates on the client after mount / viewMode / workspace switch (SSR-safe)
   useEffect(() => {
-    const loaded = loadPersistedPositions(viewMode);
+    const loaded = loadPersistedPositions(viewMode, undefined, workspaceId);
     setPersistedPositions(loaded);
     userDraggedNodeIdsRef.current = new Set(Object.keys(loaded));
-  }, [viewMode]);
+  }, [viewMode, workspaceId]);
 
   // Double-click focus on node and immediate neighborhood (centred on actually rendered position)
   const handleNodeDoubleClick = useCallback(
@@ -186,20 +188,20 @@ function CanvasInner({
 
   const handleResetLayout = useCallback(() => {
     userDraggedNodeIdsRef.current.clear();
-    clearPersistedPositions(viewMode);
+    clearPersistedPositions(viewMode, undefined, workspaceId);
     setPersistedPositions({});
     setSimulationSeed((s) => s + 1);
     setTimeout(() => {
       fitView({ padding: viewMode === 'memory' ? 0.38 : 0.25, duration: 600 });
     }, 100);
-  }, [fitView, viewMode]);
+  }, [fitView, viewMode, workspaceId]);
 
   const handleAnimateLayout = useCallback(() => {
     userDraggedNodeIdsRef.current.clear();
-    clearPersistedPositions(viewMode);
+    clearPersistedPositions(viewMode, undefined, workspaceId);
     setPersistedPositions({});
     setSimulationSeed((s) => s + 1);
-  }, [viewMode]);
+  }, [viewMode, workspaceId]);
 
   const nodeTypes = useMemo(
     () => ({
@@ -325,6 +327,7 @@ function CanvasInner({
         selected: n.id === selectedNodeId,
         data: {
           ...n.data,
+          title: (n.data as any)?.title || n.title,
           nodeShape: viewMode === 'memory' ? 'circles' : 'cards',
           isDimmed,
           isHighlighted,
@@ -525,7 +528,7 @@ function CanvasInner({
             ...persistedPositions,
             [node.id]: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
           };
-          savePersistedPositions(next, viewMode);
+          savePersistedPositions(next, viewMode, undefined, workspaceId);
           setPersistedPositions(next);
         }}
         nodeTypes={nodeTypes}

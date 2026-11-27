@@ -23,6 +23,7 @@ interface WorkspaceOption {
 
 interface NavbarProps {
   currentWorkspace?: string;
+  activeWorkspaceId?: string;
   workspaces?: WorkspaceOption[];
   onSelectWorkspace?: (workspaceId: string) => void;
   isInspectorOpen?: boolean;
@@ -36,6 +37,7 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({
   currentWorkspace = 'Research Graph',
+  activeWorkspaceId,
   workspaces,
   onSelectWorkspace,
   isInspectorOpen = false,
@@ -127,7 +129,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                       },
                     ]
                 ).map((ws) => {
-                  const isActive = ws.name === currentWorkspace || ws.id === currentWorkspace;
+                  const isActive = activeWorkspaceId
+                    ? ws.id === activeWorkspaceId
+                    : ws.name === currentWorkspace || ws.id === currentWorkspace;
                   return (
                     <button
                       key={ws.id}

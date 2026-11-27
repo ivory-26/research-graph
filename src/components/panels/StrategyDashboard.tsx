@@ -19,39 +19,17 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
   onClose,
   tasks,
 }) => {
-  const [runFilter, setRunFilter] = useState<string>('all');
-
   const hasLiveTasks = Boolean(tasks && tasks.length > 0);
   const liveTasks = tasks ?? [];
 
-  const availableFilters = useMemo(() => {
-    if (!hasLiveTasks) return [];
-    const runIds = Array.from(
-      new Set(liveTasks.map((t) => t.runId).filter((r): r is string => Boolean(r))),
-    ).sort();
-    const hasUnattributed = liveTasks.some((t) => t.runId === null);
-    if (runIds.length === 0 && !hasUnattributed) return [];
-    return [
-      'all',
-      ...runIds,
-      ...(hasUnattributed && runIds.length > 0 ? ['unattributed'] : []),
-    ];
-  }, [hasLiveTasks, liveTasks]);
-
-  const filteredTasks = useMemo(() => {
-    if (runFilter === 'all') return liveTasks;
-    if (runFilter === 'unattributed') return liveTasks.filter((t) => t.runId === null);
-    return liveTasks.filter((t) => t.runId === runFilter);
-  }, [liveTasks, runFilter]);
-
   const liveRows = useMemo(
-    () => (hasLiveTasks ? aggregateAgentTasks(liveTasks, runFilter) : []),
-    [hasLiveTasks, liveTasks, runFilter],
+    () => (hasLiveTasks ? aggregateAgentTasks(liveTasks) : []),
+    [hasLiveTasks, liveTasks],
   );
 
   const failedTasks = useMemo(
-    () => filteredTasks.filter((t) => t.status === 'failed' || t.status === 'rejected'),
-    [filteredTasks],
+    () => liveTasks.filter((t) => t.status === 'failed' || t.status === 'rejected'),
+    [liveTasks],
   );
 
   if (!isOpen) return null;
@@ -90,19 +68,19 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
       });
 
   const totalAttempts = hasLiveTasks
-    ? filteredTasks.length
+    ? liveTasks.length
     : DEMO_STRATEGIES.reduce((sum, s) => sum + s.attempts, 0);
   const totalFailures = hasLiveTasks
     ? failedTasks.length
     : DEMO_STRATEGIES.reduce((sum, s) => sum + Math.max(0, s.attempts - s.successes), 0);
 
   const costValues = hasLiveTasks
-    ? filteredTasks.map((t) => t.costUsd).filter((c): c is number => c !== null && Number.isFinite(c))
+    ? liveTasks.map((t) => t.costUsd).filter((c): c is number => c !== null && Number.isFinite(c))
     : DEMO_STRATEGIES.map((s) => s.totalCostUsd);
   const totalCost = costValues.length > 0 ? costValues.reduce((sum, c) => sum + c, 0) : null;
 
   const latencyValues = hasLiveTasks
-    ? filteredTasks.map((t) => t.latencyMs).filter((l): l is number => l !== null && Number.isFinite(l))
+    ? liveTasks.map((t) => t.latencyMs).filter((l): l is number => l !== null && Number.isFinite(l))
     : DEMO_STRATEGIES.map((s) => s.avgLatencyMs);
   const avgLatency =
     latencyValues.length > 0
@@ -128,29 +106,6 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
-          {hasLiveTasks && availableFilters.length > 0 && (
-            <div className="flex items-center gap-1 border border-[var(--border-primary)] bg-[var(--bg-surface)] p-1 font-mono text-[11px]">
-              {availableFilters.map((filterId) => (
-                <button
-                  key={filterId}
-                  type="button"
-                  onClick={() => setRunFilter(filterId)}
-                  className={`px-2.5 py-1 transition uppercase cursor-pointer ${
-                    runFilter === filterId
-                      ? 'bg-[#f97316] text-black font-bold'
-                      : 'text-[var(--text-dim)] hover:text-[var(--text-primary)]'
-                  }`}
-                >
-                  {filterId === 'all'
-                    ? 'All'
-                    : filterId === 'unattributed'
-                      ? 'Unattributed'
-                      : filterId}
-                </button>
-              ))}
-            </div>
-          )}
-
           {isModal && onClose && (
             <button
               onClick={onClose}

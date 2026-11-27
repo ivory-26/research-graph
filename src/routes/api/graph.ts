@@ -61,7 +61,10 @@ export const Route = createFileRoute('/api/graph')({
             type: n.type,
             title: n.title,
             position: { x: n.positionX, y: n.positionY },
-            data: n.data,
+            data: {
+              ...(n.data as Record<string, unknown>),
+              title: n.title,
+            },
           }));
 
           const formattedEdges = dbEdgeRows.map((row) => ({
