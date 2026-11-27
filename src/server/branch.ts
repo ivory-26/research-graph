@@ -79,8 +79,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   )
 }
 
-function assertJsonSafe(val: unknown, path = '', seen = new WeakSet<object>()): void {
-  if (typeof val === 'object' && val !== null) {
+function assertJsonSafe(val: unknown, path = '', seen = new Set<object>()): void {
+  const isObj = typeof val === 'object' && val !== null
+  if (isObj) {
     if (seen.has(val)) {
       throw new BranchValidationError(
         `Cyclic reference detected at "${path || 'root'}"`,
@@ -89,31 +90,37 @@ function assertJsonSafe(val: unknown, path = '', seen = new WeakSet<object>()): 
     }
     seen.add(val)
   }
-  if (val === undefined) {
-    throw new BranchValidationError(
-      `Value at "${path || 'root'}" cannot be undefined`,
-      'INVALID_SPEC',
-    )
-  }
-  if (typeof val === 'number' && !Number.isFinite(val)) {
-    throw new BranchValidationError(
-      `Numeric value at "${path || 'root'}" must be finite, got ${val}`,
-      'INVALID_SPEC',
-    )
-  }
-  if (typeof val === 'function' || typeof val === 'symbol' || typeof val === 'bigint') {
-    throw new BranchValidationError(
-      `Value at "${path || 'root'}" cannot be ${typeof val}`,
-      'INVALID_SPEC',
-    )
-  }
-  if (Array.isArray(val)) {
-    val.forEach((item, idx) =>
-      assertJsonSafe(item, path ? `${path}.${idx}` : String(idx), seen),
-    )
-  } else if (isPlainObject(val)) {
-    for (const [k, v] of Object.entries(val)) {
-      assertJsonSafe(v, path ? `${path}.${k}` : k, seen)
+  try {
+    if (val === undefined) {
+      throw new BranchValidationError(
+        `Value at "${path || 'root'}" cannot be undefined`,
+        'INVALID_SPEC',
+      )
+    }
+    if (typeof val === 'number' && !Number.isFinite(val)) {
+      throw new BranchValidationError(
+        `Numeric value at "${path || 'root'}" must be finite, got ${val}`,
+        'INVALID_SPEC',
+      )
+    }
+    if (typeof val === 'function' || typeof val === 'symbol' || typeof val === 'bigint') {
+      throw new BranchValidationError(
+        `Value at "${path || 'root'}" cannot be ${typeof val}`,
+        'INVALID_SPEC',
+      )
+    }
+    if (Array.isArray(val)) {
+      val.forEach((item, idx) =>
+        assertJsonSafe(item, path ? `${path}.${idx}` : String(idx), seen),
+      )
+    } else if (isPlainObject(val)) {
+      for (const [k, v] of Object.entries(val)) {
+        assertJsonSafe(v, path ? `${path}.${k}` : k, seen)
+      }
+    }
+  } finally {
+    if (isObj) {
+      seen.delete(val)
     }
   }
 }
@@ -197,8 +204,14 @@ export function applySingleLeafChange(
         'INVALID_PATH',
       )
     }
+    if (typeof value !== 'string') {
+      throw new BranchValidationError(
+        `File "${fileKey}" content must be a string, got ${typeof value}`,
+        'INVALID_SPEC',
+      )
+    }
     const cloned = structuredClone(spec)
-    cloned.files[fileKey] = structuredClone(value) as string
+    cloned.files[fileKey] = structuredClone(value)
     return cloned
   }
 
@@ -588,9 +601,12 @@ export async function branchWhatIf(
     )
   }
   if (changedLeaf.path === 'parameters.importance_method') {
-    if (typeof changedLeaf.after !== 'string' || (changedLeaf.after as string).trim().length === 0) {
+    if (
+      typeof changedLeaf.after !== 'string' ||
+      !['impurity', 'permutation'].includes(changedLeaf.after.trim())
+    ) {
       throw new BranchValidationError(
-        `What-if branch parameter "${changedLeaf.path}" must be a non-empty string, got ${typeof changedLeaf.after}`,
+        `What-if branch parameter "${changedLeaf.path}" must be either "impurity" or "permutation", got "${String(changedLeaf.after)}"`,
         'INVALID_SPEC',
         diffs,
       )

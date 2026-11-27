@@ -236,7 +236,7 @@ describe('branchWhatIf (Issue #27)', () => {
     })
   })
 
-  it('rejects cyclic candidateSpec with INVALID_SPEC', async () => {
+  it('rejects cyclic candidateSpec with INVALID_SPEC but accepts DAG/aliased objects', async () => {
     const parentRun = makeCompletedParentRun()
     const store = new MemoryWhatIfBranchStore()
     const cyclicSpec: any = structuredClone(parentRun.spec)
@@ -248,9 +248,24 @@ describe('branchWhatIf (Issue #27)', () => {
       name: 'BranchValidationError',
       code: 'INVALID_SPEC',
     })
+
+    // DAG / aliased object referenced in two places should not trigger false-positive cycle detection
+    const dagParent = makeCompletedParentRun()
+    const sharedSubObject = { enabled: true }
+    dagParent.spec.parameters.sub1 = sharedSubObject
+    dagParent.spec.parameters.sub2 = sharedSubObject
+
+    const dagSpec: any = structuredClone(dagParent.spec)
+    dagSpec.parameters.sub1 = sharedSubObject
+    dagSpec.parameters.sub2 = sharedSubObject
+    dagSpec.parameters.importance_method = 'permutation'
+
+    const dagStore = new MemoryWhatIfBranchStore([dagParent])
+    const res = await branchWhatIf(dagParent, { candidateSpec: dagSpec }, { store: dagStore })
+    expect(res.run.spec.parameters.importance_method).toBe('permutation')
   })
 
-  it('rejects non-string or empty importance_method value with INVALID_SPEC', async () => {
+  it('rejects non-string or invalid vocabulary importance_method value with INVALID_SPEC', async () => {
     const parentRun = makeCompletedParentRun()
     const store = new MemoryWhatIfBranchStore()
 
@@ -275,6 +290,23 @@ describe('branchWhatIf (Issue #27)', () => {
       name: 'BranchValidationError',
       code: 'INVALID_SPEC',
     })
+
+    await expect(
+      branchWhatIf(
+        parentRun,
+        { path: 'parameters.importance_method', value: 'shap_values' },
+        { store },
+      ),
+    ).rejects.toMatchObject({
+      name: 'BranchValidationError',
+      code: 'INVALID_SPEC',
+    })
+  })
+
+  it('rejects non-string replacement for files.* in applySingleLeafChange', () => {
+    expect(() =>
+      applySingleLeafChange(HERO_EXPERIMENT_SPEC_RUN_A, 'files.main.py', 12345),
+    ).toThrow(/must be a string/)
   })
 
   it('rejects changes to non-existent path segments or misspelled parameters', async () => {
