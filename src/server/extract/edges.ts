@@ -10,7 +10,7 @@ import {
 import { embedQuery, type EmbedDeps } from '../ingest/embed'
 import { searchSimilarChunksForWorkspace } from '../ingest/store'
 import { callModel as defaultCallModel, type CallModel, agentTaskStore } from '../model'
-import { normalizeQuote, verifyVerbatimQuote } from './quote'
+import { MAX_QUOTE_CHARS, normalizeQuote, verifyVerbatimQuote } from './quote'
 import type { UpdateTaskStatusFn } from './claims'
 import {
   ProposeEdgesResultSchema,
@@ -79,10 +79,14 @@ export function validateProposedEdges(
       continue
     }
 
-    // 3. Quote presence check
+    // 3. Quote presence & bounded length check (per-edge rejection so sibling edges survive)
     const rawQuote = edge.quote?.trim()
     if (!rawQuote) {
       rejected.push({ edge, reason: 'QUOTE_EMPTY' })
+      continue
+    }
+    if (normalizeQuote(rawQuote).length > MAX_QUOTE_CHARS) {
+      rejected.push({ edge, reason: 'QUOTE_TOO_LONG' })
       continue
     }
 
@@ -179,7 +183,7 @@ Allowed Relations:
 
 RULES:
 1. No self-loops: fromNodeId and toNodeId MUST be different.
-2. Every edge MUST have an exact, VERBATIM quote from one of the evidence chunks proving this relationship.
+2. Every edge MUST have an exact, VERBATIM quote from one of the evidence chunks proving this relationship (keep each quote concise, <= 400 characters).
 3. Assign a calibrated confidence score between 0.0 and 1.0 based on how directly the quote substantiates the relation.
 4. "evidenceChunkId" must be the exact CHUNK ID containing the quote.
 5. "rationale": required brief explanation under 240 characters.

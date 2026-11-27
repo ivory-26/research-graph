@@ -50,7 +50,7 @@ const ExtractedClaim = z.object({
   againstValue: z.number().nullable(),
   datasetName: z.string().max(120).nullable(),
   methodName: z.string().max(120).nullable(),
-  quote: z.string().max(400),        // must appear verbatim in the chunk
+  quote: z.string(),                   // must appear verbatim in the chunk; <= 400 chars enforced per claim (QUOTE_TOO_LONG)
   chunkId: z.string(),
 });
 
@@ -80,8 +80,8 @@ const ProposedEdge = z.object({
   relation: z.enum(['supports', 'contradicts', 'cites', 'uses_dataset', 'tests', 'derived_from']),
   confidence: z.number().min(0).max(1),
   evidenceChunkId: z.string(),
-  quote: z.string().max(400),
-  rationale: z.string().max(240),
+  quote: z.string(),                   // must appear verbatim in the chunk; <= 400 chars enforced per edge (QUOTE_TOO_LONG)
+  rationale: z.string(),               // non-empty enforced per edge; bounded to 240 chars post-validation
 });
 ```
 
@@ -195,14 +195,14 @@ The dashboard is designed as a `GROUP BY` over `agent_tasks`, with no separate s
 
 ## Model discipline
 
-Because of Gemini's structured-output subset ([ADR 0009](./adr/0009-gemini-only.md)):
+Because of structured-output schema limits ([ADR 0009](./adr/0009-gemini-only.md), [ADR 0013](./adr/0013-meta-muse-spark-contributor-provider.md)):
 
 - Every schema is flat or one level of nesting. No recursive `$ref`.
-- Never rely on `minLength`, `maxLength`, `uniqueItems` — they are silently ignored. Enforce in Zod after the call, not in the schema before it.
+- Never rely on `minLength`, `maxLength`, `uniqueItems` (or Meta `minimum`/`maximum` grammar keywords) — they are ignored or stripped during generation. Enforce in Zod after the call, not in the schema before it.
 - Never exceed 12 items in a top-level array; large arrays increase truncation risk and make validation all-or-nothing.
 
-Every call is sequential. Gemini's quotas are per project and unpublished, so the pipeline never issues parallel requests. Text calls go through one `callModel()` wrapper (`src/server/model.ts`) that implements exponential backoff with jitter on 429, disables the SDK's own retries, and writes one `agent_tasks` row per **physical attempt** with cost, tokens and latency. Embeddings use the same queue and task-row helpers but call `embedMany` directly.
+Every call is sequential. Quotas are project-wide, so the pipeline never issues parallel requests. Text calls go through one `callModel()` wrapper (`src/server/model.ts`) that implements exponential backoff with jitter on 429, disables provider auto-retries, redacts sent secrets on errors, and writes one `agent_tasks` row per **physical attempt** with cost, tokens and latency. Embeddings use the same queue and task-row helpers (`enqueueProcessTask`) via `embedMany`.
 
-Only rate-limit responses are retried. A provider capacity response (`high demand`) is persisted as a failed task row and surfaces as a missing explanation; the deterministic verdict still completes.
+Only rate-limit responses are retried. A provider capacity response (`high demand` / `503`) is persisted as a failed task row and surfaces as a missing explanation; the deterministic verdict still completes.
 
-The one model exception is the Stage 7 `explain_gap` call, which pins `gemini-4-hydrogen` for the two-sentence explanation (`src/server/evaluate.ts`). The verdict is computed by `evaluateExperiment` before that call and the model cannot alter it. Every other text call site uses `gemini-3.8-flash`, and embeddings stay on `gemini-embedding-2`. `DEFAULT_PRICING` costs the evaluator call from the published Standard paid rate: $1.50 per million input tokens and $7.50 per million output tokens, with thinking billed at the output rate. The table is an accounting estimate from published prices, not billing telemetry or a statement about account entitlement.
+The one model exception is the Stage 7 `explain_gap` call, which pins `gemini-4-hydrogen` (`@ai-sdk/google`) for the two-sentence explanation (`src/server/evaluate.ts`). The verdict is computed by `evaluateExperiment` before that call and the model cannot alter it. Every other text call site uses `gemini-3.8-flash` (`DEFAULT_MODEL_ID`), or Meta Model API's `muse-spark-1.3-contributor` (`https://api.meta.ai/v1/chat/completions`) when `META_API_KEY` is explicitly configured or `DEFAULT_META_MODEL_ID` is pinned; embeddings stay on `gemini-embedding-2`. `DEFAULT_PRICING` records published list rates (`gemini-3.8-flash` $0.30/$2.50, `gemini-4-hydrogen` $1.50/$7.50 Standard paid rate, `muse-spark-1.3-contributor` $0.10/$0.20 Contributor list rate, reasoning/thinking included in output). The table is an accounting estimate from published prices, not billing telemetry or a statement about account entitlement.

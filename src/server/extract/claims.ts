@@ -283,11 +283,12 @@ INSTRUCTIONS:
 You are an expert scientific claim extraction system. Extract key empirical claims, methods, datasets, and code URLs from the text passages above.
 
 CRITICAL REQUIREMENT:
-1. Every claim MUST include an exact, VERBATIM quote copied directly from the text of the passage.
+1. Every claim MUST include an exact, VERBATIM quote copied directly from the text of the passage (keep each quote concise: 1-2 sentences, <= 400 characters).
 2. The "chunkId" field MUST be the chunk ID or integer ordinal of the passage containing the verbatim quote (e.g. "0", "1").
-3. Do not paraphrase or alter words inside the "quote". Any claim with an altered or missing quote will be rejected.
-4. If a claim makes a quantitative assertion, record "metric", "reportedValue", "comparator" ("gt", "lt", "eq"), and "againstValue" if stated.
-5. Limit to at most 12 claims, 8 datasets, and 8 methods.`
+3. Do not paraphrase or alter words inside the "quote". Any claim with an altered, missing, or >400-character quote will be rejected.
+4. Keep "text" <= 600 chars, "metric" <= 80 chars, and dataset/method names ("datasetName", "methodName", datasets[].name, methods[].name) concise short names <= 120 chars; keep method "summary" <= 300 chars and each "codeUrl" <= 500 chars.
+5. If a claim makes a quantitative assertion, record "metric", "reportedValue", "comparator" ("gt", "lt", "eq"), and "againstValue" if stated.
+6. Limit strictly to at most 12 claims, 8 datasets, 8 methods, and 8 codeUrls.`
 }
 
 interface ExtractionPassSpec {
