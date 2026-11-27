@@ -141,13 +141,15 @@ export function createDrizzleRepairRunStore(
     },
 
     async getChildRun(parentRunId: string): Promise<RepairRunRecord | null> {
-      if ('query' in db && db.query?.runs?.findFirst) {
-        const row = await db.query.runs.findFirst({
-          where: (runsTable: any, { eq: eqOp }: any) => eqOp(runsTable.parentRunId, parentRunId),
-        })
-        return row ? (row as RepairRunRecord) : null
+      if (!('query' in db) || !db.query?.runs?.findFirst) {
+        throw new Error(
+          'createDrizzleRepairRunStore requires db.query.runs.findFirst to enforce one-child-per-parent idempotency',
+        )
       }
-      return null
+      const row = await db.query.runs.findFirst({
+        where: (runsTable: any, { eq: eqOp }: any) => eqOp(runsTable.parentRunId, parentRunId),
+      })
+      return row ? (row as RepairRunRecord) : null
     },
   }
 }
@@ -465,12 +467,18 @@ function initialRepairEnvironment(
   }
 }
 
+const NODE_ERRNO_CODES = new Set([
+  'EPIPE', 'EBUSY', 'EPERM', 'ELOOP', 'EROFS', 'EXDEV', 'ENXIO',
+  'EFBIG', 'ENOSPC', 'ESPIPE', 'EMLINK', 'EFAULT', 'ENODEV',
+  'EISDIR', 'ENOTDIR', 'EINVAL', 'EMFILE', 'ENFILE', 'ENOTTY', 'EAGAIN',
+])
+
 function isPersistenceError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
   if (err.constructor && /postgres|drizzle|neon/i.test(err.constructor.name)) return true
   if (err instanceof Error) {
     if (
-      /agent_tasks|runs|database|postgres|drizzle|neon|relation ".*"|syntax error at or near|violates.*constraint/i.test(
+      /agent_tasks|postgres|drizzle|neon|relation ".*"|syntax error at or near|violates.*constraint/i.test(
         err.message,
       )
     ) {
@@ -479,8 +487,8 @@ function isPersistenceError(err: unknown): boolean {
   }
   if ('code' in err && typeof (err as any).code === 'string') {
     const code = (err as any).code
-    // 5-character Postgres SQLSTATE codes (e.g. '23505', '42P01') excluding common Node errors like EPIPE
-    if (/^[0-9A-Z]{5}$/.test(code) && code !== 'EPIPE') return true
+    // 5-character Postgres SQLSTATE codes (e.g. '23505', '42P01') excluding Node errno codes
+    if (/^[0-9A-Z]{5}$/.test(code) && !NODE_ERRNO_CODES.has(code)) return true
   }
   return false
 }
@@ -636,9 +644,10 @@ export async function repairAndRetryRun(
   if (options.runStore?.getChildRun) {
     const existingChild = await options.runStore.getChildRun(failedRun.id)
     if (existingChild) {
+      const childSucceeded = existingChild.status === 'succeeded'
       return {
-        repaired: false,
-        status: 'exhausted',
+        repaired: childSucceeded,
+        status: childSucceeded ? 'repaired' : 'exhausted',
         attemptsUsed: 0,
         runs: [failedRun, existingChild],
         finalRun: existingChild,
