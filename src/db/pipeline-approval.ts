@@ -45,6 +45,13 @@ import {
 } from './pipeline-validation'
 
 /**
+ * Mirrors `MAX_REPAIR_ATTEMPTS` in `src/server/branch.ts`: the initial run is
+ * attempt 1, so attempts 2 and 3 are the two repair candidates. The database
+ * layer cannot import the server module without a cycle.
+ */
+const MAX_REPAIR_ATTEMPT = 3
+
+/**
  * Opens (or idempotently returns) the gate for an active claim.
  *
  * Repeating the call with the same claim and the same offered spec returns the
@@ -152,7 +159,11 @@ export async function openApprovalGate(
         .select({ status: runs.status, attempt: runs.attempt })
         .from(runs)
         .where(and(eq(runs.id, repairParentRunId), eq(runs.experimentId, experimentId)))
-      if (!parent || !['failed', 'timeout'].includes(parent.status) || parent.attempt >= 3) {
+      if (
+        !parent ||
+        !['failed', 'timeout'].includes(parent.status) ||
+        parent.attempt >= MAX_REPAIR_ATTEMPT
+      ) {
         throw new PipelineDbError('GATE_CONFLICT', 'the repair parent is not eligible')
       }
       if (experiment.approvalState !== 'approved') {
