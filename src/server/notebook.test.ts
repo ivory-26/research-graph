@@ -20,7 +20,7 @@ const HERO_CLAIM = {
   reported: null,
 }
 
-const NbformatCellIdSchema = z.string().regex(/^[a-zA-Z0-9-_]{1,64}$/)
+const NbformatCellIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/)
 
 const NbformatV45Schema = z.object({
   nbformat: z.literal(4),
@@ -265,6 +265,38 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(pipSrc).not.toContain('"wheel==')
     expect(pipSrc).toContain('# Note: omitted packages with unknown version: mystery_pkg')
     expect(pipSrc).toContain('"numpy==2.5.5"')
+  })
+
+  it('builds a specification-preview notebook with no environment (no install cell, 5 cells)', () => {
+    const nb = buildNotebookDocument({
+      spec: HERO_EXPERIMENT_SPEC_RUN_A,
+      claim: HERO_CLAIM,
+    })
+
+    // No environment.packages means no install cell: metadata, dataset,
+    // script, metrics, criteria = 5 cells.
+    expect(nb.cells).toHaveLength(5)
+    expect(nb.cells.map((c) => c.id)).toEqual([
+      'cell-1-metadata',
+      'cell-3-dataset',
+      'cell-4-script',
+      'cell-5-metrics',
+      'cell-6-criteria',
+    ])
+    const cellIds = nb.cells.map((c) => c.id)
+    expect(new Set(cellIds).size).toBe(cellIds.length)
+
+    // No recorded python version is emitted.
+    expect(nb.metadata.language_info.version).toBeUndefined()
+
+    // The metadata cell records this as a preview, not an evaluated run.
+    const md1 = nb.cells[0]!.source.join('')
+    expect(md1).toContain('not evaluated (specification preview)')
+
+    // The dataset cell (now at index 1) still verifies against the spec's
+    // recorded sha256.
+    const dsSrc = nb.cells[1]!.source.join('')
+    expect(dsSrc).toContain(HERO_EXPERIMENT_SPEC_RUN_A.datasets[0]!.sha256!)
   })
 
   it('uses recorded dataset sha256 from environment when spec dataset sha256 is unpinned', () => {
