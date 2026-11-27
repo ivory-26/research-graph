@@ -290,6 +290,20 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     )) as Extract<PipelineEvent, { type: 'verdict.computed' }>
     expect(verdict.verdict).toBe('match')
 
+    const artifacts = await testDb.pool.query<{
+      kind: string
+      content: string
+    }>('SELECT kind, content FROM run_artifacts WHERE run_id = $1', [
+      completed.runId,
+    ])
+    expect(artifacts.rows).toHaveLength(1)
+    expect(artifacts.rows[0]?.kind).toBe('notebook')
+    const notebook = JSON.parse(artifacts.rows[0]!.content)
+    expect(notebook).toMatchObject({ nbformat: 4, nbformat_minor: 5 })
+    const metadata = notebook.cells[0].source.join('')
+    expect(metadata).toContain('noise can outrank informative features')
+    expect(metadata).toContain(rows[0]!.verdict_detail!.explanation)
+
     const tasks = await testDb.pool.query<{
       task_kind: string
       status: string

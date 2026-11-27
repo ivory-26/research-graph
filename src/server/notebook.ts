@@ -512,16 +512,7 @@ export function buildNotebookArtifact(
   }
 }
 
-/**
- * Persists an exported notebook artifact into the `run_artifacts` table.
- *
- * Follow-up integration owned by ivory-26: tracked in issue #64
- * (https://github.com/ivory-26/research-graph/issues/64) for docs/05-plan.md:75
- * ("Server-side notebook export | —") to wire after verdict persistence in
- * `src/server/pipeline-delivery/production-stages.ts:397` (owned by `ivory-26` per
- * `CODEOWNERS` / `docs/07-workstreams.md:25`). Notebook generation errors
- * must be logged and must not fail an otherwise successful run.
- */
+/** Persists an exported notebook artifact into the `run_artifacts` table. */
 export async function saveNotebookArtifact(
   db: Pick<Database, 'insert'>,
   runId: string,
