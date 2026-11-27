@@ -493,7 +493,7 @@ function isPersistenceError(err: unknown): boolean {
   if (err.constructor && /postgres|drizzle|neon/i.test(err.constructor.name)) return true
   if (err instanceof Error) {
     if (
-      /agent_tasks|relation ".*" does not exist|syntax error at or near|violates .* constraint|duplicate key value|current transaction is aborted|insert or update on table/i.test(
+      /agent_tasks|relation ".*"|syntax error at or near|violates.*constraint|duplicate key value|current transaction is aborted|insert or update on table/i.test(
         err.message,
       )
     ) {
