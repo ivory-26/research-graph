@@ -80,6 +80,15 @@ class MemoryRepairRunStore implements RepairRunStore {
     this.rows.set(runId, updated)
     return structuredClone(updated)
   }
+
+  async getChildRun(parentRunId: string): Promise<RepairRunRecord | null> {
+    for (const record of this.rows.values()) {
+      if (record.parentRunId === parentRunId) {
+        return structuredClone(record)
+      }
+    }
+    return null
+  }
 }
 
 function makeBrokenImportSpec(): ExperimentSpec {
@@ -528,15 +537,121 @@ describe('repairAndRetryRun (Issue #26)', () => {
       runner,
       modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
       callModelFn,
+      claimId: 'claim-1',
+      openApprovalGate: async ({ workspaceId, experimentId, claimId, spec }) => ({
+        gate: {
+          id: 'gate-durable-1',
+          gateSeq: 1,
+          workspaceId,
+          experimentId,
+          executionClaimId: claimId,
+          status: 'pending',
+          offeredSpec: spec,
+          decidedBy: null,
+          decidedAt: null,
+          decisionEventSeq: null,
+          createdAt: new Date(),
+          claim: {
+            active: true,
+            expired: false,
+            closedAt: null,
+            closeReason: null,
+          },
+        },
+        event: {
+          type: 'approval.requested',
+          seq: 1,
+          experimentId,
+          at: new Date().toISOString(),
+          gateId: 'gate-durable-1',
+          gateSeq: 1,
+          spec,
+        },
+        created: true,
+      }),
     })
 
     expect(result.repaired).toBe(false)
     expect(result.status).toBe('awaiting_approval')
+    expect(result.gateId).toBe('gate-durable-1')
     expect(result.attemptsUsed).toBe(1)
     expect(result.candidateSpec).toBeDefined()
     expect(result.workspaceId).toBe('ws-1')
     expect(result.claimNodeId).toBe(brokenSpec.claimNodeId)
     expect(runnerCalled).toBe(false)
+  })
+
+  it('fails explicitly when a non-allowlisted repair requires durable approval but openApprovalGate is omitted', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, "ValueError: invalid hyperparameter")
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+    const taskStore = new MemoryTaskStore()
+    const generate: StructuredGenerator = async () => ({
+      output: {
+        script: HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!.replace(
+          'n_estimators=100',
+          'n_estimators=250',
+        ),
+        summary: 'Changed n_estimators',
+      },
+      inputTokens: 100,
+      outputTokens: 50,
+    })
+    const callModelFn = createCallModel({
+      generate,
+      sleep: async () => {},
+    })
+
+    const runner: ExperimentRunner = {
+      async run() {
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+
+    await expect(
+      repairAndRetryRun(failedRun, {
+        runStore,
+        runner,
+        modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+        callModelFn,
+      }),
+    ).rejects.toThrow(/openApprovalGate was not provided/)
+  })
+
+  it('enforces one child per repair step with idempotency guard on duplicate execution', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, "ValueError: test error")
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+
+    const runner: ExperimentRunner = {
+      async run() {
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+
+    const firstChild = await executeApprovedRepairCandidate(failedRun, brokenSpec, {
+      runStore,
+      runner,
+    })
+    expect(firstChild.parentRunId).toBe(failedRun.id)
+
+    // Attempting to execute approved candidate again for same parent must fail
+    await expect(
+      executeApprovedRepairCandidate(failedRun, brokenSpec, {
+        runStore,
+        runner,
+      }),
+    ).rejects.toThrow(/Child repair run already exists/)
+  })
+
+  it('distinguishes parameter dictionary key rename from DataFrame column rename with whitespace before bracket', () => {
+    const originalScript = 'import numpy as np\nparams ["seed"] = 42\n'
+    const modifiedScript = 'import numpy as np\nparams ["random_state"] = 42\n'
+    expect(isAutoApprovableRepair(originalScript, modifiedScript)).toBe(false)
   })
 
   it('handles non-429 callModel failures gracefully without mutating persisted finalRun.stderr', async () => {

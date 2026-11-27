@@ -87,10 +87,11 @@ export type RepairRunUpdate = {
 export interface RepairRunStore {
   createRun(input: NewRepairRunRecord): Promise<RepairRunRecord>
   updateRun(runId: string, patch: RepairRunUpdate): Promise<RepairRunRecord>
+  getChildRun?(parentRunId: string): Promise<RepairRunRecord | null>
 }
 
 export function createDrizzleRepairRunStore(
-  db: Pick<Database, 'insert' | 'update'>,
+  db: Pick<Database, 'insert' | 'update'> & { query?: any },
 ): RepairRunStore {
   return {
     async createRun(input: NewRepairRunRecord): Promise<RepairRunRecord> {
@@ -137,6 +138,16 @@ export function createDrizzleRepairRunStore(
         throw new Error(`runs update for ${runId} returned no row`)
       }
       return row
+    },
+
+    async getChildRun(parentRunId: string): Promise<RepairRunRecord | null> {
+      if ('query' in db && db.query?.runs?.findFirst) {
+        const row = await db.query.runs.findFirst({
+          where: (runsTable: any, { eq: eqOp }: any) => eqOp(runsTable.parentRunId, parentRunId),
+        })
+        return row ? (row as RepairRunRecord) : null
+      }
+      return null
     },
   }
 }
@@ -186,7 +197,7 @@ function maskPathLiterals(line: string): string {
  */
 function maskColumnLiterals(line: string): string {
   if (
-    /\b(?:params|parameters|config|hyperparams|kwargs|options|args|meta|metadata|settings|env|labels|classes|metrics|scores|results|counts|totals|mapping|lookup|cache|state|context|out|output|summary)\[/.test(
+    /\b(?:params|parameters|config|hyperparams|kwargs|options|args|meta|metadata|settings|env|labels|classes|metrics|scores|results|counts|totals|mapping|lookup|cache|state|context|out|output|summary)\s*\[/.test(
       line,
     )
   ) {
@@ -285,6 +296,11 @@ function isOnlyStringOrImportChange(
  * affects only imports, column names, or paths (string literals).
  * Any other change re-opens the human approval gate (docs/03-agent-pipeline.md:152).
  */
+/** Maximum line count per script evaluated for automated auto-approval diffing. */
+export const MAX_AUTO_APPROVE_LCS_LINES = 500
+/** Maximum dynamic-programming matrix cells allocated for automated auto-approval diffing. */
+export const MAX_AUTO_APPROVE_LCS_CELLS = 250_000
+
 export function isAutoApprovableRepair(
   originalScript: string,
   repairedScript: string,
@@ -302,7 +318,12 @@ export function isAutoApprovableRepair(
 
   // Cap LCS allocation to prevent untrusted model output from allocating
   // excessive memory in the host process (docs/03-agent-pipeline.md:152).
-  if (m > 500 || n > 500 || m * n > 250_000) {
+  // Scripts with >500 lines or >250,000 cells fail closed to manual approval.
+  if (
+    m > MAX_AUTO_APPROVE_LCS_LINES ||
+    n > MAX_AUTO_APPROVE_LCS_LINES ||
+    m * n > MAX_AUTO_APPROVE_LCS_CELLS
+  ) {
     return false
   }
 
@@ -389,14 +410,11 @@ export function buildRepairPrompt(
   const specSummary = {
     claimNodeId: spec.claimNodeId,
     mode: spec.mode,
+    language: spec.language,
     image: spec.image,
     entrypoint: spec.entrypoint,
     auxiliaryFiles,
-    datasets: spec.datasets.map((d) => ({
-      name: d.name,
-      path: d.path,
-      bytes: d.bytes,
-    })),
+    datasets: spec.datasets,
     parameters: spec.parameters,
     criteria: spec.criteria,
     timeoutSeconds: spec.timeoutSeconds,
@@ -413,7 +431,7 @@ export function buildRepairPrompt(
     '- Write metrics as JSON to `/output/metrics.json`.',
     '- Read datasets only from their configured paths.',
     '',
-    'ExperimentSpec:',
+    'ExperimentSpec (entrypoint filtered from auxiliaryFiles):',
     JSON.stringify(specSummary, null, 2),
     '',
     'Current script:',
@@ -667,6 +685,15 @@ export async function repairAndRetryRun(
       })
     } catch (err) {
       console.error('[repairAndRetryRun] REPAIR_SCRIPT callModel failed', err)
+      // Persistence failures (e.g. database errors recording agent_tasks) must surface immediately
+      // rather than issuing repeated physical model calls without an audit trail (docs/03-agent-pipeline.md:154).
+      const isDbError =
+        (err && typeof err === 'object' && 'code' in err && typeof (err as any).code === 'string') ||
+        (err instanceof Error && /agent_tasks|database|postgres|drizzle/i.test(err.message))
+      if (isDbError) {
+        throw err
+      }
+
       attemptsUsed = i + 1
       const sanitizedMsg = 'REPAIR_SCRIPT model call failed'
       if (i + 1 < maxAttempts) {
@@ -757,18 +784,18 @@ export async function repairAndRetryRun(
       // Note: Under production EXECUTE, an experiment begins with approvalState = 'approved'.
       // Re-opening an approval gate on a failed repair run requires the approval state transition
       // or repair gate support tracked in follow-up issue #63 (docs/05-plan.md:74, owned by ivory-26).
-      let gateId: string | undefined
-      let gateSeq: number | undefined
-      if (options.openApprovalGate) {
-        const gateRes = await options.openApprovalGate({
-          workspaceId: options.modelContext.workspaceId,
-          experimentId: currentRun.experimentId,
-          claimId: options.claimId!,
-          spec: repairedSpec,
-        })
-        gateId = gateRes.gate.id
-        gateSeq = gateRes.gate.gateSeq
+      if (!options.openApprovalGate) {
+        throw new Error(
+          'Non-allowlisted repair requires durable approval gate, but openApprovalGate was not provided',
+        )
       }
+
+      const gateRes = await options.openApprovalGate({
+        workspaceId: options.modelContext.workspaceId,
+        experimentId: currentRun.experimentId,
+        claimId: options.claimId!,
+        spec: repairedSpec,
+      })
 
       return {
         repaired: false,
@@ -779,8 +806,8 @@ export async function repairAndRetryRun(
         candidateSpec: repairedSpec,
         workspaceId: options.modelContext.workspaceId,
         claimNodeId: repairedSpec.claimNodeId,
-        gateId,
-        gateSeq,
+        gateId: gateRes.gate.id,
+        gateSeq: gateRes.gate.gateSeq,
       }
     }
 
@@ -853,6 +880,15 @@ async function executeChainedRepairRun(
       } as RepairPipelineEvent)
     } catch (err) {
       console.error('[executeChainedRepairRun] emitEvent failed', err)
+    }
+  }
+
+  if (options.runStore.getChildRun) {
+    const existing = await options.runStore.getChildRun(parentRun.id)
+    if (existing) {
+      throw new Error(
+        `Child repair run already exists for parent run "${parentRun.id}" (idempotency guard)`,
+      )
     }
   }
 
