@@ -505,6 +505,56 @@ describe('agent_tasks accounting, retries, and usage fallback (ADR 0009)', () =>
     // Second attempt recorded as succeeded
     expect(insertedTasks[1].status).toBe('succeeded')
   })
+
+  it('clamps a long provider retry window to the max-delay bound', async () => {
+    const providerError: any = new Error('429 Too Many Requests; retry in 600s')
+    providerError.statusCode = 429
+
+    let callCount = 0
+    const fakeEmbedMany = vi.fn(async () => {
+      callCount++
+      if (callCount === 1) throw providerError
+      return { embeddings: [new Array(768).fill(0.1)], usage: undefined }
+    })
+    const fakeSleep = vi.fn(async () => {})
+
+    await embedChunks(
+      ['Text to retry'],
+      { taskStore: { insert: vi.fn(async () => ({ id: 'task' })) } },
+      {
+        embedManyFn: fakeEmbedMany as any,
+        resolveModel: () => ({} as any),
+        sleepFn: fakeSleep,
+      },
+    )
+
+    expect(fakeSleep).toHaveBeenCalledWith(30_000)
+  })
+
+  it('aborts the retry sleep as soon as the signal aborts', async () => {
+    const providerError: any = new Error('429 Too Many Requests; retry in 600s')
+    providerError.statusCode = 429
+    const controller = new AbortController()
+    const reason = new Error('pipeline cancelled')
+
+    const promise = embedChunks(
+      ['Text to retry'],
+      {
+        abortSignal: controller.signal,
+        taskStore: { insert: vi.fn(async () => ({ id: 'task' })) },
+      },
+      {
+        embedManyFn: vi.fn(async () => {
+          throw providerError
+        }) as any,
+        resolveModel: () => ({} as any),
+      },
+    )
+
+    setTimeout(() => controller.abort(reason), 20)
+
+    await expect(promise).rejects.toBe(reason)
+  })
 })
 
 /**

@@ -24,12 +24,14 @@
  * - **Terminal runs only.** `queued` and `running` runs have no result yet;
  *   their artifacts would be unverifiable claims about a run still in flight.
  *   The terminal-status list is #7's (`isTerminalRunStatus`), not a copy.
- * - **Stable and non-destructive.** Re-persisting the same run is idempotent:
- *   the run row lock serializes writers, an artifact is identified by
- *   `(run_id, path)`, an existing row with the same hash is reused, and a row
- *   whose hash or byte count disagrees is refused rather than overwritten.
- *   Rows that are not in the new input are left alone; this module never
- *   deletes evidence.
+ * - **Stable and non-destructive.** This writer re-reads a run's existing
+ *   rows and reuses one with the same hash, refusing a hash or byte-count
+ *   disagreement rather than overwriting it. Concurrent writers are serialized
+ *   by the terminal run-row lock. `run_artifacts` has no unique constraint on
+ *   `(run_id, path)`, so the guarantee is that lock plus this check, not a
+ *   database invariant; `saveNotebookArtifact` in `../notebook.ts` inserts
+ *   directly and relies on a single post-terminal call. Rows that are not in
+ *   the new input are left alone; this module never deletes evidence.
  *
  * `metrics.json` is deliberately not an artifact: the sandbox contract makes it
  * the run's metrics, and `runs.metrics` is its durable record.

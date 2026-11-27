@@ -45,7 +45,7 @@ Measured in seconds on one CPU core. The last verified run produced `rank_impuri
 
 The demo's climax is the comparison view of A and B, not the graph.
 
-The comparison view ships in the UI. The what-if branch that creates Run B (`BRANCH_WHAT_IF`, one changed parameter, `parentRunId` lineage) is built in `src/server/branch.ts`; EXECUTE adoption of the queued run is tracked in #62, so the current comparison is still rendered from the recorded fixture.
+The comparison view ships in the UI. The what-if branch that creates Run B (`BRANCH_WHAT_IF`, one changed parameter, `parentRunId` lineage) is built in `src/server/branch.ts`, and EXECUTE adopts the queued run (#62); the comparison is still rendered from the recorded fixture until the browser→pipeline bridge lands.
 
 ## The six beats and what we actually show
 
@@ -69,7 +69,7 @@ The comparison view ships in the UI. The what-if branch that creates Run B (`BRA
 | Learn | No branch execution and no strategy selection yet | Comparison and dashboard render recorded values |
 | Share | No server-side notebook or workspace export | Both exports are built client-side from the fixture |
 
-The gap that matters for the recording is the bridge: the browser does not yet call the pipeline endpoint or read the database. Graph write-back (#7), the seed script (#8) and the deploy (#9) are the remaining spine work.
+The gap that matters for the recording is the bridge: the browser does not yet call the pipeline endpoint or read the database. Graph write-back (#7) and the deploy (#9) are the remaining spine work; the seed script (#8) is built.
 
 ## Not building
 
@@ -90,4 +90,4 @@ In priority order. Stop at the first one that fails.
 4. Every run in the demo declares its mode and its verdict, and no number shown as measured was typed by hand.
 5. The strategy table shows real task counts.
 
-On 25 November, criterion 4 is satisfiable today at the runner and evaluator level (the hero run is `adapted`, the verdict is arithmetic), but criteria 2 and 3 are not: the loop has not been wired to the browser, and there is no deploy. The strategy table still renders fixture rows because strategy selection and the seed are not implemented.
+On 27 November, criterion 4 is satisfiable today at the runner and evaluator level (the hero run is `adapted`, the verdict is arithmetic), but criteria 2 and 3 are not: the loop has not been wired to the browser, and there is no deploy. The strategy table still renders fixture rows because strategy selection is not implemented; the seed is built (#8).

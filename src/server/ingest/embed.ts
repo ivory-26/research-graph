@@ -6,6 +6,7 @@ import {
   enqueueProcessTask,
   isRetryableProviderError,
 } from '../model'
+import { abortableSleep } from '../pipeline-transport'
 
 /** The pinned embedding model (CLAUDE.md & Issue #11). */
 export const DEFAULT_EMBEDDING_MODEL_ID = 'gemini-embedding-2'
@@ -27,10 +28,6 @@ export const DEFAULT_EMBEDDING_PRICE_PER_MILLION = 0.15
 export const DEFAULT_MAX_EMBED_ATTEMPTS = 3
 export const DEFAULT_BASE_DELAY_MS = 1_000
 export const DEFAULT_MAX_DELAY_MS = 30_000
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
 
 function backoffDelayMs(retryIndex: number): number {
   const ceiling = Math.min(DEFAULT_MAX_DELAY_MS, DEFAULT_BASE_DELAY_MS * 2 ** (retryIndex - 1))
@@ -66,6 +63,18 @@ function providerRetryDelayMs(error: unknown): number | undefined {
     }
   }
   return undefined
+}
+
+/**
+ * Honour the provider's window, but never beyond the existing max-delay bound:
+ * a quota message asking for minutes must not outlast the caller's stream
+ * budget. The sleep itself is abortable, so a cancelled pipeline stops here.
+ */
+function retryDelayMs(retryIndex: number, error: unknown): number {
+  return Math.min(
+    DEFAULT_MAX_DELAY_MS,
+    Math.max(backoffDelayMs(retryIndex), providerRetryDelayMs(error) ?? 0),
+  )
 }
 
 /**
@@ -158,7 +167,9 @@ export async function embedChunks(
   const embedManyCall = deps.embedManyFn ?? embedMany
   const taskStore = options.taskStore ?? agentTaskStore
   const taskKind = options.taskKind ?? 'ingest'
-  const sleepCall = deps.sleepFn ?? sleep
+  const sleepCall =
+    deps.sleepFn ??
+    ((ms: number) => abortableSleep(ms, options.abortSignal))
 
   const texts: string[] = items.map((item) => (typeof item === 'string' ? item : item.text))
   const allEmbeddings: number[][] = []
@@ -213,10 +224,7 @@ export async function embedChunks(
               latencyMs,
             })
           }
-          const delay = Math.max(
-            backoffDelayMs(attempt),
-            providerRetryDelayMs(err) ?? 0,
-          )
+          const delay = retryDelayMs(attempt, err)
           await sleepCall(delay)
           continue
         }
@@ -337,7 +345,9 @@ export async function embedQuery(
   const embedCall = deps.embedFn ?? embed
   const taskStore = options.taskStore ?? agentTaskStore
   const taskKind = options.taskKind ?? 'ingest'
-  const sleepCall = deps.sleepFn ?? sleep
+  const sleepCall =
+    deps.sleepFn ??
+    ((ms: number) => abortableSleep(ms, options.abortSignal))
 
   let attempt = 0
   let result: any = null
@@ -386,10 +396,7 @@ export async function embedQuery(
             latencyMs,
           })
         }
-        const delay = Math.max(
-          backoffDelayMs(attempt),
-          providerRetryDelayMs(err) ?? 0,
-        )
+        const delay = retryDelayMs(attempt, err)
         await sleepCall(delay)
         continue
       }

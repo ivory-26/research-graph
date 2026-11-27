@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
@@ -11,6 +12,18 @@ import {
   saveNotebookArtifact,
 } from './notebook'
 import { ALLOWED_DATASET_DOMAINS, MAX_DATASET_BYTES } from './runner'
+
+/** The notebook's script cells are Python; execute them when an interpreter exists. */
+function findPython(): string | null {
+  for (const candidate of ['python3', 'python']) {
+    if (spawnSync(candidate, ['--version'], { encoding: 'utf8' }).status === 0) {
+      return candidate
+    }
+  }
+  return null
+}
+
+const PYTHON = findPython()
 
 const HERO_CLAIM = {
   text: 'Gini importance favours high-cardinality features; permutation does not',
@@ -57,7 +70,7 @@ const NbformatV45Schema = z.object({
 })
 
 describe('buildNotebookDocument (Issue #28)', () => {
-  it('produces a valid nbformat v4.5 document with all 6 required cells for the hero spec', () => {
+  it('produces a valid nbformat v4.5 document with all 7 required cells for the hero spec', () => {
     const nb = buildNotebookDocument({
       spec: HERO_EXPERIMENT_SPEC_RUN_A,
       environment: HERO_RECORDED_RUN_RESULT.environment,
@@ -72,7 +85,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(nb.nbformat_minor).toBe(5)
     expect(nb.metadata.kernelspec.name).toBe('python3')
     expect(nb.metadata.language_info.version).toBe('3.12.16')
-    expect(nb.cells).toHaveLength(6)
+    expect(nb.cells).toHaveLength(7)
     const cellIds = nb.cells.map((c) => c.id)
     expect(new Set(cellIds).size).toBe(cellIds.length)
     for (const cell of nb.cells) {
@@ -113,25 +126,35 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(dsSrc).toContain('hashlib.sha256')
     expect(dsSrc).toContain('SHA-256 mismatch')
 
-    // Cell 4: Code - verbatim script
+    // Cell 4: Code - frozen parameters for the verbatim script
     const cell4 = nb.cells[3]!
-    expect(cell4.id).toBe('cell-4-script')
+    expect(cell4.id).toBe('cell-4-parameters')
     expect(cell4.cell_type).toBe('code')
-    expect(cell4.source.join('')).toBe(HERO_EXPERIMENT_SPEC_RUN_A.files['main.py'])
+    const paramsSrc = cell4.source.join('')
+    expect(paramsSrc).toContain('RESEARCHGRAPH_PARAMETERS')
+    expect(paramsSrc).toContain(
+      JSON.stringify(JSON.stringify(HERO_EXPERIMENT_SPEC_RUN_A.parameters)),
+    )
 
-    // Cell 5: Code - metrics display
+    // Cell 5: Code - verbatim script
     const cell5 = nb.cells[4]!
-    expect(cell5.id).toBe('cell-5-metrics')
+    expect(cell5.id).toBe('cell-5-script')
     expect(cell5.cell_type).toBe('code')
-    const metricsSrc = cell5.source.join('')
+    expect(cell5.source.join('')).toBe(HERO_EXPERIMENT_SPEC_RUN_A.files['main.py'])
+
+    // Cell 6: Code - metrics display
+    const cell6 = nb.cells[5]!
+    expect(cell6.id).toBe('cell-6-metrics')
+    expect(cell6.cell_type).toBe('code')
+    const metricsSrc = cell6.source.join('')
     expect(metricsSrc).toContain('/output/metrics.json')
     expect(metricsSrc).toContain('json.load')
 
-    // Cell 6: Markdown - criteria and pass/fail semantics
-    const cell6 = nb.cells[5]!
-    expect(cell6.id).toBe('cell-6-criteria')
-    expect(cell6.cell_type).toBe('markdown')
-    const md6 = cell6.source.join('')
+    // Cell 7: Markdown - criteria and pass/fail semantics
+    const cell7 = nb.cells[6]!
+    expect(cell7.id).toBe('cell-7-criteria')
+    expect(cell7.cell_type).toBe('markdown')
+    const md6 = cell7.source.join('')
     expect(md6).toContain('rank_impurity_noise_20')
     expect(md6).toContain('rank_permutation_noise_20')
     expect(md6).toContain('match')
@@ -150,7 +173,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
       verdict: 'match',
     })
 
-    const scriptCell = nb.cells[3]!
+    const scriptCell = nb.cells[4]!
     expect(scriptCell.source.join('')).toBe('import os\r\nprint("hello")\r\n')
     expect(scriptCell.source).toEqual(['import os\r\n', 'print("hello")\r\n'])
   })
@@ -166,7 +189,7 @@ describe('buildNotebookDocument (Issue #28)', () => {
       verdict: 'match',
     })
 
-    const scriptCell = nb.cells[3]!
+    const scriptCell = nb.cells[4]!
     expect(scriptCell.source.join('')).toBe('line1\rline2\r')
     expect(scriptCell.source).toEqual(['line1\r', 'line2\r'])
   })
@@ -225,8 +248,8 @@ describe('buildNotebookDocument (Issue #28)', () => {
       verdict: 'match',
     })
 
-    // 6 default cells + 2 auxiliary files = 8 cells
-    expect(nb.cells).toHaveLength(8)
+    // 7 default cells + 2 auxiliary files = 9 cells
+    expect(nb.cells).toHaveLength(9)
 
     const auxCell1 = nb.cells.find((c) => c.id.startsWith('cell-aux-utils_helpers'))
     expect(auxCell1).toBeDefined()
@@ -287,21 +310,57 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(pipSrc).toContain('"numpy==2.5.5"')
   })
 
-  it('builds a specification-preview notebook with no environment (no install cell, 5 cells)', () => {
+  it.skipIf(PYTHON === null)(
+    'executes the generated parameter cell and verbatim script for both parameter values',
+    () => {
+      for (const method of ['impurity', 'permutation'] as const) {
+        const spec = structuredClone(HERO_EXPERIMENT_SPEC_RUN_A)
+        spec.parameters = { importance_method: method, seed: 42 }
+        spec.datasets = []
+        spec.files['main.py'] = [
+          'import json, os',
+          'parameters = json.loads(os.environ["RESEARCHGRAPH_PARAMETERS"])',
+          `assert parameters["importance_method"] == ${JSON.stringify(method)}`,
+          'assert parameters["seed"] == 42',
+          'print(parameters["importance_method"])',
+        ].join('\n')
+
+        const nb = buildNotebookDocument({ spec, claim: HERO_CLAIM })
+        const parameterCell = nb.cells.find(
+          (cell) => cell.id === 'cell-4-parameters',
+        )
+        const scriptCell = nb.cells.find((cell) => cell.id === 'cell-5-script')
+        expect(parameterCell?.cell_type).toBe('code')
+        expect(scriptCell?.cell_type).toBe('code')
+
+        const code =
+          parameterCell!.source.join('') + '\n' + scriptCell!.source.join('')
+        const result = spawnSync(PYTHON!, ['-I', '-c', code], {
+          encoding: 'utf8',
+        })
+
+        expect(result.status, result.stderr).toBe(0)
+        expect(result.stdout.trim()).toBe(method)
+      }
+    },
+  )
+
+  it('builds a specification-preview notebook with no environment (no install cell, 6 cells)', () => {
     const nb = buildNotebookDocument({
       spec: HERO_EXPERIMENT_SPEC_RUN_A,
       claim: HERO_CLAIM,
     })
 
     // No environment.packages means no install cell: metadata, dataset,
-    // script, metrics, criteria = 5 cells.
-    expect(nb.cells).toHaveLength(5)
+    // parameters, script, metrics, criteria = 6 cells.
+    expect(nb.cells).toHaveLength(6)
     expect(nb.cells.map((c) => c.id)).toEqual([
       'cell-1-metadata',
       'cell-3-dataset',
-      'cell-4-script',
-      'cell-5-metrics',
-      'cell-6-criteria',
+      'cell-4-parameters',
+      'cell-5-script',
+      'cell-6-metrics',
+      'cell-7-criteria',
     ])
     const cellIds = nb.cells.map((c) => c.id)
     expect(new Set(cellIds).size).toBe(cellIds.length)

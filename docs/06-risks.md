@@ -2,7 +2,7 @@
 
 Ordered by how likely they are to cost the submission, not by how interesting they are.
 
-Status as of 25 November. Rows marked **verified** have been exercised against the real service; they stay in the table because the recording depends on the service again.
+Status as of 27 November. Rows marked **verified** have been exercised against the real service; they stay in the table because the recording depends on the service again.
 
 | # | Risk | Likelihood | Impact | Mitigation | Fallback |
 |---|---|---|---|---|---|

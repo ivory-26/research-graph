@@ -73,7 +73,7 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 | Server-side notebook export | Built into production run evaluation | a notebook generated from a real run |
 | Browser→pipeline bridge | — | every live UI beat |
 
-`pnpm typecheck` and `pnpm db:check` pass. `pnpm test` runs 27 `node:test` transport checks plus the Vitest suites: without `TEST_DATABASE_URL`, 384 app tests and 90 seed tests pass and 62 app tests skip on 27 November. The skipped files are the opt-in Postgres, E2B and Gemini integration suites.
+`pnpm typecheck` and `pnpm db:check` pass. `pnpm test` runs 27 `node:test` transport checks plus the Vitest suites: without `TEST_DATABASE_URL`, 387 app tests and 90 seed tests pass and 62 app tests skip on 27 November. The skipped files are the opt-in Postgres, E2B and Gemini integration suites.
 
 ## Workstreams
 
@@ -90,7 +90,7 @@ The integration seam — the point where four streams collide — is the write p
 
 ## The seed script
 
-**Not on `main` yet (#8).** `pnpm seed` must rebuild the recorded workspace from an empty database in under a minute: three sources, their chunks, the claim and method nodes, the accepted edges, and both runs with their artifacts. Everything in the video is reproducible by running one command, which is also the honest answer to "is this real?".
+**Built (#8).** `pnpm seed` rebuilds the recorded workspace from an empty database: three sources, their chunks, the claim and method nodes, the accepted edges, and both runs with their artifacts. Everything in the video is reproducible by running one command, which is also the honest answer to "is this real?". The original "under a minute" target is deferred by the recorded amendment on #8: free-tier replay completes within five minutes (3m07s measured), and a billed Gemini embedding key or recorded embeddings is the one-minute follow-up.
 
 The seed is not a mock. It runs the real ingestion and the real pipeline; it just does it ahead of time so the recording does not depend on a live network.
 
