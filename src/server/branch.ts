@@ -1057,6 +1057,26 @@ function initialRepairEnvironment(
   }
 }
 
+function isPersistenceError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  if (err.constructor && /postgres|drizzle|neon/i.test(err.constructor.name)) return true
+  if (err instanceof Error) {
+    if (
+      /agent_tasks|runs|database|postgres|drizzle|neon|relation ".*"|syntax error at or near|violates.*constraint/i.test(
+        err.message,
+      )
+    ) {
+      return true
+    }
+  }
+  if ('code' in err && typeof (err as any).code === 'string') {
+    const code = (err as any).code
+    // 5-character Postgres SQLSTATE codes (e.g. '23505', '42P01')
+    if (/^[0-9A-Z]{5}$/.test(code)) return true
+  }
+  return false
+}
+
 export type RepairPipelineEvent =
   | Omit<RunStartedEvent, 'seq'>
   | Omit<RunStdoutEvent, 'seq'>
@@ -1087,6 +1107,7 @@ export type RepairRetryResult = {
     | 'exhausted'
     | 'awaiting_approval'
     | 'validation_failed'
+    | 'model_failed'
     | 'not_failed'
   /** Number of repair attempts spent (including model call failures that consumed an attempt before run creation). */
   attemptsUsed: number
@@ -1190,10 +1211,6 @@ export async function repairAndRetryRun(
   failedRun: RepairRunRecord,
   options: RepairRetryOptions,
 ): Promise<RepairRetryResult> {
-  if (options.openApprovalGate && !options.claimId) {
-    throw new Error('options.claimId is required when options.openApprovalGate is provided')
-  }
-
   if (failedRun.status !== 'failed') {
     return {
       repaired: false,
@@ -1201,6 +1218,23 @@ export async function repairAndRetryRun(
       attemptsUsed: 0,
       runs: [failedRun],
       finalRun: failedRun,
+    }
+  }
+
+  if (options.openApprovalGate && !options.claimId) {
+    throw new Error('options.claimId is required when options.openApprovalGate is provided')
+  }
+
+  if (options.runStore?.getChildRun) {
+    const existingChild = await options.runStore.getChildRun(failedRun.id)
+    if (existingChild) {
+      return {
+        repaired: false,
+        status: 'exhausted',
+        attemptsUsed: 0,
+        runs: [failedRun, existingChild],
+        finalRun: existingChild,
+      }
     }
   }
 
@@ -1279,10 +1313,7 @@ export async function repairAndRetryRun(
       console.error('[repairAndRetryRun] REPAIR_SCRIPT callModel failed', err)
       // Persistence failures (e.g. database errors recording agent_tasks) must surface immediately
       // rather than issuing repeated physical model calls without an audit trail (docs/03-agent-pipeline.md:154).
-      const isDbError =
-        (err && typeof err === 'object' && 'code' in err && typeof (err as any).code === 'string') ||
-        (err instanceof Error && /agent_tasks|database|postgres|drizzle/i.test(err.message))
-      if (isDbError) {
+      if (isPersistenceError(err)) {
         throw err
       }
 
@@ -1294,7 +1325,7 @@ export async function repairAndRetryRun(
       }
       return {
         repaired: false,
-        status: 'validation_failed',
+        status: 'model_failed',
         attemptsUsed,
         runs: chain,
         finalRun: currentRun,
@@ -1445,6 +1476,10 @@ export type ExecuteApprovedRepairCandidateOptions = {
   emitEvent?: (event: RepairPipelineEvent) => Promise<void> | void
   onStdout?: (chunk: string) => void
   now?: () => Date
+  gate?: {
+    status: string
+    offeredSpec?: ExperimentSpec
+  }
 }
 
 async function executeChainedRepairRun(
@@ -1592,6 +1627,35 @@ export async function executeApprovedRepairCandidate(
   approvedSpec: ExperimentSpec,
   options: ExecuteApprovedRepairCandidateOptions,
 ): Promise<RepairRunRecord> {
+  if (parentRun.status !== 'failed' && parentRun.status !== 'timeout') {
+    throw new Error(
+      `Cannot execute repair candidate for non-failed parent run "${parentRun.id}" (status: "${parentRun.status}")`,
+    )
+  }
+
+  if (options.gate) {
+    if (options.gate.status !== 'approved') {
+      throw new Error(
+        `Cannot execute repair candidate: gate status is "${options.gate.status}", expected "approved"`,
+      )
+    }
+    if (options.gate.offeredSpec) {
+      const offeredFile =
+        extractEntrypointFile(options.gate.offeredSpec.entrypoint) ??
+        options.gate.offeredSpec.entrypoint
+      const approvedFile =
+        extractEntrypointFile(approvedSpec.entrypoint) ??
+        approvedSpec.entrypoint
+      const offeredScript = options.gate.offeredSpec.files[offeredFile] ?? ''
+      const approvedScript = approvedSpec.files[approvedFile] ?? ''
+      if (offeredScript !== approvedScript) {
+        throw new Error(
+          'Approved repair spec script does not match the gate offeredSpec script',
+        )
+      }
+    }
+  }
+
   if (remainingRepairAttempts(parentRun.attempt) <= 0) {
     throw new Error(
       `Repair ceiling reached: cannot execute approved candidate beyond ${MAX_REPAIR_ATTEMPTS} repair attempts (current attempt ${parentRun.attempt})`,

@@ -18,6 +18,7 @@ import {
   createCallModel,
   type AgentTaskInsert,
   type AgentTaskStore,
+  type CallModel,
   type StructuredGenerator,
 } from './model'
 import {
@@ -687,13 +688,171 @@ describe('repairAndRetryRun (Issue #26)', () => {
     })
 
     expect(result.repaired).toBe(false)
-    expect(result.status).toBe('validation_failed')
+    expect(result.status).toBe('model_failed')
     expect(result.attemptsUsed).toBe(2)
     expect(result.validationErrors?.[0]).toBe('REPAIR_SCRIPT model call failed')
     expect(result.validationErrors?.[0]).not.toContain('internal-key-leak')
     expect(seenPrompts[1]).toContain('REPAIR_SCRIPT model call failed')
     expect(result.finalRun).toEqual(failedRun)
     expect(result.finalRun.stderr).toBe('SyntaxError: invalid syntax')
+  })
+
+  it('retries recoverable network errors with code ECONNRESET but rethrows Postgres 5-char SQLSTATE errors', async () => {
+    const brokenSpec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(brokenSpec, 'SyntaxError: invalid syntax')
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+    const taskStore = new MemoryTaskStore()
+
+    let networkAttempts = 0
+    const networkFailCallModel: CallModel = async () => {
+      networkAttempts++
+      const netErr = new Error('read ECONNRESET')
+      ;(netErr as any).code = 'ECONNRESET'
+      throw netErr
+    }
+
+    const runner: ExperimentRunner = {
+      async run() {
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+
+    // Recoverable network error should be retried (attemptsUsed: 2), not immediately rethrown
+    const netResult = await repairAndRetryRun(failedRun, {
+      runStore,
+      runner,
+      modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+      callModelFn: networkFailCallModel,
+      maxAttempts: 2,
+    })
+    expect(networkAttempts).toBe(2)
+    expect(netResult.repaired).toBe(false)
+    expect(netResult.status).toBe('model_failed')
+
+    // Postgres SQLSTATE error (5 chars) must be rethrown immediately without consuming subsequent attempts
+    let dbAttempts = 0
+    const dbFailCallModel: CallModel = async () => {
+      dbAttempts++
+      const dbErr = new Error('duplicate key value violates unique constraint')
+      ;(dbErr as any).code = '23505'
+      throw dbErr
+    }
+
+    await expect(
+      repairAndRetryRun(failedRun, {
+        runStore,
+        runner,
+        modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+        callModelFn: dbFailCallModel,
+        maxAttempts: 2,
+      }),
+    ).rejects.toThrow(/duplicate key/)
+    expect(dbAttempts).toBe(1)
+  })
+
+  it('rejects executeApprovedRepairCandidate on non-failed parent run and validates gate decision', async () => {
+    const spec = makeBrokenImportSpec()
+    const succeededRun: RepairRunRecord = {
+      ...makeFailedRun(spec, ''),
+      status: 'succeeded',
+    }
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(succeededRun)
+    const runner: ExperimentRunner = {
+      async run() {
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+
+    // Fails on non-failed parent run
+    await expect(
+      executeApprovedRepairCandidate(succeededRun, spec, {
+        runStore,
+        runner,
+      }),
+    ).rejects.toThrow(/Cannot execute repair candidate for non-failed parent run/)
+
+    const failedRun = makeFailedRun(spec, 'error')
+    runStore.seed(failedRun)
+
+    // Fails when gate is rejected
+    await expect(
+      executeApprovedRepairCandidate(failedRun, spec, {
+        runStore,
+        runner,
+        gate: { status: 'rejected' },
+      }),
+    ).rejects.toThrow(/gate status is "rejected"/)
+
+    // Fails when gate offeredSpec does not match approvedSpec
+    await expect(
+      executeApprovedRepairCandidate(failedRun, spec, {
+        runStore,
+        runner,
+        gate: {
+          status: 'approved',
+          offeredSpec: HERO_EXPERIMENT_SPEC_RUN_A,
+        },
+      }),
+    ).rejects.toThrow(/does not match the gate offeredSpec script/)
+  })
+
+  it('returns not_failed when parent is not failed even if claimId is omitted with openApprovalGate', async () => {
+    const spec = makeBrokenImportSpec()
+    const succeededRun: RepairRunRecord = {
+      ...makeFailedRun(spec, ''),
+      status: 'succeeded',
+    }
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(succeededRun)
+    const runner: ExperimentRunner = {
+      async run() {
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+    const taskStore = new MemoryTaskStore()
+
+    const result = await repairAndRetryRun(succeededRun, {
+      runStore,
+      runner,
+      modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+      openApprovalGate: async () => ({} as any),
+      // claimId deliberately omitted
+    })
+    expect(result.status).toBe('not_failed')
+  })
+
+  it('returns exhausted from repairAndRetryRun when a child repair run already exists', async () => {
+    const spec = makeBrokenImportSpec()
+    const failedRun = makeFailedRun(spec, 'error')
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(failedRun)
+    const runner: ExperimentRunner = {
+      async run() {
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+    const taskStore = new MemoryTaskStore()
+
+    // Create a child
+    await executeApprovedRepairCandidate(failedRun, spec, {
+      runStore,
+      runner,
+    })
+
+    // Calling repairAndRetryRun on the parent now should return exhausted rather than throw
+    const result = await repairAndRetryRun(failedRun, {
+      runStore,
+      runner,
+      modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+    })
+    expect(result.status).toBe('exhausted')
+    expect(result.runs).toHaveLength(2)
   })
 
   it('rejects auto-approval when a protected metric key is renamed in a dict literal alongside an unrelated bracket access', () => {
