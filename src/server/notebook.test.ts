@@ -73,6 +73,8 @@ describe('buildNotebookDocument (Issue #28)', () => {
     expect(nb.metadata.kernelspec.name).toBe('python3')
     expect(nb.metadata.language_info.version).toBe('3.12.16')
     expect(nb.cells).toHaveLength(6)
+    const cellIds = nb.cells.map((c) => c.id)
+    expect(new Set(cellIds).size).toBe(cellIds.length)
     for (const cell of nb.cells) {
       expect(cell.id).toBeDefined()
       expect(typeof cell.id).toBe('string')
@@ -151,6 +153,22 @@ describe('buildNotebookDocument (Issue #28)', () => {
     const scriptCell = nb.cells[3]!
     expect(scriptCell.source.join('')).toBe('import os\r\nprint("hello")\r\n')
     expect(scriptCell.source).toEqual(['import os\r\n', 'print("hello")\r\n'])
+  })
+
+  it('preserves lone CR line endings without dropping lines or text', () => {
+    const crSpec = structuredClone(HERO_EXPERIMENT_SPEC_RUN_A)
+    crSpec.files['main.py'] = 'line1\rline2\r'
+
+    const nb = buildNotebookDocument({
+      spec: crSpec,
+      environment: HERO_RECORDED_RUN_RESULT.environment,
+      claim: HERO_CLAIM,
+      verdict: 'match',
+    })
+
+    const scriptCell = nb.cells[3]!
+    expect(scriptCell.source.join('')).toBe('line1\rline2\r')
+    expect(scriptCell.source).toEqual(['line1\r', 'line2\r'])
   })
 
   it('builds a run_artifacts notebook payload with accurate sha256 and byte length', () => {

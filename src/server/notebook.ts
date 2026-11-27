@@ -95,7 +95,7 @@ const TOOLING_PACKAGES = new Set([
  */
 function toNbformatLines(text: string): string[] {
   if (text.length === 0) return []
-  const matched = text.match(/[^\r\n]*(?:\r?\n|$)/g)
+  const matched = text.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g)
   if (!matched) return [text]
   if (matched.length > 0 && matched[matched.length - 1] === '') {
     matched.pop()
@@ -320,7 +320,7 @@ function buildDatasetDownloadCell(
     )
     lines.push('    else:')
     lines.push(
-      '        print(f"Downloaded {ds[\'name\']} at {dest} ({dest.stat().st_size} bytes, unpinned sha256={actual_sha256})")',
+      '        print(f"WARNING: unpinned dataset {ds[\'name\']} downloaded at {dest} ({dest.stat().st_size} bytes, sha256={actual_sha256})")',
     )
   }
 
