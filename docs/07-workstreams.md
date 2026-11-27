@@ -47,9 +47,7 @@ Planned files with an owner but no file yet:
 
 | File | Owner | Issue |
 |---|---|---|
-| `src/server/pipeline.ts` — the run→node write-back | ivory-26 | #7 |
-| `src/server/branch.ts` — what-if branch | yashhh-23 | — |
-| `src/server/notebook.ts` — server-side notebook | yashhh-23 | — |
+| `src/server/notebook.ts` — server-side notebook | yashhh-23 | #28 |
 | `scripts/seed*` — workspace rebuild | ivory-26 | #8 |
 
 Enforced in `.github/CODEOWNERS`. If you need a change in someone else's file, ask them; do not open a parallel edit.
@@ -82,7 +80,7 @@ The UI still renders `fixtures/workspace.json`; the runtime is exercised with `H
 | Foundation & Integration (ivory-26) | scaffold, schema, auth server, transport, pipeline persistence, SSE delivery, CI reviewer | #7 graph write-back, #8 seed, #9 deploy, #16 sign-in screens, browser→pipeline bridge |
 | Ingestion & Extraction (CyberCodezilla) | PDF reading order, chunking, embeddings, claim extraction, edge proposal, retrieval, Firecrawl | `sectioned` and `table_first` strategies; live end-to-end ingestion from the UI |
 | Canvas & UI (frag2win) | canvas, evidence, approval, comparison, dashboard, exports — all fixture-driven | reading live data, starting a real run, showing a real gate |
-| Runtime & Evaluation (yashhh-23) | planner validation, E2B runner, pinned-environment verification, hero run, deterministic verdict | what-if branch, repair loop, server-side notebook, plan generation |
+| Runtime & Evaluation (yashhh-23) | planner validation, E2B runner, pinned-environment verification, hero run, deterministic verdict, what-if branch module, repair loop | what-if execution (#62), server-side notebook, strategy selection, plan generation |
 
 ## The original day-by-day
 

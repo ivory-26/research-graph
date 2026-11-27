@@ -849,10 +849,12 @@ function isAllowedColumnOrPathChange(
   const origTrimmed = origLine.trim()
   const nextTrimmed = nextLine.trim()
 
-  // Disallow any changes on lines containing metrics.json, metric keys, or criteria
+  // Disallow any changes on lines containing the metrics artifact, criteria or
+  // verdict. Claim-specific metric names are supplied by the caller from the
+  // frozen spec; production code must not know a particular paper's metrics.
   if (
-    /metrics\.json|rank_|impurity|permutation|criteria|verdict/i.test(origTrimmed) ||
-    /metrics\.json|rank_|impurity|permutation|criteria|verdict/i.test(nextTrimmed)
+    /metrics\.json|criteria|verdict/i.test(origTrimmed) ||
+    /metrics\.json|criteria|verdict/i.test(nextTrimmed)
   ) {
     return false
   }
