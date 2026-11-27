@@ -35,6 +35,7 @@ These are not style preferences. Breaking one of them breaks the product's only 
 | `ai` | 7.x — `ToolLoopAgent`, `tool({ inputSchema })`, `generateText({ output: Output.object() })`. `generateObject` is deprecated |
 | `@ai-sdk/react` | 4.x — `useChat({ transport })`, `message.parts`. `handleSubmit` and `api` props no longer exist |
 | `@ai-sdk/google` | 4.x — models `gemini-3.8-flash` (default), `gemini-4-hydrogen` (evaluator `explain_gap` only), embeddings `gemini-embedding-2` at 768 dims |
+| `@ai-sdk/openai-compatible` | 3.x — seed-only Meta text provider at `https://api.meta.ai/v1`; the application runtime never selects it |
 | Drizzle + Neon | pgvector on, HNSW optional at this scale |
 | `@xyflow/react` | canvas |
 | `unpdf` | PDF text extraction |
@@ -44,11 +45,13 @@ Much of the AI SDK material online describes v5 or v6 and will not compile. When
 
 `gemini-4-hydrogen` is a deliberate, evaluator-only exception: the Stage 7 `explain_gap` call uses it for the two-sentence explanation, while `evaluateExperiment` computes the verdict before that call and the model cannot change it. Every other text call site uses `gemini-3.8-flash`, and embeddings stay on `gemini-embedding-2`. `DEFAULT_PRICING` costs the evaluator call at the published Standard paid rate ($1.50 input / $7.50 output per million tokens, thinking included at the output rate); that is an accounting estimate, not billing telemetry.
 
-Gemini constrains our schemas: flat or one level of nesting, no recursive `$ref`, and never rely on `minLength` / `maxLength` / `uniqueItems` — they are silently ignored, so validate in Zod after the call.
+`pnpm seed` is the only place that injects a different text provider: Meta Model API's `muse-spark-1.3-contributor` (Contributor mode) through `@ai-sdk/openai-compatible`, selected in `scripts/seed/model.ts` (see [ADR 0013](./docs/adr/0013-seed-only-text-provider.md)). Contributor mode permits Meta to train on prompts and responses; the seed sends only public paper text and generated specs, never a secret or personal data. The seed's `agent_tasks` rows record that model. Deployed application code never reads the seed's record/replay variables and never selects Meta.
+
+Gemini constrains our schemas: flat or one level of nesting, no recursive `$ref`, and never rely on `minLength` / `maxLength` / `uniqueItems` — they are silently ignored, so validate in Zod after the call. The seed's Meta generator runs schemas non-strictly (Meta rejects optional object properties) and revalidates in Zod; that does not relax the application's Gemini constraint.
 
 ## Commands
 
-Ingestion, extraction, retrieval, the E2B runner, the deterministic evaluator and the SSE pipeline routes are merged. The graph write-back (#7), seed (#8), deploy (#9), sign-in screens (#16) and the browser→pipeline bridge are not. Database commands read `DATABASE_URL` from `.env`; see [src/db/README.md](./src/db/README.md).
+Ingestion, extraction, retrieval, the E2B runner, the deterministic evaluator, the SSE pipeline routes and the seed script (#8) are merged. The graph write-back (#7), deploy (#9), sign-in screens (#16) and the browser→pipeline bridge are not. Database commands read `DATABASE_URL` from `.env`; see [src/db/README.md](./src/db/README.md).
 
 ```bash
 pnpm dev             # TanStack Start dev server
@@ -60,7 +63,7 @@ pnpm db:migrate      # apply committed migrations (empty database included)
 pnpm db:push         # disposable branch only: pgvector bootstrap, then push
 pnpm db:check        # validate the migration journal and snapshots
 pnpm db:studio       # inspect the public schema
-pnpm seed            # rebuild the recorded workspace — lands with #8, not on main yet
+pnpm seed            # rebuild the recorded workspace from an empty database (#8)
 ```
 
 ## Layout

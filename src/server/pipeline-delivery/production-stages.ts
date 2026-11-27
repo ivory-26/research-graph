@@ -11,7 +11,10 @@
  * - EXECUTE is the real `E2BRunner` from `src/server/runner.ts`. The run row is
  *   written before the sandbox starts and updated with the measured result, so
  *   a failed or aborted run is still auditable. `runs.spec` is a frozen copy of
- *   the plan the human approved.
+ *   the plan the human approved. A what-if branch (#27) creates its child
+ *   experiment and a `queued` attempt-1 run with `parentRunId` before execution;
+ *   EXECUTE adopts that row instead of inserting a second, unlinked one, so the
+ *   branch keeps its run id and lineage (#62).
  * - EVALUATE is `evaluateAndExplainExperiment` from `src/server/evaluate.ts`.
  *   The verdict is computed by `evaluateExperiment` before any model call; the
  *   model can only write the explanation. Every explain call goes through
@@ -69,6 +72,7 @@ import {
   runnerErrorToFailedResult,
   type ExperimentRunner,
 } from '../runner'
+import { saveRunArtifacts } from './artifacts'
 import {
   PipelineStageError,
   type PipelineStageContext,
@@ -185,6 +189,123 @@ async function projectRunToGraphSafely(
       error,
     )
   }
+}
+
+type StartedExecutionRun = {
+  runId: string
+  attempt: number
+}
+
+/**
+ * Starts the durable run row for EXECUTE and returns its identity.
+ *
+ * A what-if branch (#27) creates its child experiment and a `queued` attempt-1
+ * run with `parentRunId` in one transaction, before the child is ever executed.
+ * EXECUTE adopts that row instead of inserting a second, unlinked one: the
+ * branch keeps the run id and lineage it was created with. Adoption is a
+ * conditional `queued -> running` update, so a row can be adopted once, and
+ * the approved plan is written into it before the sandbox starts.
+ *
+ * The experiment row lock is the same serialization point the execution claim,
+ * gate and event writers use. Two start attempts for one experiment therefore
+ * cannot both adopt or both insert, and an experiment that already has a run
+ * is refused instead of being given a duplicate.
+ *
+ * A non-branched experiment has no queued child and keeps Run A's behaviour: a
+ * fresh attempt-1 row with no parent.
+ */
+async function startExecutionRun(
+  db: Database,
+  input: {
+    experimentId: string
+    workspaceId: string
+    spec: ExperimentSpec
+    startedAt: string
+    newRunId: () => string
+  },
+): Promise<StartedExecutionRun> {
+  return db.transaction(async (tx) => {
+    const [experiment] = await tx
+      .select({ id: experiments.id })
+      .from(experiments)
+      .where(
+        and(
+          eq(experiments.id, input.experimentId),
+          eq(experiments.workspaceId, input.workspaceId),
+        ),
+      )
+      .for('update')
+
+    if (!experiment) {
+      throw new PipelineStageError(
+        `experiment ${input.experimentId} not found in workspace ${input.workspaceId}`,
+        'The experiment could not be found',
+      )
+    }
+
+    const existingRuns = await tx
+      .select({
+        id: runs.id,
+        attempt: runs.attempt,
+        status: runs.status,
+        parentRunId: runs.parentRunId,
+      })
+      .from(runs)
+      .where(eq(runs.experimentId, input.experimentId))
+      .limit(2)
+      .for('update')
+
+    const [existing] = existingRuns
+    if (
+      existingRuns.length === 1 &&
+      existing?.status === 'queued' &&
+      existing.attempt === 1 &&
+      existing.parentRunId !== null
+    ) {
+      const [adopted] = await tx
+        .update(runs)
+        .set({
+          status: 'running',
+          // Freeze what the human approved, not the branch's earlier copy.
+          spec: input.spec,
+          parameters: input.spec.parameters,
+          environment: initialEnvironment(input.spec, input.startedAt),
+          startedAt: new Date(input.startedAt),
+        })
+        .where(and(eq(runs.id, existing.id), eq(runs.status, 'queued')))
+        .returning({ id: runs.id, attempt: runs.attempt })
+
+      if (!adopted) {
+        throw new PipelineStageError(
+          `queued branch run ${existing.id} could not be adopted`,
+          'The queued branch run could not be started',
+        )
+      }
+
+      return { runId: adopted.id, attempt: adopted.attempt }
+    }
+
+    if (existing) {
+      throw new PipelineStageError(
+        `experiment ${input.experimentId} already has run ${existing.id}; refusing a duplicate`,
+        'The experiment already has a run',
+      )
+    }
+
+    const runId = input.newRunId()
+    await tx.insert(runs).values({
+      id: runId,
+      experimentId: input.experimentId,
+      attempt: 1,
+      status: 'running',
+      spec: input.spec,
+      parameters: input.spec.parameters,
+      environment: initialEnvironment(input.spec, input.startedAt),
+      startedAt: new Date(input.startedAt),
+    })
+
+    return { runId, attempt: 1 }
+  })
 }
 
 export function createProductionPipelineStages(
@@ -327,7 +448,6 @@ export function createProductionPipelineStages(
     },
 
     async execute(context, spec) {
-      const runId = randomUUID()
       const startedAt = now().toISOString()
       const cancellable = runner as CancellableRunner
 
@@ -335,22 +455,20 @@ export function createProductionPipelineStages(
 
       // The run exists before the sandbox does: if the provider dies, the row
       // still says a run was started, with the exact approved plan frozen in
-      // `runs.spec`.
-      await db.insert(runs).values({
-        id: runId,
+      // `runs.spec`. For a what-if child this is the row the branch created;
+      // for Run A it is a new unlinked attempt-1 row.
+      const { runId, attempt } = await startExecutionRun(db, {
         experimentId: context.experimentId,
-        attempt: 1,
-        status: 'running',
+        workspaceId: context.workspaceId,
         spec,
-        parameters: spec.parameters,
-        environment: initialEnvironment(spec, startedAt),
-        startedAt: new Date(startedAt),
+        startedAt,
+        newRunId: randomUUID,
       })
 
       await context.emit({
         type: 'run.started',
         runId,
-        attempt: 1,
+        attempt,
         // E2BRunner does not expose the sandbox id to this layer; the run row
         // is the durable place for it once the runtime workstream provides it.
         sandboxId: null,
@@ -458,6 +576,19 @@ export function createProductionPipelineStages(
       // other exit and never masks the original error.
       let graphProjected = false
       try {
+        if (result.artifacts.length > 0) {
+          try {
+            await saveRunArtifacts(db, runId, result.artifacts)
+          } catch (error) {
+            // Keep the measured run and project its verdict even if saving an
+            // artifact fails. The seed separately verifies its required files.
+            console.error('[pipeline-delivery] could not persist run artifacts', {
+              runId,
+              name: error instanceof Error ? error.name : 'UnknownError',
+            })
+          }
+        }
+
         if (runnerThrew) {
           await context.emit({
             type: 'run.failed',

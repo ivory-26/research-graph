@@ -3,6 +3,7 @@ import { X, Download } from 'lucide-react';
 import rawWorkspace from '../../../fixtures/workspace.json';
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../../fixtures/hero-spec';
 import { PINNED_IMAGE_PACKAGES } from '../../data/demoWorkspace';
+import { buildParameterEnvironmentSource } from '../../shared/notebook-parameters';
 
 function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
   const scriptCode = spec.files['main.py'] || '';
@@ -60,6 +61,15 @@ function buildReproducibleNotebook(spec = HERO_EXPERIMENT_SPEC_RUN_A) {
             'data_bytes = dest_path.read_bytes()\n',
             'print(f"Cached {dest_path}: {len(data_bytes)} bytes, sha256={hashlib.sha256(data_bytes).hexdigest()[:16]}...")\n',
           ],
+        },
+        {
+          cell_type: 'code',
+          execution_count: null,
+          metadata: {},
+          outputs: [],
+          source: buildParameterEnvironmentSource(spec.parameters)
+            .split('\n')
+            .map((line) => line + '\n'),
         },
         {
           cell_type: 'code',

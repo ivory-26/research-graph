@@ -55,7 +55,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
           <div className="l">Total Cost</div>
           <div className="text-[32px] font-bold mt-2 text-[#f97316] font-mono">${totalCost.toFixed(3)}</div>
-          <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">gemini-3.8-flash + Embeddings</div>
+          <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">muse-spark-1.3-contributor + Embeddings · seeded recording</div>
         </div>
 
         <div className="c flex-1 min-w-[200px] p-5 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">

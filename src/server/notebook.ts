@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Database } from '../db/client'
 import { runArtifacts } from '../db/schema'
+import { buildParameterEnvironmentSource } from '../shared/notebook-parameters'
 import type {
   CriteriaOp,
   ExperimentSpec,
@@ -376,6 +377,19 @@ function buildVerbatimScriptCell(spec: ExperimentSpec): NbformatCodeCell[] {
     })
   }
 
+  // The script is verbatim, and the hero script reads this variable on one of
+  // its first lines. The production runner supplies it; a notebook must too.
+  cells.push({
+    cell_type: 'code',
+    id: 'cell-4-parameters',
+    execution_count: null,
+    metadata: {},
+    outputs: [],
+    source: toNbformatLines(
+      buildParameterEnvironmentSource(spec.parameters),
+    ),
+  })
+
   const mainScript = spec.files[entrypointFile]
   if (typeof mainScript !== 'string') {
     throw new Error(
@@ -385,7 +399,7 @@ function buildVerbatimScriptCell(spec: ExperimentSpec): NbformatCodeCell[] {
 
   cells.push({
     cell_type: 'code',
-    id: 'cell-4-script',
+    id: 'cell-5-script',
     execution_count: null,
     metadata: {},
     outputs: [],
@@ -413,7 +427,7 @@ function buildMetricsDisplayCell(): NbformatCodeCell {
 
   return {
     cell_type: 'code',
-    id: 'cell-5-metrics',
+    id: 'cell-6-metrics',
     execution_count: null,
     metadata: {},
     outputs: [],
@@ -446,7 +460,7 @@ function buildCriteriaMarkdownCell(spec: ExperimentSpec): NbformatMarkdownCell {
 
   return {
     cell_type: 'markdown',
-    id: 'cell-6-criteria',
+    id: 'cell-7-criteria',
     metadata: {},
     source: toNbformatLines(lines.join('\n')),
   }

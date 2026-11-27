@@ -32,6 +32,26 @@ import { SandboxTimeoutError, type ExperimentRunner } from './runner'
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 const describeIntegration = TEST_DATABASE_URL ? describe : describe.skip
 
+// The hero script reads its hyperparameters from `RESEARCHGRAPH_PARAMETERS`
+// (issue #8), so repair fixtures must mutate the parameterised expression, not
+// a literal value that no longer exists. This helper fails loudly if the
+// pinned script stops exposing the expression, so the tests cannot silently
+// stop exercising a real repair.
+const HERO_N_ESTIMATORS_EXPRESSION = 'int(parameters["n_estimators"])'
+const MUTATED_HERO_N_ESTIMATORS_EXPRESSION = `${HERO_N_ESTIMATORS_EXPRESSION} + 150`
+
+function mutateHeroEstimators(script: string): string {
+  if (!script.includes(HERO_N_ESTIMATORS_EXPRESSION)) {
+    throw new Error(
+      'repair test fixture: the hero script no longer contains the parameterised n_estimators expression',
+    )
+  }
+  return script.replace(
+    HERO_N_ESTIMATORS_EXPRESSION,
+    MUTATED_HERO_N_ESTIMATORS_EXPRESSION,
+  )
+}
+
 class MemoryTaskStore implements AgentTaskStore {
   readonly rows: Array<AgentTaskInsert & { id: string }> = []
   async insert(task: AgentTaskInsert) {
@@ -423,10 +443,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     const taskStore = new MemoryTaskStore()
     const generate: StructuredGenerator = async () => ({
       output: {
-        script: HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!.replace(
-          'n_estimators=100',
-          'n_estimators=250',
-        ),
+        script: mutateHeroEstimators(HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!),
         summary: 'Changed n_estimators',
       },
       inputTokens: 100,
@@ -441,7 +458,9 @@ describe('repairAndRetryRun (Issue #26)', () => {
     const runner: ExperimentRunner = {
       async run(spec): Promise<ExperimentResult> {
         runnerCalls++
-        expect(spec.files['main.py']).toContain('n_estimators=250')
+        expect(spec.files['main.py']).toContain(
+          MUTATED_HERO_N_ESTIMATORS_EXPRESSION,
+        )
         return structuredClone(HERO_RECORDED_RUN_RESULT)
       },
       async cancel() {},
@@ -515,10 +534,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     const taskStore = new MemoryTaskStore()
     const generate: StructuredGenerator = async () => ({
       output: {
-        script: HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!.replace(
-          'n_estimators=100',
-          'n_estimators=250',
-        ),
+        script: mutateHeroEstimators(HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!),
         summary: 'Changed n_estimators',
       },
       inputTokens: 100,
@@ -595,10 +611,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     const taskStore = new MemoryTaskStore()
     const generate: StructuredGenerator = async () => ({
       output: {
-        script: HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!.replace(
-          'n_estimators=100',
-          'n_estimators=250',
-        ),
+        script: mutateHeroEstimators(HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!),
         summary: 'Changed n_estimators',
       },
       inputTokens: 100,
@@ -662,7 +675,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     expect(isAutoApprovableRepair(originalScript, modifiedScript)).toBe(false)
   })
 
-  it('handles non-429 callModel failures gracefully without mutating persisted finalRun.stderr', async () => {
+  it('handles non-retryable callModel failures gracefully without mutating persisted finalRun.stderr', async () => {
     const brokenSpec = makeBrokenImportSpec()
     const failedRun = makeFailedRun(brokenSpec, 'SyntaxError: invalid syntax')
 
@@ -1108,9 +1121,8 @@ describe('repairAndRetryRun (Issue #26)', () => {
     runStore.seed(failedRun)
 
     const taskStore = new MemoryTaskStore()
-    const modifiedScript = HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!.replace(
-      'RandomForestClassifier(n_estimators=100',
-      'RandomForestClassifier(n_estimators=200',
+    const modifiedScript = mutateHeroEstimators(
+      HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!,
     )
     const callModelFn = createCallModel({
       generate: async () => ({
@@ -1190,9 +1202,8 @@ describe('repairAndRetryRun (Issue #26)', () => {
     runStore.seed(failedRun)
 
     const taskStore = new MemoryTaskStore()
-    const modifiedScript = HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!.replace(
-      'RandomForestClassifier(n_estimators=100',
-      'RandomForestClassifier(n_estimators=200',
+    const modifiedScript = mutateHeroEstimators(
+      HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!,
     )
     const callModelFn = createCallModel({
       generate: async () => ({
