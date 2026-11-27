@@ -77,6 +77,9 @@ What the provider deliberately does not do:
   observes the existing claim and becomes a follower.
 - **Last-Event-ID replay.** Replay is strictly `seq > lastEventId`, with the
   cursor validated against the persisted head before the stream starts.
+  When `Last-Event-ID` is absent (for example on a manual client re-open,
+  since `EventSource` cannot send custom headers), `GET /api/pipeline/:experimentId`
+  also honours the client-internal `?seq=N` query fallback identically.
 - **Cross-request approval.** The stream polls `experiments.approval_state`
   every 500 ms; the POST commits in its own transaction. The stream then
   replays the persisted `approval.resolved` event with its real seq.

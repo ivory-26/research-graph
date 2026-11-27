@@ -193,6 +193,7 @@ function WorkspacePage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const streamCleanupRef = useRef<(() => void) | null>(null);
   const lastSeqRef = useRef<Record<string, number>>({});
+  const approvalOpenedByStreamRef = useRef(false);
 
   // Load live user workspaces (with UUIDs) on mount, preserving the demo fixture entry
   useEffect(() => {
@@ -363,11 +364,16 @@ function WorkspacePage() {
             setGateSeq(event.seq);
             setActiveGateSpec(event.spec);
             setApprovalError(null);
+            approvalOpenedByStreamRef.current = true;
             setIsApprovalOpen(true);
           },
           onApprovalResolved: () => {
             setGateSeq(null);
             setActiveGateSpec(null);
+            if (approvalOpenedByStreamRef.current) {
+              approvalOpenedByStreamRef.current = false;
+              setIsApprovalOpen(false);
+            }
           },
           onError: (err) => {
             const es = (err as any)?.target;
@@ -392,6 +398,10 @@ function WorkspacePage() {
             setIsStreaming(false);
             setGateSeq(null);
             setActiveGateSpec(null);
+            if (approvalOpenedByStreamRef.current) {
+              approvalOpenedByStreamRef.current = false;
+              setIsApprovalOpen(false);
+            }
           },
         },
         { initialLastSeq: lastSeqRef.current[expId] ?? 0 },

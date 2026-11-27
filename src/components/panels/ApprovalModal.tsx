@@ -40,6 +40,16 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
   const hasLiveGate = Boolean(experimentId && gateSeq != null && gateSeq > 0 && liveSpec);
   const spec = liveSpec ?? HERO_EXPERIMENT_SPEC_RUN_A;
   const primaryDataset = spec.datasets[0];
+  const datasetSourceLabel = (() => {
+    const url = primaryDataset?.url;
+    if (!url) return null;
+    if (/openml/i.test(url)) return 'OpenML';
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return 'remote';
+    }
+  })();
   const criteriaText = spec.criteria.checks
     .map((c) => `${c.metric} ${c.op === 'lte' ? '≤' : c.op === 'gt' ? '>' : c.op} ${c.value}`)
     .join(' & ');
@@ -168,7 +178,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
                   Dataset Mode
                 </div>
                 <div className="m text-xs font-bold text-[var(--text-primary)]">
-                  {spec.mode} (OpenML)
+                  {spec.mode}{datasetSourceLabel ? ` (${datasetSourceLabel})` : ''}
                 </div>
               </div>
             </div>
