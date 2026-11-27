@@ -128,20 +128,21 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     handlers: ReturnType<typeof handlersFor>,
     sse: SseConsumer,
     decision: 'approved' | 'rejected' = 'approved',
+    experimentId: string = seed.experimentId,
   ) {
     const requested = (await sse.waitFor(
       (event) => event.type === 'approval.requested',
     )) as Extract<PipelineEvent, { type: 'approval.requested' }>
 
     const response = await handlers.approve(
-      approveRequest(seed.experimentId, requested.seq, decision),
-      { experimentId: seed.experimentId },
+      approveRequest(experimentId, requested.seq, decision),
+      { experimentId },
     )
     expect(response.status).toBe(200)
     return requested
   }
 
-  async function runRows() {
+  async function runRows(experimentId: string = seed.experimentId) {
     const result = await testDb.pool.query<{
       id: string
       status: string
@@ -152,13 +153,17 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       verdict: string | null
       verdict_detail: { checks: unknown[]; explanation: string | null } | null
       experiment_id: string
+      parent_run_id: string | null
+      attempt: number
+      started_at: Date | null
     }>(
       `SELECT id, status, spec, metrics, environment, stderr, verdict,
-              verdict_detail, experiment_id
+              verdict_detail, experiment_id, parent_run_id, attempt,
+              started_at
          FROM runs
         WHERE experiment_id = $1
         ORDER BY created_at`,
-      [seed.experimentId],
+      [experimentId],
     )
     return result.rows
   }
@@ -204,6 +209,119 @@ describeIntegration('production pipeline stages over real Postgres', () => {
         throw new Error('timed out waiting for the run graph projection')
       }
       await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+  }
+
+  /** A what-if child plan: the parent spec with one parameter leaf changed. */
+  function branchedSpec(seedValue: number): ExperimentSpec {
+    return {
+      ...seed.spec,
+      parameters: { ...seed.spec.parameters, seed: seedValue },
+    }
+  }
+
+  /**
+   * Mirrors `createDrizzleWhatIfBranchStore` (PR #66): a completed parent run,
+   * a pending child experiment, and the queued attempt-1 child run with
+   * `parentRunId` that EXECUTE is expected to adopt (issue #62).
+   *
+   * `approvedSeed` distinct from `queuedSeed` advances the experiment plan
+   * after the branch row was written, so the test can prove EXECUTE freezes
+   * the approved plan rather than the queued copy.
+   */
+  async function seedQueuedWhatIfChild(options: {
+    queuedSeed: number
+    approvedSeed: number
+  }) {
+    const parent = await testDb.pool.query<{ id: string }>(
+      `INSERT INTO runs
+         (experiment_id, parent_run_id, attempt, status, spec, parameters,
+          metrics, environment, started_at, finished_at)
+       VALUES ($1, NULL, 1, 'succeeded', $2, $3, $4, $5, now(), now())
+       RETURNING id`,
+      [
+        seed.experimentId,
+        JSON.stringify(seed.spec),
+        JSON.stringify(seed.spec.parameters),
+        JSON.stringify({ score: 0.9 }),
+        JSON.stringify({
+          imageDigest: 'sha256:parent-image',
+          python: 'Python 3.12.16',
+          packages: {},
+          datasets: [],
+          seeds: [42],
+          startedAt: new Date(0).toISOString(),
+        }),
+      ],
+    )
+    const parentRunId = parent.rows[0]!.id
+
+    const queuedSpec = branchedSpec(options.queuedSeed)
+    const child = await testDb.pool.query<{ id: string }>(
+      `INSERT INTO experiments (workspace_id, claim_node_id, spec, mode)
+       VALUES ($1, $2, $3, 'adapted')
+       RETURNING id`,
+      [seed.workspaceId, seed.claimNodeId, JSON.stringify(queuedSpec)],
+    )
+    const childExperimentId = child.rows[0]!.id
+
+    const queued = await testDb.pool.query<{ id: string }>(
+      `INSERT INTO runs
+         (experiment_id, parent_run_id, attempt, status, spec, parameters,
+          environment)
+       VALUES ($1, $2, 1, 'queued', $3, $4, $5)
+       RETURNING id`,
+      [
+        childExperimentId,
+        parentRunId,
+        JSON.stringify(queuedSpec),
+        JSON.stringify(queuedSpec.parameters),
+        JSON.stringify({
+          imageDigest: 'unknown',
+          python: 'unknown',
+          packages: {},
+          datasets: [],
+          seeds: [options.queuedSeed],
+          startedAt: '',
+        }),
+      ],
+    )
+    const queuedRunId = queued.rows[0]!.id
+
+    const approvedSpec = branchedSpec(options.approvedSeed)
+    await testDb.pool.query(
+      'UPDATE experiments SET spec = $2 WHERE id = $1',
+      [childExperimentId, JSON.stringify(approvedSpec)],
+    )
+
+    return {
+      parentRunId,
+      childExperimentId,
+      queuedRunId,
+      queuedSpec,
+      approvedSpec,
+    }
+  }
+
+  /** A stub runner that observes the durable row at the moment EXECUTE starts. */
+  function createObservingRunner(
+    mode: Parameters<typeof createStubRunner>[0],
+    observe: () => Promise<void>,
+  ): StubRunner {
+    const stub = createStubRunner(mode)
+    return {
+      get runCalls() {
+        return stub.runCalls
+      },
+      get cancelCalls() {
+        return stub.cancelCalls
+      },
+      getActiveSandboxes: () => stub.getActiveSandboxes(),
+      async run(spec, onStdout) {
+        await observe()
+        return stub.run(spec, onStdout)
+      },
+      cancel: (sandboxId) => stub.cancel(sandboxId),
     }
   }
 
@@ -266,9 +384,13 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     expect(rows[0]).toMatchObject({
       id: completed.runId,
       experiment_id: seed.experimentId,
+      // Run A: a fresh attempt-1 row with no parent; no branch row exists.
+      parent_run_id: null,
+      attempt: 1,
       status: 'succeeded',
       metrics: { score: 0.9 },
       verdict: 'match',
+      started_at: expect.any(Date),
     })
     // The run keeps the exact plan that was approved, not a pointer.
     expect(rows[0]?.spec).toEqual(seed.spec)
@@ -326,6 +448,186 @@ describeIntegration('production pipeline stages over real Postgres', () => {
         evidence_run_id: completed.runId,
       }),
     ])
+  })
+
+  it('adopts the queued what-if child run and freezes the approved spec', async () => {
+    const branch = await seedQueuedWhatIfChild({
+      queuedSeed: 7,
+      approvedSeed: 11,
+    })
+    const startedRows: Awaited<ReturnType<typeof runRows>>[] = []
+    const runner = createObservingRunner('succeed', async () => {
+      startedRows.push(await runRows(branch.childExperimentId))
+    })
+    const handlers = handlersFor(runner)
+
+    const sse = consume(
+      await handlers.stream(streamRequest(branch.childExperimentId), {
+        experimentId: branch.childExperimentId,
+      }),
+    )
+    const requested = (await sse.waitFor(
+      (event) => event.type === 'approval.requested',
+    )) as Extract<PipelineEvent, { type: 'approval.requested' }>
+    expect(requested.spec).toEqual(branch.approvedSpec)
+
+    await approveRequested(
+      handlers,
+      sse,
+      'approved',
+      branch.childExperimentId,
+    )
+
+    const completed = (await sse.waitFor(
+      (event) => event.type === 'pipeline.completed',
+    )) as Extract<PipelineEvent, { type: 'pipeline.completed' }>
+    await sse.waitForClose()
+
+    // The branch id and lineage survive EXECUTE; no second row was inserted.
+    expect(completed.runId).toBe(branch.queuedRunId)
+    expect(completed.runId).not.toBe('11111111-1111-4111-8111-111111111111')
+    expect(runner.runCalls).toBe(1)
+
+    // The transport reports the adopted identity, not a fresh one.
+    const started = (await sse.waitFor(
+      (event) => event.type === 'run.started',
+    )) as Extract<PipelineEvent, { type: 'run.started' }>
+    expect(started).toMatchObject({
+      runId: branch.queuedRunId,
+      attempt: 1,
+      sandboxId: null,
+    })
+
+    expect(startedRows).toHaveLength(1)
+    const atStart = startedRows[0] ?? []
+    expect(atStart).toHaveLength(1)
+    expect(atStart[0]).toMatchObject({
+      id: branch.queuedRunId,
+      experiment_id: branch.childExperimentId,
+      parent_run_id: branch.parentRunId,
+      attempt: 1,
+      status: 'running',
+    })
+    // The approved plan is frozen into the adopted row before the sandbox,
+    // and the execution timestamp/environment are initialized.
+    expect(atStart[0]?.spec).toEqual(branch.approvedSpec)
+    expect(atStart[0]?.started_at).toBeInstanceOf(Date)
+    expect(atStart[0]?.environment).toMatchObject({
+      imageDigest: 'unknown',
+      python: 'unknown',
+      seeds: [11],
+      startedAt: expect.any(String),
+    })
+    expect(
+      (atStart[0]?.environment as { startedAt: string }).startedAt,
+    ).not.toBe('')
+
+    const rows = await runRows(branch.childExperimentId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      id: branch.queuedRunId,
+      experiment_id: branch.childExperimentId,
+      parent_run_id: branch.parentRunId,
+      attempt: 1,
+      status: 'succeeded',
+      metrics: { score: 0.9 },
+      verdict: 'match',
+      started_at: expect.any(Date),
+    })
+    expect(rows[0]?.spec).toEqual(branch.approvedSpec)
+    expect(rows[0]?.spec).not.toEqual(branch.queuedSpec)
+
+    // The parent run is never touched.
+    const parent = await testDb.pool.query<{
+      parent_run_id: string | null
+      status: string
+    }>('SELECT parent_run_id, status FROM runs WHERE id = $1', [
+      branch.parentRunId,
+    ])
+    expect(parent.rows[0]).toEqual({
+      parent_run_id: null,
+      status: 'succeeded',
+    })
+
+    // #7 projection uses the adopted identity, not a second run.
+    const graph = await graphRows()
+    const runNode = graph.nodes.find((node) => node.type === 'run')
+    const resultNode = graph.nodes.find((node) => node.type === 'result')
+    expect(runNode?.data).toEqual({
+      type: 'run',
+      runId: branch.queuedRunId,
+      status: 'succeeded',
+      mode: 'adapted',
+    })
+    expect(resultNode?.data).toEqual({
+      type: 'result',
+      metrics: { score: 0.9 },
+      runId: branch.queuedRunId,
+      verdict: 'match',
+    })
+    expect(graph.edges).toEqual([
+      expect.objectContaining({
+        source_node_id: runNode?.id,
+        target_node_id: resultNode?.id,
+        relation: 'produced',
+        status: 'accepted',
+        evidence_run_id: branch.queuedRunId,
+      }),
+    ])
+  })
+
+  it('refuses a second run instead of duplicating an already-started branch child', async () => {
+    const branch = await seedQueuedWhatIfChild({
+      queuedSeed: 7,
+      approvedSeed: 7,
+    })
+    // Another owner already adopted the queued row.
+    await testDb.pool.query(
+      `UPDATE runs SET status = 'running', started_at = now() WHERE id = $1`,
+      [branch.queuedRunId],
+    )
+
+    const runner = createStubRunner('succeed')
+    const handlers = handlersFor(runner)
+    const sse = consume(
+      await handlers.stream(streamRequest(branch.childExperimentId), {
+        experimentId: branch.childExperimentId,
+      }),
+    )
+    await approveRequested(
+      handlers,
+      sse,
+      'approved',
+      branch.childExperimentId,
+    )
+
+    const failed = (await sse.waitFor(
+      (event) => event.type === 'pipeline.failed',
+    )) as Extract<PipelineEvent, { type: 'pipeline.failed' }>
+    await sse.waitForClose()
+
+    expect(failed.error).toBe('The experiment already has a run')
+    expect(runner.runCalls).toBe(0)
+    expect(
+      sse.events.some((event) => event.type === 'run.started'),
+    ).toBe(false)
+
+    // The already-started row is left alone; no duplicate attempt-1 row.
+    const rows = await runRows(branch.childExperimentId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      id: branch.queuedRunId,
+      parent_run_id: branch.parentRunId,
+      status: 'running',
+    })
+
+    // Nothing terminal was executed, so nothing was projected.
+    const graph = await graphRows()
+    expect(
+      graph.nodes.filter(
+        (node) => node.type === 'run' || node.type === 'result',
+      ),
+    ).toHaveLength(0)
   })
 
   it('fails before opening a gate when the stored plan violates the planner rules', async () => {
