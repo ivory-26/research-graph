@@ -1,5 +1,5 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { useState } from 'react';
+import { createFileRoute, redirect } from '@tanstack/react-router';
+import { useState, useEffect, useRef } from 'react';
 import { Sidebar, type PageId } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { ResearchCanvas } from '../components/canvas/ResearchCanvas';
@@ -21,8 +21,33 @@ import {
 } from '../data/demoWorkspace';
 import type { WorkspaceNode, WorkspaceEdge } from '../data/demoWorkspace';
 import { Plus, Play } from 'lucide-react';
+import { getCurrentUser } from '../server/auth';
+import { sendPipelineApproval, subscribeToPipelineStream } from '../utils/pipelineClient';
+import { fetchWorkspaceGraph } from '../utils/graphClient';
 
 export const Route = createFileRoute('/')({
+  beforeLoad: async ({ location }) => {
+    try {
+      const user = await getCurrentUser();
+      if (!user) {
+        const search = location.search as Record<string, unknown>;
+        if (search?.preview === 'true') {
+          return { user: null, isPreview: true };
+        }
+        throw redirect({
+          to: '/sign-in',
+          search: { redirect: location.href },
+        });
+      }
+      return { user, isPreview: false };
+    } catch (err: any) {
+      if (err?.isRedirect || (err && typeof err === 'object' && 'statusCode' in err)) {
+        throw err;
+      }
+      // If auth service is not configured (e.g. local loopback testing), permit preview access
+      return { user: null, isPreview: true };
+    }
+  },
   component: WorkspacePage,
 });
 
@@ -97,6 +122,31 @@ function WorkspacePage() {
     'Execution console ready · awaiting plan specification review',
   ]);
 
+  // Pipeline backend integration state
+  const [experimentId, setExperimentId] = useState('exp-hero-run-a');
+  const [gateSeq, setGateSeq] = useState(1);
+  const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
+  const streamCleanupRef = useRef<(() => void) | null>(null);
+
+  // Load graph from API if configured, falling back to fixture
+  useEffect(() => {
+    let active = true;
+    fetchWorkspaceGraph().then((res) => {
+      if (active && res.source === 'api') {
+        setNodes(res.nodes);
+        setEdges(res.edges);
+      }
+    });
+
+    return () => {
+      active = false;
+      if (streamCleanupRef.current) {
+        streamCleanupRef.current();
+        streamCleanupRef.current = null;
+      }
+    };
+  }, []);
+
   const selectedEdge = edges.find((e) => e.id === selectedEdgeId) || edges[0] || null;
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
 
@@ -112,16 +162,81 @@ function WorkspacePage() {
     showToast(`Source queued: ${title} (${kind.toUpperCase()})`);
   };
 
-  // Connects Plan & Run to the experiment approval lifecycle
-  const handleApproveExperiment = () => {
-    setIsApprovalOpen(false);
-    setIsConsoleOpen(true);
-    showToast('Plan specification confirmed.');
+  // Connects Plan & Run to the experiment approval lifecycle and SSE stream
+  const handleApproveExperiment = async (expId = experimentId, seq = gateSeq) => {
+    setIsSubmittingApproval(true);
+    const timestamp = new Date().toLocaleTimeString();
 
-    setExecutionLogs((prev) => [
-      ...prev,
-      `[${new Date().toLocaleTimeString()}] plan specification reviewed and confirmed`,
-    ]);
+    try {
+      const result = await sendPipelineApproval({
+        experimentId: expId,
+        gateSeq: seq,
+        decision: 'approved',
+      });
+
+      setIsApprovalOpen(false);
+      setIsConsoleOpen(true);
+
+      if (result.ok) {
+        showToast(`Plan confirmed for ${expId} (gate #${seq})`);
+        setExecutionLogs((prev) => [
+          ...prev,
+          `[${timestamp}] [POST /api/pipeline/${expId}/approve] Gate #${seq} approved`,
+        ]);
+      } else {
+        showToast(result.error ? `Notice: ${result.error}` : 'Plan confirmed in preview session');
+        setExecutionLogs((prev) => [
+          ...prev,
+          `[${timestamp}] [APPROVAL] Plan specification approved for ${expId}`,
+        ]);
+      }
+
+      // Subscribe to backend SSE stream for real-time progress and logs
+      if (streamCleanupRef.current) {
+        streamCleanupRef.current();
+      }
+
+      streamCleanupRef.current = subscribeToPipelineStream(expId, {
+        onLog: (line) => {
+          setExecutionLogs((prev) => [...prev, line]);
+        },
+        onApprovalRequested: (event) => {
+          setGateSeq(event.seq);
+          setIsApprovalOpen(true);
+        },
+        onError: () => {},
+      });
+    } finally {
+      setIsSubmittingApproval(false);
+    }
+  };
+
+  const handleRejectExperiment = async (expId = experimentId, seq = gateSeq) => {
+    setIsSubmittingApproval(true);
+    const timestamp = new Date().toLocaleTimeString();
+
+    try {
+      await sendPipelineApproval({
+        experimentId: expId,
+        gateSeq: seq,
+        decision: 'rejected',
+      });
+
+      setIsApprovalOpen(false);
+      showToast('Experiment plan rejected');
+
+      setExecutionLogs((prev) => [
+        ...prev,
+        `[${timestamp}] [POST /api/pipeline/${expId}/approve] Gate #${seq} rejected`,
+      ]);
+
+      if (streamCleanupRef.current) {
+        streamCleanupRef.current();
+        streamCleanupRef.current = null;
+      }
+    } finally {
+      setIsSubmittingApproval(false);
+    }
   };
 
   return (
@@ -284,10 +399,10 @@ function WorkspacePage() {
         isOpen={isApprovalOpen}
         onClose={() => setIsApprovalOpen(false)}
         onApprove={handleApproveExperiment}
-        onReject={() => {
-          setIsApprovalOpen(false);
-          showToast('Experiment plan rejected');
-        }}
+        onReject={handleRejectExperiment}
+        experimentId={experimentId}
+        gateSeq={gateSeq}
+        isSubmitting={isSubmittingApproval}
       />
 
       <ExportModal

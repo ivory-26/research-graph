@@ -26,6 +26,7 @@ import { MemoryNode } from './MemoryNode';
 import { MemoryGraphToolbar, type MemoryGraphSettings } from './MemoryGraphToolbar';
 import { CustomEvidenceEdge } from './CustomEdges';
 import { computeForceLayout } from '../../utils/forceSimulation';
+import { loadPersistedPositions, savePersistedPositions } from '../../utils/graphClient';
 import type { WorkspaceNode, WorkspaceEdge } from '../../data/demoWorkspace';
 import { useTheme } from '../../context/ThemeContext';
 import {
@@ -149,7 +150,9 @@ function CanvasInner({
   }, [initialNodes, initialEdges, settings.repulsion, settings.linkDistance, simulationSeed]);
 
   // References for tracking layout inputs, rendered positions, and manual user drags
-  const userDraggedNodeIdsRef = useRef<Set<string>>(new Set());
+  const userDraggedNodeIdsRef = useRef<Set<string>>(
+    new Set(Object.keys(loadPersistedPositions())),
+  );
   const nodesRef = useRef<Node[]>([]);
 
   // Double-click focus on node and immediate neighborhood (centred on actually rendered position)
@@ -292,11 +295,14 @@ function CanvasInner({
       const isDimmed = isCategoryDimmed || (hasLineage && !isLineageNode);
       const isHighlighted = hasLineage ? isLineageNode : false;
 
-      // Position: organic force-directed position or cards pipeline position
+      // Position: persisted user drag coordinates, organic force-directed position or cards pipeline position
+      const persistedPositions = loadPersistedPositions();
+      const persisted = persistedPositions[n.id];
       const position =
-        viewMode === 'memory'
+        persisted ||
+        (viewMode === 'memory'
           ? forceLayout.positions[n.id] || { x: n.position.x - 450, y: n.position.y - 200 }
-          : n.position;
+          : n.position);
 
       return {
         id: n.id,
@@ -394,10 +400,21 @@ function CanvasInner({
   const handleNodesChange = useCallback(
     (changes: any) => {
       if (Array.isArray(changes)) {
+        const positions = loadPersistedPositions();
+        let hasPositionChange = false;
+
         for (const c of changes) {
           if (c.type === 'position' && (c.dragging || c.position)) {
             userDraggedNodeIdsRef.current.add(c.id);
+            if (c.position) {
+              positions[c.id] = { x: Math.round(c.position.x), y: Math.round(c.position.y) };
+              hasPositionChange = true;
+            }
           }
+        }
+
+        if (hasPositionChange) {
+          savePersistedPositions(positions);
         }
       }
       onNodesChange(changes);
@@ -500,6 +517,9 @@ function CanvasInner({
         onEdgesChange={onEdgesChange}
         onNodeDragStop={(_, node) => {
           userDraggedNodeIdsRef.current.add(node.id);
+          const positions = loadPersistedPositions();
+          positions[node.id] = { x: Math.round(node.position.x), y: Math.round(node.position.y) };
+          savePersistedPositions(positions);
         }}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}

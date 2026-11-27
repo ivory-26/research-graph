@@ -5,8 +5,11 @@ import { ShieldCheck, Cpu, HardDrive, WifiOff, X } from 'lucide-react';
 interface ApprovalModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onApprove: () => void;
-  onReject: () => void;
+  onApprove: (experimentId?: string, gateSeq?: number) => void;
+  onReject: (experimentId?: string, gateSeq?: number) => void;
+  experimentId?: string;
+  gateSeq?: number;
+  isSubmitting?: boolean;
 }
 
 export const ApprovalModal: React.FC<ApprovalModalProps> = ({
@@ -14,6 +17,9 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
   onClose,
   onApprove,
   onReject,
+  experimentId = 'exp-hero-run-a',
+  gateSeq = 1,
+  isSubmitting = false,
 }) => {
   if (!isOpen) return null;
 
@@ -42,7 +48,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-[var(--text-dim)] mt-0.5 font-mono">
-                Inspect generated Python script and resource sandbox boundary specification.
+                Experiment: <span className="text-[#f97316] font-semibold">{experimentId}</span> · Gate Seq: #{gateSeq} · Python sandbox specification
               </p>
             </div>
           </div>
@@ -138,16 +144,18 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
         {/* Footer Actions with Sharp Corners */}
         <div className="flex items-center justify-end gap-3 border-t border-[var(--border-primary)] p-4 bg-[var(--bg-surface)]">
           <button
-            onClick={onReject}
-            className="h-8 px-4 rounded-none border border-[var(--border-primary)] bg-transparent text-xs font-mono uppercase text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition"
+            onClick={() => onReject(experimentId, gateSeq)}
+            disabled={isSubmitting}
+            className="h-8 px-4 rounded-none border border-[var(--border-primary)] bg-transparent text-xs font-mono uppercase text-[var(--text-dim)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition disabled:opacity-50"
           >
             Reject Plan
           </button>
           <button
-            onClick={onApprove}
-            className="h-8 px-4 rounded-none bg-[#f97316] text-black font-mono uppercase text-xs font-bold hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)]"
+            onClick={() => onApprove(experimentId, gateSeq)}
+            disabled={isSubmitting}
+            className="h-8 px-4 rounded-none bg-[#f97316] text-black font-mono uppercase text-xs font-bold hover:bg-[#ea580c] transition shadow-[0_0_15px_rgba(249,115,22,0.3)] disabled:opacity-50 flex items-center gap-1.5"
           >
-            Confirm Plan Specification
+            {isSubmitting ? 'Posting Approval...' : 'Confirm Plan Specification'}
           </button>
         </div>
       </div>
