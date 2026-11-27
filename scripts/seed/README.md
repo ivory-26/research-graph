@@ -77,7 +77,8 @@ recorded by the production gate. Node positions remain at the schema default
 | Variable | Why |
 |---|---|
 | `DATABASE_URL` | Fresh, migrated application database. The seed refuses a non-empty schema and runs the committed migrations itself. |
-| `GOOGLE_GENERATIVE_AI_API_KEY` or `GEMINI_API_KEY` | Real embeddings and claim/edge extraction. |
+| `MODEL_API_KEY` | Meta Model API key for every text call (claim extraction, edge proposal, planning, `explain_gap`). Contributor mode is the pinned `muse-spark-1.3-contributor` model. |
+| `GOOGLE_GENERATIVE_AI_API_KEY` or `GEMINI_API_KEY` | Gemini embeddings only (`gemini-embedding-2`). |
 | `SEED_ACTOR_USER_ID` | Verified Neon Auth user id. Graph-only mode uses it directly; the complete seed derives it from the signed-in session and requires any supplied value to match. |
 | `E2B_API_KEY` | The pinned sandbox template for Run A and Run B. |
 | `NEON_AUTH_BASE_URL` | The workspace account's Neon Auth service. |
@@ -143,7 +144,7 @@ pnpm seed --print-approval
 
 # 2. After reviewing both JSON specs, replay that review on a fresh database.
 SEED_APPROVED_LOGICAL_SPEC_HASHES="run-a=<64 hex>,run-b=<64 hex>" \
-DATABASE_URL=... GOOGLE_GENERATIVE_AI_API_KEY=... E2B_API_KEY=... \
+DATABASE_URL=... MODEL_API_KEY=... GOOGLE_GENERATIVE_AI_API_KEY=... E2B_API_KEY=... \
 SEED_AUTH_COOKIE=... NEON_AUTH_BASE_URL=... NEON_AUTH_COOKIE_SECRET=... \
   pnpm seed --non-interactive
 ```
@@ -289,7 +290,8 @@ pnpm seed --print-approval
 
 # 3. Complete seed, replaying that review.
 DATABASE_URL="postgresql://postgres:$PGPASSWORD@127.0.0.1:55433/postgres" \
-GOOGLE_GENERATIVE_AI_API_KEY="<key>" \
+MODEL_API_KEY="<Meta Model API key>" \
+GOOGLE_GENERATIVE_AI_API_KEY="<Gemini embedding key>" \
 E2B_API_KEY="<key>" \
 NEON_AUTH_BASE_URL="<url>" \
 NEON_AUTH_COOKIE_SECRET="<secret>" \
@@ -307,7 +309,8 @@ SEED_CANDIDATE_DATABASE_URL="postgresql://...second..." \
 Graph-only mode is useful when only the extraction half is being exercised:
 
 ```bash
-DATABASE_URL=... GOOGLE_GENERATIVE_AI_API_KEY=... SEED_ACTOR_USER_ID=... \
+DATABASE_URL=... MODEL_API_KEY=... GOOGLE_GENERATIVE_AI_API_KEY=... \
+SEED_ACTOR_USER_ID=... \
   pnpm seed --graph-only
 ```
 
@@ -317,13 +320,16 @@ seed never resets it for you.
 
 ## Remaining decisions / blockers
 
-1. **Live capacity.** Credentials and the reviewed logical hash pair were
-   supplied for the 27 November live attempt, and the Neon Auth/E2B preflight
-   passed. Gemini then returned 503 "high demand" on both text models, so no
-   complete pair was produced. The wrapper now retries 503 with the same
-   bounded backoff as 429; the live baseline still needs a quiet capacity
-   window. No credential is committed.
-2. **Exactness of two live seeds.** Live Gemini extraction can vary between
+1. **Live capacity and provider.** Credentials and the reviewed logical hash
+   pair were supplied for the 27 November live attempt, and the Neon Auth/E2B
+   preflight passed. Gemini returned 503 "high demand" on both text models, so
+   text generation moved to Meta Model API's `muse-spark-1.3-contributor`
+   (Contributor mode); Gemini remains the embedding provider. The Meta adapter
+   was verified with a real structured `{ "ok": true }` call. The live pair
+   still needs to complete on the new provider; no credential is committed.
+   Contributor mode permits Meta to train on prompts and responses; the seed
+   sends only public paper text and generated specs.
+2. **Exactness of two live seeds.** Live model extraction can vary between
    runs. The baseline requires the two seeds to match; if `seed:compare`
    reports node/edge differences, the project must accept process-level
    reproducibility or add recorded model outputs. Do not paper over it with
@@ -371,5 +377,10 @@ seed never resets it for you.
   while `gemini-3.6-flash`, `gemini-3.5-flash` and `gemini-2.5-flash`
   returned 200 and `gemini-4-argon` returned a 429 quota error. The capacity
   block is model-specific and temporary; the pinned pair is still blocked.
+- Text generation moved from Gemini to Meta Model API's
+  `muse-spark-1.3-contributor` after the 503s. The OpenAI-compatible adapter
+  was verified against the real API (`https://api.meta.ai/v1`) with both a
+  plain completion and a schema-constrained `{ "ok": true }` response;
+  embeddings remain `gemini-embedding-2`.
 - The live two-seed baseline remains the outstanding gate; the "under one
   minute" budget is not yet measured.

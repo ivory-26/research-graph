@@ -15,7 +15,7 @@ import {
   type AgentTaskInsert,
   type AgentTaskStore,
   type CallModelContext,
-  type GeminiGenerateText,
+  type StructuredGenerateText,
   type PersistedAgentTask,
   type StructuredGenerator,
 } from './model'
@@ -174,7 +174,7 @@ describe('callModel task accounting', () => {
       status: 'succeeded',
       promptTokens: 120,
       completionTokens: 30,
-      costUsd: '0.000405',
+      costUsd: '0.000018',
       latencyMs: 25,
       error: null,
     })
@@ -347,7 +347,7 @@ describe('callModel task accounting', () => {
       now: steppingClock(),
     })
     await priced(ClaimSchema, 'p', context(pricedStore))
-    expect(pricedStore.rows[0]!.costUsd).toBe('9.000000')
+    expect(pricedStore.rows[0]!.costUsd).toBe('0.300000')
 
     const unpricedStore = new MemoryTaskStore()
     const unpriced = createCallModel({
@@ -441,9 +441,9 @@ describe('callModel sequencing', () => {
 describe('createGeminiGenerator', () => {
   it('disables the SDK retry loop and forwards usage', async () => {
     const fakeModel = new MockLanguageModelV4()
-    const calls: Array<Parameters<GeminiGenerateText>[0]> = []
+    const calls: Array<Parameters<StructuredGenerateText>[0]> = []
 
-    const fakeGenerateText: GeminiGenerateText = async (options) => {
+    const fakeGenerateText: StructuredGenerateText = async (options) => {
       calls.push(options)
       return {
         output: { ok: true },

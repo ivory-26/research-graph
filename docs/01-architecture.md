@@ -63,7 +63,7 @@ The delivery layer is in `src/server/pipeline-delivery/`. It owns the stream, th
 | `PLAN_EXPERIMENT` | Loads `experiments.spec` and runs `validateExperimentSpec`. It validates the stored plan; it does not generate one. An invalid stored plan fails before a gate opens. |
 | `AWAIT_APPROVAL` | The gate is a row (`approval_gates`) bound to the `approval.requested` seq, the claim and the experiment. The POST commits a decision in its own transaction; the stream replays it with its real seq. |
 | `EXECUTE` | Writes the `runs` row with the approved, frozen spec, then calls the real `E2BRunner`. The measured result updates the row and becomes `run.succeeded` / `run.failed`. |
-| `EVALUATE` | `evaluateExperiment` computes the verdict first; `explain_gap` on `gemini-4-hydrogen` only writes the explanation. The verdict and checks are persisted and emitted as `verdict.computed`. |
+| `EVALUATE` | `evaluateExperiment` computes the verdict first; `explain_gap` on `muse-spark-1.3-contributor` only writes the explanation. The verdict and checks are persisted and emitted as `verdict.computed`. |
 
 It deliberately does **not** run `INGEST_SOURCE`, `EXTRACT_CLAIMS` or `PROPOSE_EDGES` in this request, and it does **not** write result/run graph nodes or the `produced` edge. Those graph writes are `src/server/pipeline.ts` (#7), which has not landed. The durable run row and event log are the record this layer owns.
 

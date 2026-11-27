@@ -216,7 +216,7 @@ describeLive('live pipeline smoke: real E2B + real Gemini', () => {
       expect(tasks.rows).toEqual([
         {
           task_kind: 'explain_gap',
-          model: 'gemini-4-hydrogen',
+          model: 'muse-spark-1.3-contributor',
           status: 'succeeded',
         },
       ])
@@ -224,7 +224,7 @@ describeLive('live pipeline smoke: real E2B + real Gemini', () => {
       const taskRecorded = sse.events.find(
         (event) => event.type === 'agent_task.recorded',
       ) as Extract<PipelineEvent, { type: 'agent_task.recorded' }> | undefined
-      expect(taskRecorded?.task.model).toBe('gemini-4-hydrogen')
+      expect(taskRecorded?.task.model).toBe('muse-spark-1.3-contributor')
 
       const evaluateFinished = sse.events.find(
         (event) =>

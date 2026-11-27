@@ -19,7 +19,11 @@ import {
 import { applySingleLeafChange, branchWhatIf, createDrizzleWhatIfBranchStore } from '../src/server/branch.ts'
 import { ingestSourceToGraphForWorkspace } from '../src/server/extract/pipeline.ts'
 import { embedChunks, embedQuery } from '../src/server/ingest/embed.ts'
-import { callModel, createDrizzleAgentTaskStore } from '../src/server/model.ts'
+import {
+  callModel,
+  createDrizzleAgentTaskStore,
+  MODEL_API_KEY_ENV,
+} from '../src/server/model.ts'
 import type { NodeType } from '../src/shared/types.ts'
 import { loadLocalAssets, type LocalAsset } from './seed/assets.ts'
 import {
@@ -104,8 +108,16 @@ function requireCredentials(env: NodeJS.ProcessEnv): string {
   ) {
     throw new SeedError(
       'MISSING_GEMINI_KEY',
-      'Set GOOGLE_GENERATIVE_AI_API_KEY or GEMINI_API_KEY: the seed runs real claim extraction and embeddings.',
-      'E2B is not needed for graph setup; the run owner needs it separately.',
+      'Set GOOGLE_GENERATIVE_AI_API_KEY or GEMINI_API_KEY: the seed runs real embeddings with gemini-embedding-2.',
+      'Text calls use Meta Model API; the Gemini key is still required for embeddings.',
+    )
+  }
+
+  if (!env[MODEL_API_KEY_ENV]?.trim()) {
+    throw new SeedError(
+      'MISSING_MODEL_API_KEY',
+      `Set ${MODEL_API_KEY_ENV}: the seed runs real claim extraction and edge proposal through Meta Model API.`,
+      'The Gemini key remains required for embeddings; E2B is needed for Run A/Run B.',
     )
   }
 
@@ -645,7 +657,8 @@ Default (interactive):
 
 Required environment for the complete seed:
   DATABASE_URL                    fresh application database
-  GOOGLE_GENERATIVE_AI_API_KEY    or GEMINI_API_KEY
+  MODEL_API_KEY                   Meta Model API key for every text call
+  GOOGLE_GENERATIVE_AI_API_KEY    or GEMINI_API_KEY, for gemini-embedding-2
   E2B_API_KEY                     access to the pinned runtime template
   NEON_AUTH_BASE_URL              workspace account's Neon Auth service
   NEON_AUTH_COOKIE_SECRET         app's Neon Auth cookie secret

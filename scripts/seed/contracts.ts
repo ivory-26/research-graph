@@ -214,6 +214,7 @@ export interface SeedGraphResult {
 export type SeedErrorCode =
   | 'MISSING_DATABASE_URL'
   | 'MISSING_GEMINI_KEY'
+  | 'MISSING_MODEL_API_KEY'
   | 'MISSING_ACTOR'
   | 'MISSING_ASSET'
   | 'ASSET_NOT_PDF'

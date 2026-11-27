@@ -22,7 +22,7 @@ The graph is the presentation, not the product. The product is the claim:
 - Ingestion: coordinate-based PDF reading order, ~800-token chunks with 15% overlap, `gemini-embedding-2` at 768 dimensions, pgvector storage, Firecrawl project pages and repo READMEs
 - Extraction: claims with verbatim-quote validation, proposed edges with evidence, and workspace-scoped edge storage
 - Retrieval: cross-source passages and "ask across sources" with verified citations
-- Runtime: planner validation, the real E2B runner with pinned-package verification, the deterministic evaluator, and a `gemini-4-hydrogen` `explain_gap` explanation that cannot change the verdict
+- Runtime: planner validation, the real E2B runner with pinned-package verification, the deterministic evaluator, and a `muse-spark-1.3-contributor` `explain_gap` explanation that cannot change the verdict
 - Delivery: `GET /api/pipeline/:experimentId` SSE, `POST /api/pipeline/:experimentId/approve`, 240 s budget, 15 s heartbeat, cross-request approval polling and Last-Event-ID replay
 - Auth: Neon Auth session verification, the same-origin `/api/auth/$` proxy and the workspace-membership guard — but no sign-in screens yet
 - UI: the React Flow canvas, evidence panel, approval modal, comparison view, strategy dashboard and notebook export, all rendered from `fixtures/workspace.json`
@@ -75,7 +75,7 @@ pnpm db:studio      # inspect the public schema
 
 ## Stack
 
-TanStack Start 1.169.x · React 19 · TypeScript 7 · Neon Postgres (pgvector) · Drizzle · Vercel AI SDK 7 · Google Gemini (`gemini-4-hydrogen`, `gemini-3.8-flash` only as an explicit override, `gemini-embedding-2`) · E2B · Firecrawl · `@xyflow/react` 13
+TanStack Start 1.169.x · React 19 · TypeScript 7 · Neon Postgres (pgvector) · Drizzle · Vercel AI SDK 7 · Meta Model API (`muse-spark-1.3-contributor`, Contributor mode) · Google Gemini embeddings (`gemini-embedding-2`) · E2B · Firecrawl · `@xyflow/react` 13
 
 Node 26.x, ESM only. `.nvmrc` and `.node-version` pin 26.13.1.
 

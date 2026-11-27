@@ -11,10 +11,10 @@ Status as of 25 November. Rows marked **verified** have been exercised against t
 | 3 | **No seed script** | High | High | #8 is unstarted; the fixture is currently the recorded workspace | Keep the fixture and label it as a recording aid, not a seed |
 | 4 | **Deck written on the last night** | High | High | The deck is not on `main` | Ship a shorter deck; the video carries the submission |
 | 5 | The failure beat has no real failure to show | High | Medium | The repair loop is unbuilt; a failed sandbox or provider error must supply the material | Say out loud that the failure beat is the missing repair loop |
-| 6 | Gemini 429/503 during recording | Medium | High | Sequential calls only; 429/503 backoff with jitter; warm the pipeline before the take | Recorded segments; re-run the failing section |
+| 6 | Text-provider 429/503 during recording | Medium | High | Sequential calls only; 429/503 backoff with jitter; warm the pipeline before the take | Recorded segments; re-run the failing section |
 | 7 | Four part-time people collide on the run→node seam | High | Medium | One owner; the seam (#7) is still unwritten | Freeze the interface and stub it |
 | 8 | A judge asks for a live run and one is attempted | Medium | High | Do not offer one. The video is the artifact | Pre-warmed sandbox and a rehearsed 90-second path |
-| 9 | Gemini provider capacity (`high demand`) | Medium | Medium | Recorded as a failed task; the verdict still completes without the explanation | Record without the explanation, or retake the segment |
+| 9 | Text-provider capacity (`high demand`) | Medium | Medium | Bounded 429/503 retries; a failed explanation is recorded and the verdict still completes | Record without the explanation, or retake the segment |
 | 10 | E2B unavailable at record time | Low — **verified** on 25 Nov | High | Warm a sandbox before recording; each section recorded separately | Local Docker run captured separately and labelled |
 | 11 | Neon Auth does not work as documented | Low — **verified** | High | Session, membership and proxy paths pass the local harness and a live-branch check | Clerk, one day of work |
 | 12 | `unpdf` mangles two-column order in the hero PDF | Low — the coordinate reader and de-hyphenation are tested | Medium | The two-column case is asserted, not assumed | Hand-authored chunk anchors for the three demo sources |

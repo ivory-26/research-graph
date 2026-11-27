@@ -34,7 +34,8 @@ These are not style preferences. Breaking one of them breaks the product's only 
 | `@tanstack/react-start` | ≥ 1.168.60 — earlier versions carry CVE-2026-102989 |
 | `ai` | 7.x — `ToolLoopAgent`, `tool({ inputSchema })`, `generateText({ output: Output.object() })`. `generateObject` is deprecated |
 | `@ai-sdk/react` | 4.x — `useChat({ transport })`, `message.parts`. `handleSubmit` and `api` props no longer exist |
-| `@ai-sdk/google` | 4.x — model `gemini-4-hydrogen` (default; also the evaluator `explain_gap` call), `gemini-3.8-flash` retained only for an explicit override, embeddings `gemini-embedding-2` at 768 dims |
+| `@ai-sdk/openai-compatible` | 3.x — Meta Model API text provider at `https://api.meta.ai/v1`, model `muse-spark-1.3-contributor` (Contributor mode) |
+| `@ai-sdk/google` | 4.x — embeddings `gemini-embedding-2` at 768 dims |
 | Drizzle + Neon | pgvector on, HNSW optional at this scale |
 | `@xyflow/react` | canvas |
 | `unpdf` | PDF text extraction |
@@ -42,9 +43,9 @@ These are not style preferences. Breaking one of them breaks the product's only 
 
 Much of the AI SDK material online describes v5 or v6 and will not compile. When in doubt, read the installed types, not a tutorial.
 
-`gemini-4-hydrogen` is now the default for every text call site, including the Stage 7 `explain_gap` explanation. `evaluateExperiment` still computes the verdict before that call, so the model cannot change it. `gemini-3.8-flash` remains in `DEFAULT_PRICING` only for a caller that explicitly overrides the default; embeddings stay on `gemini-embedding-2`. `DEFAULT_PRICING` costs hydrogen at the published Standard paid rate ($1.50 input / $7.50 output per million tokens, thinking included at the output rate); that is an accounting estimate, not billing telemetry.
+Every text call site uses Meta Model API's `muse-spark-1.3-contributor` through the OpenAI-compatible provider, including the Stage 7 `explain_gap` explanation. `evaluateExperiment` still computes the verdict before that call, so the model cannot change it. Gemini's `gemini-embedding-2` at 768 dimensions remains the embedding provider. Contributor mode is cheaper ($0.10 input / $0.20 output per million tokens) in exchange for Meta being permitted to use prompts and responses to train future models; prompts contain public paper text and generated specs, never a secret or personal document. `DEFAULT_PRICING` is an accounting estimate, not billing telemetry. `gemini-3.8-flash` and `gemini-4-hydrogen` remain in the price table only for an explicit override.
 
-Gemini constrains our schemas: flat or one level of nesting, no recursive `$ref`, and never rely on `minLength` / `maxLength` / `uniqueItems` — they are silently ignored, so validate in Zod after the call.
+Text schemas stay flat or one level of nesting, with no recursive `$ref` (Meta rejects recursive schemas). Still validate in Zod after every call: provider constraint support differs, and `minLength` / `maxLength` / `uniqueItems` are not a portable guarantee.
 
 ## Commands
 

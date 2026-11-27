@@ -19,3 +19,9 @@ The "one provider, one key" decision still holds. On 25 November the Stage 7 `ex
 `gemini-4-hydrogen` became the default for every text call site after `gemini-3.8-flash` repeatedly returned provider capacity errors during live seeding. The earlier evaluator exception is subsumed, not weakened: the evaluator still pins hydrogen and the verdict is still computed before the explanation call. `gemini-3.8-flash` remains in `DEFAULT_PRICING` for an explicit override. The pricing entry is the published Standard paid rate ($1.50 input / $7.50 output per million tokens, thinking billed as output); it is an accounting estimate, not billing telemetry.
 
 Both models returned 503 "high demand" during the live seed, so the wrapper now retries 503 with the same bounded backoff and jitter as 429. Every physical attempt still writes exactly one `agent_tasks` row; a capacity retry is `retried`, not hidden.
+
+## Update — 27 November 2026 (text provider)
+
+The hydrogen default above was also capacity-blocked: both `gemini-3.8-flash` and `gemini-4-hydrogen` returned sustained 503s on two keys and projects during live seeding. Text generation therefore moved to Meta Model API's `muse-spark-1.3-contributor` through the OpenAI-compatible provider at `https://api.meta.ai/v1`. This supersedes the "one provider, one key" decision for text: there are now two providers and two keys. Gemini remains the embedding provider (`gemini-embedding-2`), and the evaluator still computes the verdict before `explain_gap`, so the provider change cannot alter an outcome.
+
+Contributor mode permits Meta to use prompts and responses to train future models. The pipeline sends public paper text, generated specs and measured values; it never sends a secret, personal data or a user-supplied private document. Contributor pricing is $0.10 input / $0.20 output per million tokens; that is an accounting estimate, not billing telemetry.

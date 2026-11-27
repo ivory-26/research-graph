@@ -125,13 +125,12 @@ names a disposable Postgres server with `CREATEDB`:
 - `live-smoke.integration.test.ts` — opt-in (`LIVE_SMOKE=1`), credentialed and
   skipped by default. It runs the mounted GET and approve routes with no `e2b`
   or `callModel` replacement: a real sandbox on the pinned template, then a
-  real `explain_gap` call on `gemini-4-hydrogen`. It asserts the run row,
-  metrics, verdict, `agent_tasks` row and `agent_task.recorded` linkage.
-  `gemini-4-hydrogen` is also `DEFAULT_MODEL_ID` for every text call site; the
-  verdict is computed before the explanation call. `DEFAULT_PRICING` costs
-  hydrogen at the published Standard paid rate ($1.50 input / $7.50 output per
-  million tokens, thinking billed as output); that is an accounting estimate,
-  not billing telemetry.
+  real `explain_gap` call on `muse-spark-1.3-contributor`. It asserts the run
+  row, metrics, verdict, `agent_tasks` row and `agent_task.recorded` linkage.
+  The same Meta Model API model is `DEFAULT_MODEL_ID` for every text call
+  site; the verdict is computed before the explanation call. Contributor mode
+  costs $0.10 input / $0.20 output per million tokens; that is an accounting
+  estimate, not billing telemetry.
 
 `test-support/production-fixtures.ts` holds the valid plan, the deterministic
 runner and the recording model call. No production path imports it.
@@ -190,7 +189,7 @@ files are opt-in and are not part of CI.
   request, and `pipeline.completed` arrives.
 - `runs.status = succeeded`, `metrics = {"score": 0.9}`,
   `verdict = match` (computed by `evaluateExperiment`).
-- One `agent_tasks` row: `explain_gap`, `gemini-4-hydrogen`, `succeeded`. It
+- One `agent_tasks` row: `explain_gap`, `muse-spark-1.3-contributor`, `succeeded`. It
   is emitted as `agent_task.recorded` and linked as the EVALUATE `taskId`.
 - 47 s end to end.
 

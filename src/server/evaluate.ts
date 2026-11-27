@@ -7,7 +7,12 @@ import type {
   VerdictCheck,
   VerdictDetail,
 } from '../shared/types'
-import { callModel, type CallModelContext, type CallModel } from './model'
+import {
+  callModel,
+  DEFAULT_MODEL_ID,
+  type CallModelContext,
+  type CallModel,
+} from './model'
 import {
   evaluateCheck,
   createVerdictCheck,
@@ -32,7 +37,7 @@ const ExplainGapSchema = z.object({
  * default change cannot silently change the explanation model. The wrapper
  * costs the call from this model's `DEFAULT_PRICING` entry.
  */
-export const EXPLAIN_GAP_MODEL_ID = 'gemini-4-hydrogen'
+export const EXPLAIN_GAP_MODEL_ID = DEFAULT_MODEL_ID
 
 export interface ExplainGapOptions {
   callModelFn?: CallModel

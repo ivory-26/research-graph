@@ -19,21 +19,35 @@
  * workstream (issue #3); this file imports the published table only for the
  * thin Drizzle-backed adapter below and never duplicates the schema.
  *
- * Structured output stays inside Gemini's documented subset: the caller passes
- * a flat, non-recursive Zod schema. The wrapper parses the result with that
- * same Zod schema after the call, because Gemini silently ignores `minLength`,
+ * Structured output goes through the AI SDK's `Output.object`. The caller
+ * passes a flat, non-recursive Zod schema; the wrapper still re-parses with
+ * that schema because provider-side constraint support differs. Meta Model
+ * API constrains decoding to the schema; Gemini silently ignores `minLength`,
  * `maxLength` and `uniqueItems` (ADR 0009).
  */
 import { APICallError, Output, generateText } from 'ai'
 import type { LanguageModel } from 'ai'
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { google } from '@ai-sdk/google'
 import type { z } from 'zod'
 import type { AgentTaskStatus, TaskKind } from '../shared/types'
 import { agentTasks, type NewAgentTask } from '../db/schema'
 import type { Database } from '../db/client'
 
-/** The pinned text model (CLAUDE.md). */
-export const DEFAULT_MODEL_ID = 'gemini-4-hydrogen'
+/**
+ * The pinned text model (CLAUDE.md). Meta Model API's Contributor-mode
+ * variant is used for every text call; Gemini remains the embedding provider.
+ */
+export const DEFAULT_MODEL_ID = 'muse-spark-1.3-contributor'
+
+/** Meta Model API's OpenAI-compatible base URL. */
+export const DEFAULT_MODEL_BASE_URL = 'https://api.meta.ai/v1'
+
+/** Bearer token for the Meta Model API. Never logged or persisted. */
+export const MODEL_API_KEY_ENV = 'MODEL_API_KEY'
+
+/** Optional override for self-hosted or proxied Meta Model API endpoints. */
+export const MODEL_API_BASE_URL_ENV = 'MODEL_API_BASE_URL'
 
 /**
  * One initial attempt plus two retries. docs/03-agent-pipeline.md sets the
@@ -57,17 +71,20 @@ export type ModelPricing = {
  * `agent_tasks.cost_usd`. Override through `createCallModel({ pricing })` if
  * Google changes them; the row records the cost this table produced.
  *
- * `gemini-4-hydrogen` is the default text model; the evaluator's
- * `explain_gap` pin (see `evaluate.ts`) uses the same model. Its entry is the
- * published Standard paid rate: $1.50 per million input tokens and $7.50 per
- * million output tokens. Gemini bills thinking tokens at the output rate, and
- * the SDK's `outputTokens` is the total output count, so thinking is included.
- * `gemini-3.8-flash` is retained for a caller that explicitly overrides the
- * default. This is an accounting estimate from published prices, not billing
- * telemetry or a statement about the account's entitlement; the Standard free
- * tier is not charged.
+ * `muse-spark-1.3-contributor` is the default text model. Its entry is Meta
+ * Model API's Contributor-mode rate: $0.10 per million input tokens and $0.20
+ * per million output tokens. Contributor mode permits Meta to use the prompts
+ * and responses to train future models; the project sends only public paper
+ * text and generated specs, never a secret or personal document. The two
+ * Gemini entries are retained for a caller that explicitly overrides the
+ * default and for the embedding-adjacent tests. This is an accounting
+ * estimate from published prices, not billing telemetry.
  */
 export const DEFAULT_PRICING: Readonly<Record<string, ModelPricing>> = {
+  'muse-spark-1.3-contributor': {
+    inputUsdPerMillionTokens: 0.1,
+    outputUsdPerMillionTokens: 0.2,
+  },
   'gemini-4-hydrogen': {
     inputUsdPerMillionTokens: 1.5,
     outputUsdPerMillionTokens: 7.5,
@@ -177,7 +194,7 @@ export type StructuredGenerationResult = {
 
 /**
  * The only thing between `callModel` and the AI SDK. Tests inject a fake here;
- * production uses `generateWithGemini`.
+ * production uses `generateWithMeta`.
  */
 export type StructuredGenerator = (
   request: StructuredGenerationRequest,
@@ -188,7 +205,7 @@ export type StructuredGenerator = (
  * make its exact type unusable as an injected dependency; the default generator
  * below calls the real function with the documented AI SDK 7 options.
  */
-export type GeminiGenerateText = (options: {
+export type StructuredGenerateText = (options: {
   model: LanguageModel
   prompt: string
   output: unknown
@@ -202,32 +219,68 @@ export type GeminiGenerateText = (options: {
   }
 }>
 
-export type GeminiGeneratorDeps = {
+export type StructuredGeneratorDeps = {
   /** Injected in tests. Defaults to the AI SDK's `generateText`. */
-  generateText?: GeminiGenerateText
-  /** Injected in tests. Defaults to a cached `google(modelId)`. */
+  generateText?: StructuredGenerateText
+  /** Injected in tests. Defaults to the provider's cached model. */
   resolveModel?: (modelId: string) => LanguageModel
 }
 
-const modelCache = new Map<string, LanguageModel>()
+const geminiModelCache = new Map<string, LanguageModel>()
 
 function resolveGeminiModel(modelId: string): LanguageModel {
-  const cached = modelCache.get(modelId)
+  const cached = geminiModelCache.get(modelId)
   if (cached) return cached
   const model = google(modelId)
-  modelCache.set(modelId, model)
+  geminiModelCache.set(modelId, model)
+  return model
+}
+
+let metaProvider: ReturnType<typeof createOpenAICompatible> | null = null
+
+function getMetaProvider(): ReturnType<typeof createOpenAICompatible> {
+  if (metaProvider) return metaProvider
+
+  const apiKey = process.env[MODEL_API_KEY_ENV]?.trim()
+  if (!apiKey) {
+    throw new Error(
+      `${MODEL_API_KEY_ENV} is required for the Meta Model API text provider.`,
+    )
+  }
+
+  metaProvider = createOpenAICompatible({
+    name: 'meta-model-api',
+    baseURL:
+      process.env[MODEL_API_BASE_URL_ENV]?.trim() || DEFAULT_MODEL_BASE_URL,
+    apiKey,
+    // Meta constrains decoding to the supplied JSON Schema; without this the
+    // OpenAI-compatible provider would fall back to plain JSON mode.
+    supportsStructuredOutputs: true,
+  })
+  return metaProvider
+}
+
+const metaModelCache = new Map<string, LanguageModel>()
+
+function resolveMetaModel(modelId: string): LanguageModel {
+  const cached = metaModelCache.get(modelId)
+  if (cached) return cached
+  const model = getMetaProvider()(modelId)
+  metaModelCache.set(modelId, model)
   return model
 }
 
 /**
- * The default generator. `maxRetries: 0` is not a tuning knob: retries belong
- * to `createCallModel` so that every physical attempt gets a task row.
+ * The shared structured-output generator. `maxRetries: 0` is not a tuning
+ * knob: retries belong to `createCallModel` so every physical attempt gets a
+ * task row.
  */
-export function createGeminiGenerator(
-  deps: GeminiGeneratorDeps = {},
+function createStructuredGenerator(
+  defaultResolveModel: (modelId: string) => LanguageModel,
+  deps: StructuredGeneratorDeps,
 ): StructuredGenerator {
-  const resolveModel = deps.resolveModel ?? resolveGeminiModel
-  const generate: GeminiGenerateText =
+  const resolveModel = deps.resolveModel ?? defaultResolveModel
+  const generate: StructuredGenerateText =
     deps.generateText ??
     (async (options) => {
       const result = await generateText({
@@ -259,7 +312,22 @@ export function createGeminiGenerator(
   }
 }
 
+/** The Gemini generator, retained for explicit overrides and tests. */
+export function createGeminiGenerator(
+  deps: StructuredGeneratorDeps = {},
+): StructuredGenerator {
+  return createStructuredGenerator(resolveGeminiModel, deps)
+}
+
+/** The default text generator: Meta Model API, OpenAI-compatible. */
+export function createMetaGenerator(
+  deps: StructuredGeneratorDeps = {},
+): StructuredGenerator {
+  return createStructuredGenerator(resolveMetaModel, deps)
+}
+
 export const generateWithGemini: StructuredGenerator = createGeminiGenerator()
+export const generateWithMeta: StructuredGenerator = createMetaGenerator()
 
 // ---------------------------------------------------------------------------
 // The wrapper
@@ -273,7 +341,7 @@ export type CallModelContext = {
   strategyId?: string | null
   /** Whatever identifies the inputs for this call, e.g. source or chunk ids. */
   inputRef?: Record<string, unknown>
-  /** Defaults to `gemini-4-hydrogen`. */
+  /** Defaults to `muse-spark-1.3-contributor`. */
   modelId?: string
   /**
    * `undefined` uses the configured default price table; `null` records no
@@ -314,7 +382,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 const DEFAULT_RUNTIME: CallModelRuntime = {
-  generate: generateWithGemini,
+  generate: generateWithMeta,
   sleep,
   random: Math.random,
   now: Date.now,

@@ -10,7 +10,7 @@ One interface, one adapter, one story.
 | `ExperimentRunner` interface | `src/server/runner.ts` |
 | E2B adapter | Built, with pinned-package verification and dataset pre-fetch |
 | Deterministic verdict | Built (`src/server/evaluate-verdict.ts`) |
-| `explain_gap` explanation | Built (`src/server/evaluate.ts`, `gemini-4-hydrogen`) |
+| `explain_gap` explanation | Built (`src/server/evaluate.ts`, `muse-spark-1.3-contributor`) |
 | Local Docker path | Built as `Dockerfile.template`; verified by `pnpm verify:hero` |
 | Server-side notebook generation | Successful pipeline runs store an nbformat 4.5 notebook in `run_artifacts` |
 | What-if branch | Built in `src/server/branch.ts`; queued Run B adoption is #62 |
