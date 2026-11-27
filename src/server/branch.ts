@@ -603,7 +603,7 @@ export async function branchWhatIf(
   if (changedLeaf.path === 'parameters.importance_method') {
     if (
       typeof changedLeaf.after !== 'string' ||
-      !['impurity', 'permutation'].includes(changedLeaf.after.trim())
+      (changedLeaf.after !== 'impurity' && changedLeaf.after !== 'permutation')
     ) {
       throw new BranchValidationError(
         `What-if branch parameter "${changedLeaf.path}" must be either "impurity" or "permutation", got "${String(changedLeaf.after)}"`,

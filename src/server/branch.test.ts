@@ -301,6 +301,17 @@ describe('branchWhatIf (Issue #27)', () => {
       name: 'BranchValidationError',
       code: 'INVALID_SPEC',
     })
+
+    await expect(
+      branchWhatIf(
+        parentRun,
+        { path: 'parameters.importance_method', value: ' permutation ' },
+        { store },
+      ),
+    ).rejects.toMatchObject({
+      name: 'BranchValidationError',
+      code: 'INVALID_SPEC',
+    })
   })
 
   it('rejects non-string replacement for files.* in applySingleLeafChange', () => {
