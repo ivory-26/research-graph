@@ -405,12 +405,23 @@ function buildTaskRow(
   }
 }
 
+export class AgentTaskPersistenceError extends Error {
+  constructor(cause: unknown) {
+    super('Could not persist the model attempt', { cause })
+    this.name = 'AgentTaskPersistenceError'
+  }
+}
+
 async function recordTask(
   store: AgentTaskStore,
   row: AgentTaskInsert,
 ): Promise<PersistedAgentTask> {
-  const { id } = await store.insert(row)
-  return { ...row, id }
+  try {
+    const { id } = await store.insert(row)
+    return { ...row, id }
+  } catch (error) {
+    throw new AgentTaskPersistenceError(error)
+  }
 }
 
 type AttemptOutcome<T> =

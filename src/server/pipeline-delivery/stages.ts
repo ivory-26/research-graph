@@ -20,6 +20,7 @@
  * plan is not a reason to replay INGEST_SOURCE: that stage happened before the
  * experiment row existed.
  */
+import type { ApprovalGateView, OpenApprovalGateInput, OpenApprovalGateResult } from '../../db/pipeline'
 import type { PipelineEvent } from '../../shared/events'
 import type { PipelineEventInput } from '../../db/pipeline-validation'
 import type { ExperimentSpec } from '../../shared/types'
@@ -46,6 +47,11 @@ export type PipelineStageContext = {
    */
   signal: AbortSignal
   emit: PipelineEmit
+  repairApproval: {
+    claimId: string
+    open(input: OpenApprovalGateInput): Promise<OpenApprovalGateResult>
+    wait(gateSeq: number): Promise<ApprovalGateView>
+  }
 }
 
 export type PipelinePlanResult = {
@@ -56,6 +62,7 @@ export type PipelinePlanResult = {
 export type PipelineExecutionResult = {
   /** `runs.id` for `pipeline.completed`; null if no run was created. */
   runId: string | null
+  repairRejected?: true
 }
 
 export interface PipelineStages {

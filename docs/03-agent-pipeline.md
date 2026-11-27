@@ -21,7 +21,7 @@ INGEST_SOURCE → EXTRACT_CLAIMS → PROPOSE_EDGES → PLAN_EXPERIMENT
 | `EXECUTE` | `src/server/runner.ts` | Built: real E2B runner with pinned-package verification |
 | `EVALUATE` | `src/server/evaluate.ts`, `evaluate-verdict.ts` | Built: deterministic verdict, then `explain_gap` |
 | `BRANCH_WHAT_IF` | — | Not built |
-| repair loop (`REPAIR_SCRIPT`) | — | Not built |
+| repair loop (`REPAIR_SCRIPT`) | `src/server/branch.ts` | Built; wired into EXECUTE after a failed run |
 | strategy selection | — | Not built; `agent_strategies` exists but nothing picks a strategy |
 
 The rest of this document is the contract each stage is held to, whether or not the stage exists yet.
@@ -143,15 +143,15 @@ One parameter, enforced: the diff between parent and child `spec` must have exac
 
 ## Retry and repair
 
-**Status on `main`: not built.** A failed run is recorded and stops. There is no repair loop. The only retry behaviour is bounded 429 backoff in `callModel` (a new physical attempt and a new `agent_tasks` row) and in the embedding path.
+**Status on `main`: built.** `src/server/branch.ts` implements the loop and `src/server/pipeline-delivery/production-stages.ts` starts it after a failed or timed-out run. Bounded 429 backoff in `callModel` remains the only retry behaviour for other stages.
 
-On `failed`, up to **two** repair attempts:
+On `failed` or `timeout`, up to **two** repair attempts:
 
 1. `REPAIR_SCRIPT` receives the script, the spec, and the last 4,000 characters of stderr.
 2. It returns a full replacement script, not a diff.
 3. The new script re-enters validation and is re-approved automatically only if the repair changed nothing but imports, column names, or paths. Any other change re-opens the approval gate.
 
-Every attempt is its own `runs` row with `attempt` incremented and `parentRunId` chained. The graph shows the chain, which is the visual form of the demo's "errors and fixes appear as linked nodes" beat.
+Every executed repair candidate is its own `runs` row with `attempt` incremented and `parentRunId` chained. A `REPAIR_SCRIPT` call that never yields a valid replacement — a model failure, an empty or unchanged script, or a validation failure — consumes one of the two attempts but writes no run row, because no candidate was executed. The graph shows the chain, which is the visual form of the demo's "errors and fixes appear as linked nodes" beat.
 
 The two-attempt ceiling is not a safety measure, it is a demo measure. An unbounded loop can burn a recording session.
 
