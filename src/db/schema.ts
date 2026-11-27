@@ -298,7 +298,10 @@ export const runs = pgTable('runs', {
   startedAt: timestamp('started_at'),
   finishedAt: timestamp('finished_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-})
+}, (t) => [
+  // Repairs stay in one experiment. What-if branches each own a new experiment.
+  unique('runs_experiment_parent_unique').on(t.experimentId, t.parentRunId),
+])
 
 export const runArtifacts = pgTable('run_artifacts', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -460,6 +463,9 @@ export const approvalGates = pgTable(
     experimentId: uuid('experiment_id').notNull(),
     workspaceId: uuid('workspace_id').notNull(),
     executionClaimId: uuid('execution_claim_id').notNull(),
+    repairParentRunId: uuid('repair_parent_run_id').references(() => runs.id, {
+      onDelete: 'cascade',
+    }),
     /** The seq of the `approval.requested` event that opened this gate. */
     gateSeq: integer('gate_seq').notNull(),
     offeredSpec: jsonb('offered_spec').$type<ExperimentSpec>().notNull(),
@@ -481,7 +487,13 @@ export const approvalGates = pgTable(
       t.experimentId,
       t.gateSeq,
     ),
-    unique('approval_gates_execution_claim_unique').on(t.executionClaimId),
+    uniqueIndex('approval_gates_initial_claim_unique')
+      .on(t.executionClaimId)
+      .where(sql`${t.repairParentRunId} is null`),
+    unique('approval_gates_claim_repair_parent_unique').on(
+      t.executionClaimId,
+      t.repairParentRunId,
+    ),
     // At most one outstanding gate per experiment, even if a future migration
     // permits more than one claim.
     uniqueIndex('approval_gates_one_pending_per_experiment')

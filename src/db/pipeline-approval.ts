@@ -12,7 +12,7 @@
  */
 import { and, eq, sql } from 'drizzle-orm'
 import type { Database } from './client'
-import { approvalGates, experiments } from './schema'
+import { approvalGates, experiments, runs } from './schema'
 import type {
   ApprovalGateView,
   DecideApprovalInput,
@@ -39,9 +39,17 @@ import {
   requireExperimentId,
   requireObjectInput,
   requireSequence,
+  requireUuid,
   requireWorkspaceId,
   validateExperimentSpec,
 } from './pipeline-validation'
+
+/**
+ * Mirrors `MAX_REPAIR_ATTEMPTS` in `src/server/branch.ts`: the initial run is
+ * attempt 1, so attempts 2 and 3 are the two repair candidates. The database
+ * layer cannot import the server module without a cycle.
+ */
+const MAX_REPAIR_ATTEMPT = 3
 
 /**
  * Opens (or idempotently returns) the gate for an active claim.
@@ -61,15 +69,12 @@ export async function openApprovalGate(
   const workspaceId = requireWorkspaceId(data.workspaceId)
   const claimId = requireClaimId(data.claimId)
   const spec = validateExperimentSpec(data.spec)
+  const repairParentRunId = data.repairParentRunId === undefined
+    ? null
+    : requireUuid(data.repairParentRunId, 'repairParentRunId')
 
   return db.transaction(async (tx) => {
     const experiment = await lockExperiment(tx, experimentId, workspaceId)
-    if (experiment.approvalState !== 'pending') {
-      throw new PipelineDbError(
-        'APPROVAL_STATE_CONFLICT',
-        `experiment approval state is '${experiment.approvalState}', not 'pending'`,
-      )
-    }
     if (spec.claimNodeId !== experiment.claimNodeId) {
       throw new PipelineDbError(
         'SPEC_CLAIM_MISMATCH',
@@ -105,6 +110,7 @@ export async function openApprovalGate(
       experimentId,
       workspaceId,
       executionClaimId: claim.id,
+      repairParentRunId,
     })
 
     if (existing) {
@@ -141,6 +147,38 @@ export async function openApprovalGate(
       return { gate: existing, event, created: false }
     }
 
+    if (repairParentRunId === null) {
+      if (experiment.approvalState !== 'pending') {
+        throw new PipelineDbError(
+          'APPROVAL_STATE_CONFLICT',
+          'the initial gate requires pending approval',
+        )
+      }
+    } else {
+      const [parent] = await tx
+        .select({ status: runs.status, attempt: runs.attempt })
+        .from(runs)
+        .where(and(eq(runs.id, repairParentRunId), eq(runs.experimentId, experimentId)))
+      if (
+        !parent ||
+        !['failed', 'timeout'].includes(parent.status) ||
+        parent.attempt >= MAX_REPAIR_ATTEMPT
+      ) {
+        throw new PipelineDbError('GATE_CONFLICT', 'the repair parent is not eligible')
+      }
+      if (experiment.approvalState !== 'approved') {
+        throw new PipelineDbError(
+          'APPROVAL_STATE_CONFLICT',
+          'a repair gate requires a previously approved experiment',
+        )
+      }
+      await tx.update(experiments).set({
+        approvalState: 'pending',
+        approvedBy: null,
+        approvedAt: null,
+      }).where(eq(experiments.id, experimentId))
+    }
+
     const event = await appendEventLocked(tx, {
       experimentId,
       workspaceId,
@@ -157,6 +195,7 @@ export async function openApprovalGate(
       experimentId,
       workspaceId,
       executionClaimId: claim.id,
+      repairParentRunId,
       gateSeq: event.seq,
       offeredSpec: spec,
       status: 'pending',
@@ -240,9 +279,10 @@ export async function decideApproval(
         )
       }
 
+      const latest = await selectApprovalGate(tx, { experimentId, workspaceId })
       if (
-        experiment.approvalState !== gateRow.status ||
-        experiment.approvedBy !== actorId
+        latest?.gateSeq === gateSeq &&
+        (experiment.approvalState !== gateRow.status || experiment.approvedBy !== actorId)
       ) {
         throw new PipelineDbError(
           'APPROVAL_STATE_CONFLICT',
