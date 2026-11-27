@@ -479,8 +479,8 @@ function isPersistenceError(err: unknown): boolean {
   }
   if ('code' in err && typeof (err as any).code === 'string') {
     const code = (err as any).code
-    // 5-character Postgres SQLSTATE codes (e.g. '23505', '42P01')
-    if (/^[0-9A-Z]{5}$/.test(code)) return true
+    // 5-character Postgres SQLSTATE codes (e.g. '23505', '42P01') excluding common Node errors like EPIPE
+    if (/^[0-9A-Z]{5}$/.test(code) && code !== 'EPIPE') return true
   }
   return false
 }
@@ -619,7 +619,7 @@ export async function repairAndRetryRun(
   failedRun: RepairRunRecord,
   options: RepairRetryOptions,
 ): Promise<RepairRetryResult> {
-  if (failedRun.status !== 'failed') {
+  if (failedRun.status !== 'failed' && failedRun.status !== 'timeout') {
     return {
       repaired: false,
       status: 'not_failed',
@@ -1048,17 +1048,9 @@ export async function executeApprovedRepairCandidate(
       )
     }
     if (options.gate.offeredSpec) {
-      const offeredFile =
-        extractEntrypointFile(options.gate.offeredSpec.entrypoint) ??
-        options.gate.offeredSpec.entrypoint
-      const approvedFile =
-        extractEntrypointFile(approvedSpec.entrypoint) ??
-        approvedSpec.entrypoint
-      const offeredScript = options.gate.offeredSpec.files[offeredFile] ?? ''
-      const approvedScript = approvedSpec.files[approvedFile] ?? ''
-      if (offeredScript !== approvedScript) {
+      if (JSON.stringify(options.gate.offeredSpec) !== JSON.stringify(approvedSpec)) {
         throw new Error(
-          'Approved repair spec script does not match the gate offeredSpec script',
+          'Approved repair spec does not match the gate offeredSpec',
         )
       }
     }
