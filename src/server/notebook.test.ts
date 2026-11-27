@@ -329,6 +329,29 @@ describe('buildNotebookDocument (Issue #28)', () => {
     }
   })
 
+  it('fails loudly in dataset download cell when a dataset has no sha256 in spec or environment', () => {
+    const unpinnedSpec = structuredClone(HERO_EXPERIMENT_SPEC_RUN_A)
+    unpinnedSpec.datasets = [
+      {
+        name: 'unpinned-data',
+        url: 'https://openml.org/data/test.csv',
+        path: 'data/test.csv',
+        sha256: null,
+        bytes: 1024,
+      },
+    ]
+
+    const nb = buildNotebookDocument({
+      spec: unpinnedSpec,
+      environment: { ...HERO_RECORDED_RUN_RESULT.environment, datasets: [] },
+      claim: HERO_CLAIM,
+      verdict: 'match',
+    })
+
+    const dsSrc = nb.cells[2]!.source.join('')
+    expect(dsSrc).toContain('raise ValueError(f"Unpinned dataset {ds[\'name\']}: no SHA-256 digest recorded in spec or environment")')
+  })
+
   it('renders reported.against even when reported.comparator is null', () => {
     const nb = buildNotebookDocument({
       spec: HERO_EXPERIMENT_SPEC_RUN_A,

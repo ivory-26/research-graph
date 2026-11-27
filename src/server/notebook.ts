@@ -320,7 +320,7 @@ function buildDatasetDownloadCell(
     )
     lines.push('    else:')
     lines.push(
-      '        print(f"WARNING: unpinned dataset {ds[\'name\']} downloaded at {dest} ({dest.stat().st_size} bytes, sha256={actual_sha256})")',
+      '        raise ValueError(f"Unpinned dataset {ds[\'name\']}: no SHA-256 digest recorded in spec or environment")',
     )
   }
 
