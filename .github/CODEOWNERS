@@ -18,7 +18,7 @@
 /src/server/auth/                @ivory-26
 /src/server/pipeline-delivery/   @ivory-26
 /src/server/pipeline-transport/  @ivory-26
-/src/server/pipeline.ts          @ivory-26   # #7, not created yet
+/src/server/pipeline.ts          @ivory-26   # #7 run → graph projection
 /scripts/                        @ivory-26
 /.github/                        @ivory-26
 /.opencode/                      @ivory-26

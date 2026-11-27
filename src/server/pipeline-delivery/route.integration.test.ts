@@ -337,6 +337,28 @@ describeIntegration('mounted pipeline routes over real Postgres', () => {
     return result.rows
   }
 
+  /** The abort path projects after the row update; wait for that write. */
+  async function waitForRunNode(timeoutMs = 3_000) {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const result = await testDb.pool.query<{
+        id: string
+        data: Record<string, unknown>
+      }>(
+        `SELECT id, data
+           FROM nodes
+          WHERE workspace_id = $1 AND type = 'run'`,
+        [seed.workspaceId],
+      )
+      const node = result.rows[0]
+      if (node) return node
+      if (Date.now() > deadline) {
+        throw new Error('timed out waiting for the run graph node')
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+  }
+
   it('runs the real provider and survives an approval posted by the other mounted route', async () => {
     const sse = await openStream(seed.experimentId)
     const requested = (await sse.waitFor(
@@ -474,5 +496,13 @@ describeIntegration('mounted pipeline routes over real Postgres', () => {
     const rows = await runRows()
     expect(rows).toHaveLength(1)
     expect(rows[0]?.status).toBe('cancelled')
+
+    // The terminal row is projected even though the consumer went away.
+    const runNode = await waitForRunNode()
+    expect(runNode.data).toMatchObject({
+      type: 'run',
+      runId: rows[0]?.id,
+      status: 'cancelled',
+    })
   })
 })
