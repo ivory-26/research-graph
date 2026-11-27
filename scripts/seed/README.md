@@ -364,7 +364,12 @@ seed never resets it for you.
   embedding calls before the edge call returned 503; one attempt failed
   structured-output validation. No complete pair was produced, so
   `pnpm seed:compare` was not reached.
-- `callModel` and embeddings now retry 429 and 503 with bounded backoff and
-  one `agent_tasks` row per physical attempt. The live two-seed baseline
-  remains the outstanding gate; the "under one minute" budget is not yet
-  measured.
+- On the 429/503-retry build (`2b6a0ae`), the seed ran for 2m05s and
+  exhausted three hydrogen attempts at `extract_claims` (two `retried` rows,
+  one `failed` row, one row per physical attempt); `seed_b` was untouched.
+  A direct 1-token probe at 13:32 UTC returned 503 for both pinned models,
+  while `gemini-3.6-flash`, `gemini-3.5-flash` and `gemini-2.5-flash`
+  returned 200 and `gemini-4-argon` returned a 429 quota error. The capacity
+  block is model-specific and temporary; the pinned pair is still blocked.
+- The live two-seed baseline remains the outstanding gate; the "under one
+  minute" budget is not yet measured.
