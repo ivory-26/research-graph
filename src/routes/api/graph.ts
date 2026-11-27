@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 
 import { getDb } from '../../db/client';
 import { edges, nodes, sourceChunks } from '../../db/schema';
@@ -39,7 +39,8 @@ export const Route = createFileRoute('/api/graph')({
             db
               .select()
               .from(nodes)
-              .where(eq(nodes.workspaceId, membership.workspaceId)),
+              .where(eq(nodes.workspaceId, membership.workspaceId))
+              .orderBy(asc(nodes.createdAt), asc(nodes.id)),
             db
               .select({
                 edge: edges,
@@ -55,9 +56,6 @@ export const Route = createFileRoute('/api/graph')({
           ]);
 
           const nodeTitleById = new Map(dbNodes.map((n) => [n.id, n.title]));
-          const allOrigin =
-            dbNodes.length > 1 &&
-            dbNodes.every((n) => n.positionX === 0 && n.positionY === 0);
 
           const columnByType: Record<string, number> = {
             source: 40,
@@ -73,7 +71,7 @@ export const Route = createFileRoute('/api/graph')({
           const formattedNodes = dbNodes.map((n) => {
             let x = n.positionX;
             let y = n.positionY;
-            if (allOrigin) {
+            if (x === 0 && y === 0) {
               const colX = columnByType[n.type] ?? 320;
               const rowIdx = rowCountByCol.get(colX) ?? 0;
               rowCountByCol.set(colX, rowIdx + 1);

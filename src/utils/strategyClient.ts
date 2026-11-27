@@ -1,15 +1,7 @@
 import type { AgentTaskStatus, TaskKind } from '../shared/types';
+import type { AgentTaskRow } from '../shared/strategies';
 
-export interface AgentTaskRow {
-  id: string;
-  taskKind: TaskKind;
-  strategyId: string;
-  runId: string | null;
-  status: AgentTaskStatus;
-  latencyMs: number | null;
-  costUsd: number | null;
-  error?: string | null;
-}
+export type { AgentTaskRow };
 
 export interface AggregatedStrategyStat {
   key: string;

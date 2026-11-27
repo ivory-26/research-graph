@@ -528,10 +528,15 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
             </span>
             <button
               type="button"
-              onClick={() => {
-                navigator.clipboard?.writeText(quote);
-                setCopiedQuote(true);
-                setTimeout(() => setCopiedQuote(false), 1800);
+              onClick={async () => {
+                try {
+                  if (!navigator.clipboard?.writeText) return;
+                  await navigator.clipboard.writeText(quote);
+                  setCopiedQuote(true);
+                  setTimeout(() => setCopiedQuote(false), 1800);
+                } catch {
+                  // Ignore clipboard rejection
+                }
               }}
               className="flex items-center gap-1 px-1.5 py-0.5 border border-[var(--border-primary)] bg-[var(--bg-surface)] hover:border-[#f97316] hover:text-[#f97316] transition text-[9px] font-mono uppercase cursor-pointer"
               title="Copy quote to clipboard"

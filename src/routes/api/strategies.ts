@@ -10,7 +10,7 @@ import {
   UnauthenticatedError,
   WorkspaceAccessDeniedError,
 } from '../../server/auth.server';
-import type { AgentTaskRow } from '../../utils/strategyClient';
+import type { AgentTaskRow } from '../../shared/strategies';
 
 /**
  * Auth-guarded, workspace-scoped Strategy Tasks API endpoint.
