@@ -471,7 +471,22 @@ const NODE_ERRNO_CODES = new Set([
   'EPIPE', 'EBUSY', 'EPERM', 'ELOOP', 'EROFS', 'EXDEV', 'ENXIO',
   'EFBIG', 'ENOSPC', 'ESPIPE', 'EMLINK', 'EFAULT', 'ENODEV',
   'EISDIR', 'ENOTDIR', 'EINVAL', 'EMFILE', 'ENFILE', 'ENOTTY', 'EAGAIN',
+  'EEXIST', 'ENOMEM', 'EBADF', 'E2BIG', 'ECHILD', 'EDOM', 'ENODATA',
+  'ENOPROTOOPT', 'EPROTONOSUPPORT', 'ESOCKTNOSUPPORT', 'EPFNOSUPPORT',
 ])
+
+function isDeepEqual(a: any, b: any): boolean {
+  if (a === b) return true
+  if (a == null || b == null || typeof a !== 'object' || typeof b !== 'object') return false
+  const keysA = Object.keys(a)
+  const keysB = Object.keys(b)
+  if (keysA.length !== keysB.length) return false
+  for (const key of keysA) {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) return false
+    if (!isDeepEqual(a[key], b[key])) return false
+  }
+  return true
+}
 
 function isPersistenceError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
@@ -1057,7 +1072,7 @@ export async function executeApprovedRepairCandidate(
       )
     }
     if (options.gate.offeredSpec) {
-      if (JSON.stringify(options.gate.offeredSpec) !== JSON.stringify(approvedSpec)) {
+      if (!isDeepEqual(options.gate.offeredSpec, approvedSpec)) {
         throw new Error(
           'Approved repair spec does not match the gate offeredSpec',
         )
