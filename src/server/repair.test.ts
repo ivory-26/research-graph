@@ -492,7 +492,11 @@ describe('repairAndRetryRun (Issue #26)', () => {
     const resumed = await executeApprovedRepairCandidate(
       paused.finalRun,
       paused.candidateSpec!,
-      { runStore, runner },
+      {
+        runStore,
+        runner,
+        gate: { status: 'approved', offeredSpec: paused.candidateSpec! },
+      },
     )
     expect(runnerCalls).toBe(1)
     expect(resumed.parentRunId).toBe(failedRun.id)
@@ -637,6 +641,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     const firstChild = await executeApprovedRepairCandidate(failedRun, brokenSpec, {
       runStore,
       runner,
+      gate: { status: 'approved', offeredSpec: brokenSpec },
     })
     expect(firstChild.parentRunId).toBe(failedRun.id)
 
@@ -645,6 +650,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
       executeApprovedRepairCandidate(failedRun, brokenSpec, {
         runStore,
         runner,
+        gate: { status: 'approved', offeredSpec: brokenSpec },
       }),
     ).rejects.toThrow(/Child repair run already exists/)
   })
@@ -772,6 +778,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
       executeApprovedRepairCandidate(succeededRun, spec, {
         runStore,
         runner,
+        gate: { status: 'approved', offeredSpec: spec },
       }),
     ).rejects.toThrow(/Cannot execute repair candidate for non-failed parent run/)
 
@@ -783,7 +790,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
       executeApprovedRepairCandidate(failedRun, spec, {
         runStore,
         runner,
-        gate: { status: 'rejected' },
+        gate: { status: 'rejected', offeredSpec: spec },
       }),
     ).rejects.toThrow(/gate status is "rejected"/)
 
@@ -857,7 +864,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     expect(result.status).toBe('not_failed')
   })
 
-  it('returns exhausted from repairAndRetryRun when a child repair run already exists', async () => {
+  it('returns the existing repaired child from repairAndRetryRun when a child repair run already exists', async () => {
     const spec = makeBrokenImportSpec()
     const failedRun = makeFailedRun(spec, 'error')
     const runStore = new MemoryRepairRunStore()
@@ -874,6 +881,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     await executeApprovedRepairCandidate(failedRun, spec, {
       runStore,
       runner,
+      gate: { status: 'approved', offeredSpec: spec },
     })
 
     // Calling repairAndRetryRun on the parent now should return exhausted rather than throw
@@ -884,6 +892,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     })
     expect(result.status).toBe('repaired')
     expect(result.repaired).toBe(true)
+    expect(result.attemptsUsed).toBe(1)
     expect(result.runs).toHaveLength(2)
   })
 
@@ -1176,6 +1185,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
       {
         runStore,
         runner,
+        gate: { status: 'approved', offeredSpec: HERO_EXPERIMENT_SPEC_RUN_A },
         emitEvent: (ev) => {
           events.push(ev)
         },
@@ -1197,7 +1207,11 @@ describe('repairAndRetryRun (Issue #26)', () => {
       executeApprovedRepairCandidate(
         attemptThreeRun,
         HERO_EXPERIMENT_SPEC_RUN_A,
-        { runStore, runner },
+        {
+          runStore,
+          runner,
+          gate: { status: 'approved', offeredSpec: HERO_EXPERIMENT_SPEC_RUN_A },
+        },
       ),
     ).rejects.toThrow('Repair ceiling reached')
   })
@@ -1222,6 +1236,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     await executeApprovedRepairCandidate(failedRun, HERO_EXPERIMENT_SPEC_RUN_A, {
       runStore,
       runner,
+      gate: { status: 'approved', offeredSpec: HERO_EXPERIMENT_SPEC_RUN_A },
       emitEvent: (ev) => {
         events.push(ev)
       },

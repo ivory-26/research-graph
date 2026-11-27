@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database } from '../db/client'
 import type { OpenApprovalGateInput, OpenApprovalGateResult } from '../db/pipeline-types'
-import { runs } from '../db/schema'
+import { runs, type ApprovalGateStatus } from '../db/schema'
 import type {
   ExperimentResult,
   ExperimentSpec,
@@ -493,7 +493,7 @@ function isPersistenceError(err: unknown): boolean {
   if (err.constructor && /postgres|drizzle|neon/i.test(err.constructor.name)) return true
   if (err instanceof Error) {
     if (
-      /agent_tasks|postgres|drizzle|neon|relation ".*"|syntax error at or near|violates.*constraint/i.test(
+      /agent_tasks|relation ".*" does not exist|syntax error at or near|violates .* constraint|duplicate key value|current transaction is aborted|insert or update on table/i.test(
         err.message,
       )
     ) {
@@ -502,8 +502,10 @@ function isPersistenceError(err: unknown): boolean {
   }
   if ('code' in err && typeof (err as any).code === 'string') {
     const code = (err as any).code
-    // 5-character Postgres SQLSTATE codes (e.g. '23505', '42P01') excluding Node errno codes
-    if (/^[0-9A-Z]{5}$/.test(code) && !NODE_ERRNO_CODES.has(code)) return true
+    // 5-character Postgres SQLSTATE codes (e.g. '23505', '42P01'). Every real
+    // SQLSTATE contains at least one digit, so requiring one cleanly separates
+    // them from all-letter Node errno codes without maintaining an exhaustive list.
+    if (/^(?=.*\d)[0-9A-Z]{5}$/.test(code) && !NODE_ERRNO_CODES.has(code)) return true
   }
   return false
 }
@@ -663,7 +665,7 @@ export async function repairAndRetryRun(
       return {
         repaired: childSucceeded,
         status: childSucceeded ? 'repaired' : 'exhausted',
-        attemptsUsed: 0,
+        attemptsUsed: existingChild.attempt - failedRun.attempt,
         runs: [failedRun, existingChild],
         finalRun: existingChild,
       }
@@ -902,22 +904,32 @@ export async function repairAndRetryRun(
   }
 }
 
-export type ExecuteApprovedRepairCandidateOptions = {
+export type ExecuteChainedRepairRunOptions = {
   runStore: RepairRunStore
   runner: ExperimentRunner
   emitEvent?: (event: RepairPipelineEvent) => Promise<void> | void
   onStdout?: (chunk: string) => void
   now?: () => Date
-  gate?: {
-    status: string
-    offeredSpec?: ExperimentSpec
-  }
 }
+
+export type ExecuteApprovedRepairCandidateOptions =
+  ExecuteChainedRepairRunOptions & {
+    /**
+     * The verified durable gate decision. Required (not opt-in) so a non-allowlisted
+     * repair can never execute as if approved when the caller omits it. `offeredSpec`
+     * is required and must structurally equal `approvedSpec`; a missing gate or
+     * `offeredSpec` is treated as a rejection, never a default-approve.
+     */
+    gate: {
+      status: ApprovalGateStatus
+      offeredSpec: ExperimentSpec
+    }
+  }
 
 async function executeChainedRepairRun(
   parentRun: RepairRunRecord,
   spec: ExperimentSpec,
-  options: ExecuteApprovedRepairCandidateOptions,
+  options: ExecuteChainedRepairRunOptions,
 ): Promise<RepairRunRecord> {
   const now = options.now ?? (() => new Date())
   const startedAt = now()
@@ -1048,11 +1060,13 @@ async function executeChainedRepairRun(
 /**
  * Resumes and executes an approved repair candidate spec once human approval
  * has been resolved (docs/03-agent-pipeline.md:112-124).
- * Precondition: Callers must verify the human approval decision on the durable gate
- * (confirming `gate.status === 'approved'` and passing `gate.offeredSpec`) before invoking this function.
- * Enforces the two-attempt repair ceiling against the run chain, re-validates the spec,
- * creates the next chained `runs` row with incremented attempt and `parentRunId`, executes
- * via runner, evaluates verdict by code, emits lifecycle events, and updates the run record.
+ * Requires the verified durable gate decision (`options.gate`): the caller passes the
+ * recorded `ApprovalGateView`, whose `status` must be `'approved'` and whose `offeredSpec`
+ * must structurally equal `approvedSpec`. A missing gate or `offeredSpec` is a rejection,
+ * never a default-approve. Enforces the two-attempt repair ceiling against the run chain,
+ * re-validates the spec, creates the next chained `runs` row with incremented attempt and
+ * `parentRunId`, executes via runner, evaluates verdict by code, emits lifecycle events,
+ * and updates the run record.
  */
 export async function executeApprovedRepairCandidate(
   parentRun: RepairRunRecord,
@@ -1065,19 +1079,15 @@ export async function executeApprovedRepairCandidate(
     )
   }
 
-  if (options.gate) {
-    if (options.gate.status !== 'approved') {
-      throw new Error(
-        `Cannot execute repair candidate: gate status is "${options.gate.status}", expected "approved"`,
-      )
-    }
-    if (options.gate.offeredSpec) {
-      if (!isDeepEqual(options.gate.offeredSpec, approvedSpec)) {
-        throw new Error(
-          'Approved repair spec does not match the gate offeredSpec',
-        )
-      }
-    }
+  if (options.gate.status !== 'approved') {
+    throw new Error(
+      `Cannot execute repair candidate: gate status is "${options.gate.status}", expected "approved"`,
+    )
+  }
+  if (!isDeepEqual(options.gate.offeredSpec, approvedSpec)) {
+    throw new Error(
+      'Approved repair spec does not match the gate offeredSpec',
+    )
   }
 
   if (remainingRepairAttempts(parentRun.attempt) <= 0) {
