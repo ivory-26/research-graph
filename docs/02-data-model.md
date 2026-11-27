@@ -308,7 +308,7 @@ type VerdictDetail = {
 | An edge has evidence | `CHECK` constraint |
 | A claim's reported value is never overwritten by a measurement | separate tables, separate columns |
 | A run's specification is immutable once executed | `runs.spec` is a frozen copy |
-| A what-if changes exactly one parameter | not built yet; will be validated against `parentRunId` |
+| A what-if changes exactly one parameter | `src/server/branch.ts` validates the diff; the queued Run B is adopted by #62 |
 | Every model call is accounted for | one `agent_tasks` row per physical attempt, success or failure |
 | Deleting a source or run cannot silently orphan an edge | `ON DELETE RESTRICT` on `evidence_chunk_id` and `evidence_run_id` |
 | One experiment starts at most one execution | unique `execution_claims.experiment_id` |

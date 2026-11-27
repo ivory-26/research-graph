@@ -23,9 +23,13 @@
  *   stages produced the graph and the experiment row before this endpoint was
  *   called; emitting their events here would be fiction. Only stages that
  *   actually run in this request emit `stage.*`.
- * - It does not write result/run graph nodes or the `produced` edge. That is
- *   `src/server/pipeline.ts` (#7), which has not landed. The run row and the
- *   durable events are the record this layer owns.
+ * - It does not write graph rows inline. Once a run is terminal it calls
+ *   `projectRunToGraph` from `src/server/pipeline.ts` (#7), which writes the
+ *   run/result nodes and the `produced` edge in one transaction. The run row
+ *   and the durable events remain the record this layer owns.
+ * - It does not emit `node.upserted` / `edge.upserted`. The projection is a
+ *   durable row write and also runs on abort paths, where `emit` refuses every
+ *   event; the graph is read from `nodes` and `edges`, not the event log.
  * - It does not emit `run.stdout`. The only write path the transport has is
  *   the durable event log, so per-chunk stdout would create one row per line.
  *   `runs.stdout` remains the durable record.
@@ -39,6 +43,14 @@ import type {
   ExperimentSpec,
   RunEnvironment,
 } from '../../shared/types'
+import {
+  MAX_REPAIR_ATTEMPTS,
+  createDrizzleRepairRunStore,
+  executeApprovedRepairCandidate,
+  repairAndRetryRun,
+  type RepairPipelineEvent,
+  type RepairRunRecord,
+} from '../branch'
 import { evaluateAndExplainExperiment } from '../evaluate'
 import {
   callModel as productionCallModel,
@@ -47,6 +59,7 @@ import {
   type CallModelContext,
   type PersistedAgentTask,
 } from '../model'
+import { projectRunToGraph } from '../pipeline'
 import { validateExperimentSpec } from '../planner'
 import { StreamBudgetExceededError } from '../pipeline-transport'
 import {
@@ -150,6 +163,28 @@ function abortedRunStatus(signal: AbortSignal): 'timeout' | 'cancelled' {
     : 'cancelled'
 }
 
+/**
+ * Projects a terminal run without masking the failure already on its way out.
+ *
+ * The abort path and the `finally` that owes the graph after an error use
+ * this. Normal completion calls `projectRunToGraph` directly: there a
+ * projection failure is the pipeline's failure, not something to log and
+ * forget.
+ */
+async function projectRunToGraphSafely(
+  db: Database,
+  runId: string,
+): Promise<void> {
+  try {
+    await projectRunToGraph(db, runId)
+  } catch (error) {
+    console.error(
+      '[pipeline-delivery] could not project the terminal run onto the graph',
+      error,
+    )
+  }
+}
+
 export function createProductionPipelineStages(
   options: ProductionPipelineStageOptions,
 ): ProductionPipelineStages {
@@ -159,6 +194,7 @@ export function createProductionPipelineStages(
   const randomUUID = options.randomUUID ?? (() => crypto.randomUUID())
   const now = options.now ?? (() => new Date())
   const taskStore = createDrizzleAgentTaskStore(db)
+  const repairStore = createDrizzleRepairRunStore(db)
 
   async function loadStoredSpec(
     context: PipelineStageContext,
@@ -182,6 +218,74 @@ export function createProductionPipelineStages(
     }
 
     return row.spec
+  }
+
+  async function repair(
+    context: PipelineStageContext,
+    failedRun: RepairRunRecord,
+    executionRunner: ExperimentRunner,
+  ) {
+    const modelContext = {
+      workspaceId: context.workspaceId,
+      store: taskStore,
+      signal: context.signal,
+    }
+    const emitRepairEvent = async (event: RepairPipelineEvent): Promise<void> => {
+      if (event.type === 'run.stdout') return
+      const { at: _at, experimentId: _experimentId, ...input } = event
+      await context.emit(input)
+    }
+    const repairOptions = {
+      runStore: {
+        ...repairStore,
+        async updateRun(...args: Parameters<typeof repairStore.updateRun>) {
+          const run = await repairStore.updateRun(...args)
+          if (context.signal.aborted) {
+            await projectRunToGraphSafely(db, run.id)
+          } else {
+            await projectRunToGraph(db, run.id)
+          }
+          return run
+        },
+      },
+      runner: executionRunner,
+      emitEvent: emitRepairEvent,
+      signal: context.signal,
+      abortedStatus: () => abortedRunStatus(context.signal),
+      now,
+    }
+
+    let finalRun = failedRun
+    let attemptsLeft = MAX_REPAIR_ATTEMPTS
+    while (attemptsLeft > 0) {
+      const result = await repairAndRetryRun(finalRun, {
+        ...repairOptions,
+        maxAttempts: attemptsLeft,
+        modelContext,
+        callModelFn,
+        claimId: context.repairApproval.claimId,
+        openApprovalGate: context.repairApproval.open,
+      })
+      finalRun = result.finalRun
+      attemptsLeft -= result.attemptsUsed
+      if (result.status !== 'awaiting_approval') break
+
+      if (!result.candidateSpec || result.gateSeq === undefined) {
+        throw new Error('repair awaiting approval did not return a candidate and gate')
+      }
+      const gate = await context.repairApproval.wait(result.gateSeq)
+      if (gate.id !== result.gateId) throw new Error('the repair approval gate changed')
+      if (gate.status === 'rejected') {
+        return { runId: finalRun.id, repairRejected: true as const }
+      }
+
+      finalRun = await executeApprovedRepairCandidate(finalRun, result.candidateSpec, {
+        ...repairOptions,
+        gate,
+      })
+      if (finalRun.status === 'succeeded') break
+    }
+    return { runId: finalRun.id }
   }
 
   const stages: PipelineStages = {
@@ -263,21 +367,28 @@ export function createProductionPipelineStages(
           })
         }
       }
-      context.signal.addEventListener('abort', cancelActiveSandboxes, {
-        once: true,
-      })
+      const executionRunner: ExperimentRunner = {
+        async run(spec, onStdout) {
+          context.signal.throwIfAborted()
+          context.signal.addEventListener('abort', cancelActiveSandboxes, { once: true })
+          try {
+            return await runner.run(spec, onStdout)
+          } finally {
+            context.signal.removeEventListener('abort', cancelActiveSandboxes)
+          }
+        },
+        cancel: (sandboxId) => runner.cancel(sandboxId),
+      }
 
       let result: ExperimentResult
       let runnerThrew = false
       try {
-        result = await runner.run(spec, () => {
+        result = await executionRunner.run(spec, () => {
           // Durable stdout lives in `runs.stdout`; see the module header.
         })
       } catch (error) {
         runnerThrew = true
         result = failedResultFromRunnerError(error, spec, startedAt)
-      } finally {
-        context.signal.removeEventListener('abort', cancelActiveSandboxes)
       }
 
       const finishedAt = now()
@@ -291,7 +402,15 @@ export function createProductionPipelineStages(
         try {
           await db
             .update(runs)
-            .set({ status, finishedAt })
+            .set({
+              status,
+              // Whatever the runner captured before the abort is still the
+              // run's output. Metrics are deliberately not written: a result
+              // obtained after cancellation is not trusted as a measurement.
+              stdout: result.stdout,
+              stderr: result.stderr,
+              finishedAt,
+            })
             .where(eq(runs.id, runId))
         } catch (error) {
           console.error(
@@ -299,6 +418,12 @@ export function createProductionPipelineStages(
             error,
           )
         }
+
+        // The row is terminal now, so the graph gets its nodes even though
+        // this path ends in a throw. Best-effort: the abort reason is the
+        // error the caller must see.
+        await projectRunToGraphSafely(db, runId)
+
         throw context.signal.reason instanceof Error
           ? context.signal.reason
           : new Error('the pipeline was aborted')
@@ -317,107 +442,147 @@ export function createProductionPipelineStages(
         })
         .where(eq(runs.id, runId))
 
-      if (runnerThrew) {
+      // The run row is terminal from here on. Every exit from this block —
+      // normal return, deadline, disconnect or an evaluation failure — owes
+      // the graph its run/result nodes and `produced` edge. The normal path
+      // projects after the verdict is persisted; the `finally` covers every
+      // other exit and never masks the original error.
+      let graphProjected = false
+      try {
+        if (runnerThrew) {
+          await context.emit({
+            type: 'run.failed',
+            runId,
+            error: 'The experiment runner did not complete',
+          })
+        } else {
+          await context.emit({ type: 'run.succeeded', runId, result })
+        }
+
         await context.emit({
-          type: 'run.failed',
+          type: 'stage.finished',
+          stage: 'EXECUTE',
+          status: runStatus,
+          taskId: null,
+          error:
+            runStatus === 'succeeded'
+              ? null
+              : runnerThrew
+                ? 'The experiment runner did not complete'
+                : 'The experiment script did not exit successfully',
+        })
+
+        await context.emit({ type: 'stage.started', stage: 'EVALUATE' })
+
+        const callContext: CallModelContext = {
+          workspaceId: context.workspaceId,
+          taskKind: 'explain_gap',
+          store: taskStore,
+          inputRef: { experimentId: context.experimentId, runId },
+          signal: context.signal,
+        }
+
+        // `evaluateAndExplainExperiment` returns only the verdict and detail,
+        // so the rows its model call wrote are captured here and accounted for
+        // on the stream. `callModel` persists a failed attempt and then throws
+        // without returning the row; that row is still in `agent_tasks` and
+        // the server log, but it cannot be emitted from this seam.
+        const recordedTasks: PersistedAgentTask[] = []
+        const capturingCallModel: CallModel = async (schema, prompt, ctx) => {
+          const call = await callModelFn(schema, prompt, ctx)
+          recordedTasks.push(...call.attempts)
+          return call
+        }
+
+        const evaluated = await evaluateAndExplainExperiment(
+          spec,
+          result,
+          callContext,
+          { callModelFn: capturingCallModel },
+        )
+
+        // Persist the verdict before the abort check and before the event
+        // writes. The verdict is arithmetic and belongs on the run row even if
+        // the stream budget expires while its events are appended; the graph
+        // then projects the same authoritative data instead of a null verdict.
+        const [terminalRun] = await db
+          .update(runs)
+          .set({
+            verdict: evaluated.verdict,
+            verdictDetail: evaluated.detail,
+          })
+          .where(eq(runs.id, runId))
+          .returning()
+        if (!terminalRun) throw new Error('the terminal run could not be read back')
+
+        if (context.signal.aborted) {
+          throw context.signal.reason instanceof Error
+            ? context.signal.reason
+            : new Error('the pipeline was aborted')
+        }
+
+        for (const task of recordedTasks) {
+          await context.emit({
+            type: 'agent_task.recorded',
+            task: {
+              id: task.id,
+              taskKind: task.taskKind,
+              strategyId: task.strategyId,
+              model: task.model,
+              status: task.status,
+              promptTokens: task.promptTokens,
+              completionTokens: task.completionTokens,
+              // `numeric` is a string in Postgres; the event carries a number.
+              costUsd: task.costUsd === null ? null : Number(task.costUsd),
+              latencyMs: task.latencyMs,
+              error: task.error,
+            },
+          })
+        }
+
+        await context.emit({
+          type: 'verdict.computed',
           runId,
-          error: 'The experiment runner did not complete',
-        })
-      } else {
-        await context.emit({ type: 'run.succeeded', runId, result })
-      }
-
-      await context.emit({
-        type: 'stage.finished',
-        stage: 'EXECUTE',
-        status: runStatus,
-        taskId: null,
-        error:
-          runStatus === 'succeeded'
-            ? null
-            : runnerThrew
-              ? 'The experiment runner did not complete'
-              : 'The experiment script did not exit successfully',
-      })
-
-      await context.emit({ type: 'stage.started', stage: 'EVALUATE' })
-
-      const callContext: CallModelContext = {
-        workspaceId: context.workspaceId,
-        taskKind: 'explain_gap',
-        store: taskStore,
-        inputRef: { experimentId: context.experimentId, runId },
-        signal: context.signal,
-      }
-
-      // `evaluateAndExplainExperiment` returns only the verdict and detail, so
-      // the rows its model call wrote are captured here and accounted for on
-      // the stream. `callModel` persists a failed attempt and then throws
-      // without returning the row; that row is still in `agent_tasks` and the
-      // server log, but it cannot be emitted from this seam.
-      const recordedTasks: PersistedAgentTask[] = []
-      const capturingCallModel: CallModel = async (schema, prompt, ctx) => {
-        const call = await callModelFn(schema, prompt, ctx)
-        recordedTasks.push(...call.attempts)
-        return call
-      }
-
-      const evaluated = await evaluateAndExplainExperiment(
-        spec,
-        result,
-        callContext,
-        { callModelFn: capturingCallModel },
-      )
-
-      if (context.signal.aborted) {
-        throw context.signal.reason instanceof Error
-          ? context.signal.reason
-          : new Error('the pipeline was aborted')
-      }
-
-      for (const task of recordedTasks) {
-        await context.emit({
-          type: 'agent_task.recorded',
-          task: {
-            id: task.id,
-            taskKind: task.taskKind,
-            strategyId: task.strategyId,
-            model: task.model,
-            status: task.status,
-            promptTokens: task.promptTokens,
-            completionTokens: task.completionTokens,
-            // `numeric` is a string in Postgres; the event carries a number.
-            costUsd: task.costUsd === null ? null : Number(task.costUsd),
-            latencyMs: task.latencyMs,
-            error: task.error,
-          },
-        })
-      }
-
-      await db
-        .update(runs)
-        .set({
           verdict: evaluated.verdict,
-          verdictDetail: evaluated.detail,
+          detail: evaluated.detail,
         })
-        .where(eq(runs.id, runId))
 
-      await context.emit({
-        type: 'verdict.computed',
-        runId,
-        verdict: evaluated.verdict,
-        detail: evaluated.detail,
-      })
+        await context.emit({
+          type: 'stage.finished',
+          stage: 'EVALUATE',
+          status: 'succeeded',
+          taskId: recordedTasks.at(-1)?.id ?? null,
+          error: null,
+        })
 
-      await context.emit({
-        type: 'stage.finished',
-        stage: 'EVALUATE',
-        status: 'succeeded',
-        taskId: recordedTasks.at(-1)?.id ?? null,
-        error: null,
-      })
+        // Last write before completion: the result node carries the verdict
+        // the row now holds. A failure here fails the pipeline rather than
+        // reporting completion without the graph; a retry is idempotent.
+        try {
+          await projectRunToGraph(db, runId)
+          graphProjected = true
+        } catch (error) {
+          // Driver detail stays in the server log; the durable/streamed text
+          // is a product-authored sentence.
+          console.error(
+            '[pipeline-delivery] could not project the terminal run onto the graph',
+            error,
+          )
+          throw new PipelineStageError(
+            'the terminal run could not be written to the graph',
+            'The completed run could not be written to the graph',
+          )
+        }
 
-      return { runId }
+        if (runStatus === 'failed' && !runnerThrew) {
+          return await repair(context, terminalRun, executionRunner)
+        }
+        return { runId }
+      } finally {
+        if (!graphProjected) {
+          await projectRunToGraphSafely(db, runId)
+        }
+      }
     },
   }
 

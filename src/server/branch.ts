@@ -1,12 +1,12 @@
 import { posix } from 'node:path'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { Database } from '../db/client'
 import type {
   OpenApprovalGateInput,
   OpenApprovalGateResult,
 } from '../db/pipeline-types'
-import { experiments, runs } from '../db/schema'
+import { experiments, runs, type ApprovalGateStatus } from '../db/schema'
 import type {
   ApprovalState,
   ExperimentResult,
@@ -26,6 +26,7 @@ import type {
 } from '../shared/events'
 import { evaluateExperiment } from './evaluate-verdict'
 import {
+  AgentTaskPersistenceError,
   callModel as productionCallModel,
   type CallModel,
   type CallModelContext,
@@ -455,8 +456,9 @@ export type BranchWhatIfResult = {
 }
 
 /**
- * Local copy of `initialEnvironment` from `src/server/pipeline-delivery/production-stages.ts:92-105`
- * (kept local per `docs/07-workstreams.md` file ownership; records empty placeholders while `status` is `'queued'`).
+ * Placeholder environment for a queued branch run. Kept local because
+ * `production-stages.ts` imports this module; sharing its helper would create a
+ * cycle. `startedAt` is filled when EXECUTE adopts the queued row (#62).
  */
 function initialBranchEnvironment(spec: ExperimentSpec): RunEnvironment {
   return {
@@ -697,8 +699,8 @@ export type RepairRunUpdate = {
   status: RunStatus
   metrics: Record<string, number>
   environment: RunEnvironment
-  verdict: Verdict
-  verdictDetail: VerdictDetail
+  verdict: Verdict | null
+  verdictDetail: VerdictDetail | null
   stdout: string
   stderr: string
   finishedAt: Date
@@ -707,11 +709,11 @@ export type RepairRunUpdate = {
 export interface RepairRunStore {
   createRun(input: NewRepairRunRecord): Promise<RepairRunRecord>
   updateRun(runId: string, patch: RepairRunUpdate): Promise<RepairRunRecord>
-  getChildRun?(parentRunId: string): Promise<RepairRunRecord | null>
+  getChildRun?(parentRunId: string, experimentId: string): Promise<RepairRunRecord | null>
 }
 
 export function createDrizzleRepairRunStore(
-  db: Pick<Database, 'insert' | 'update'> & { query?: any },
+  db: Pick<Database, 'insert' | 'update' | 'select'>,
 ): RepairRunStore {
   return {
     async createRun(input: NewRepairRunRecord): Promise<RepairRunRecord> {
@@ -727,10 +729,11 @@ export function createDrizzleRepairRunStore(
           environment: input.environment,
           startedAt: input.startedAt,
         })
+        .onConflictDoNothing({ target: [runs.experimentId, runs.parentRunId] })
         .returning()
 
       if (!row) {
-        throw new Error('runs insert returned no row')
+        throw new Error('A child repair run already exists for this parent and experiment')
       }
       return row
     },
@@ -760,16 +763,13 @@ export function createDrizzleRepairRunStore(
       return row
     },
 
-    async getChildRun(parentRunId: string): Promise<RepairRunRecord | null> {
-      if (!('query' in db) || !db.query?.runs?.findFirst) {
-        throw new Error(
-          'createDrizzleRepairRunStore requires db.query.runs.findFirst to enforce one-child-per-parent idempotency',
-        )
-      }
-      const row = await db.query.runs.findFirst({
-        where: (runsTable: any, { eq: eqOp }: any) => eqOp(runsTable.parentRunId, parentRunId),
-      })
-      return row ? (row as RepairRunRecord) : null
+    async getChildRun(parentRunId, experimentId) {
+      const [row] = await db
+        .select()
+        .from(runs)
+        .where(and(eq(runs.parentRunId, parentRunId), eq(runs.experimentId, experimentId)))
+        .limit(1)
+      return row ?? null
     },
   }
 }
@@ -1087,14 +1087,6 @@ function initialRepairEnvironment(
   }
 }
 
-const NODE_ERRNO_CODES = new Set([
-  'EPIPE', 'EBUSY', 'EPERM', 'ELOOP', 'EROFS', 'EXDEV', 'ENXIO',
-  'EFBIG', 'ENOSPC', 'ESPIPE', 'EMLINK', 'EFAULT', 'ENODEV',
-  'EISDIR', 'ENOTDIR', 'EINVAL', 'EMFILE', 'ENFILE', 'ENOTTY', 'EAGAIN',
-  'EEXIST', 'ENOMEM', 'EBADF', 'E2BIG', 'ECHILD', 'EDOM', 'ENODATA',
-  'ENOPROTOOPT', 'EPROTONOSUPPORT', 'ESOCKTNOSUPPORT', 'EPFNOSUPPORT',
-])
-
 function isDeepEqual(a: any, b: any): boolean {
   if (a === b) return true
   if (a == null || b == null || typeof a !== 'object' || typeof b !== 'object') return false
@@ -1106,25 +1098,6 @@ function isDeepEqual(a: any, b: any): boolean {
     if (!isDeepEqual(a[key], b[key])) return false
   }
   return true
-}
-function isPersistenceError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  if (err.constructor && /postgres|drizzle|neon/i.test(err.constructor.name)) return true
-  if (err instanceof Error) {
-    if (
-      /agent_tasks|postgres|drizzle|neon|relation ".*"|syntax error at or near|violates.*constraint/i.test(
-        err.message,
-      )
-    ) {
-      return true
-    }
-  }
-  if ('code' in err && typeof (err as any).code === 'string') {
-    const code = (err as any).code
-    // 5-character Postgres SQLSTATE codes (e.g. '23505', '42P01') excluding Node errno codes
-    if (/^[0-9A-Z]{5}$/.test(code) && !NODE_ERRNO_CODES.has(code)) return true
-  }
-  return false
 }
 
 export type RepairPipelineEvent =
@@ -1139,6 +1112,7 @@ export type RepairRetryOptions = {
   runner: ExperimentRunner
   modelContext: Omit<CallModelContext, 'taskKind'>
   maxAttempts?: number
+  abortedStatus?: () => 'cancelled' | 'timeout'
   callModelFn?: CallModel
   onStdout?: (chunk: string) => void
   /** Active execution claim id required when `openApprovalGate` is provided. */
@@ -1147,8 +1121,6 @@ export type RepairRetryOptions = {
   openApprovalGate?: (input: OpenApprovalGateInput) => Promise<OpenApprovalGateResult>
   /** Optional lifecycle event sink; `seq` allocation is left to the caller's experiment event log. */
   emitEvent?: (event: RepairPipelineEvent) => Promise<void> | void
-  /** Optional abort signal propagated to the sandbox runner. */
-  signal?: AbortSignal
   now?: () => Date
 }
 
@@ -1253,16 +1225,15 @@ function remainingRepairAttempts(
 
 /**
  * On a failed run, invokes REPAIR_SCRIPT up to two attempts maximum.
- * Each attempt creates a new `runs` row with `attempt` incremented and `parentRunId` chained.
- *
- * Tracking issue #63 (https://github.com/ivory-26/research-graph/issues/63) tracks wiring this
- * into the EXECUTE stage in `src/server/pipeline-delivery/production-stages.ts:307-343`
- * for docs/05-plan.md:74 ("Repair loop and multi-strategy selection | —", owned by ivory-26).
+ * Each executed candidate creates a new `runs` row with `attempt` incremented and `parentRunId` chained.
+
  */
 export async function repairAndRetryRun(
   failedRun: RepairRunRecord,
   options: RepairRetryOptions,
 ): Promise<RepairRetryResult> {
+  const signal = options.modelContext.signal
+  signal?.throwIfAborted()
   if (failedRun.status !== 'failed' && failedRun.status !== 'timeout') {
     return {
       repaired: false,
@@ -1278,13 +1249,14 @@ export async function repairAndRetryRun(
   }
 
   if (options.runStore?.getChildRun) {
-    const existingChild = await options.runStore.getChildRun(failedRun.id)
+    const existingChild = await options.runStore.getChildRun(failedRun.id, failedRun.experimentId)
     if (existingChild) {
       const childSucceeded = existingChild.status === 'succeeded'
       return {
         repaired: childSucceeded,
         status: childSucceeded ? 'repaired' : 'exhausted',
-        attemptsUsed: 0,
+        // An inconsistent or forked chain must not report a negative count.
+        attemptsUsed: Math.max(0, existingChild.attempt - failedRun.attempt),
         runs: [failedRun, existingChild],
         finalRun: existingChild,
       }
@@ -1315,6 +1287,7 @@ export async function repairAndRetryRun(
   let attemptsUsed = 0
 
   for (let i = 0; i < maxAttempts; i++) {
+    signal?.throwIfAborted()
     const entrypointFile = extractEntrypointFile(currentRun.spec.entrypoint)
     if (!entrypointFile) {
       return {
@@ -1366,7 +1339,8 @@ export async function repairAndRetryRun(
       console.error('[repairAndRetryRun] REPAIR_SCRIPT callModel failed', err)
       // Persistence failures (e.g. database errors recording agent_tasks) must surface immediately
       // rather than issuing repeated physical model calls without an audit trail (docs/03-agent-pipeline.md:154).
-      if (isPersistenceError(err)) {
+      signal?.throwIfAborted()
+      if (err instanceof AgentTaskPersistenceError) {
         throw err
       }
 
@@ -1385,6 +1359,7 @@ export async function repairAndRetryRun(
         validationErrors: [sanitizedMsg],
       }
     }
+    signal?.throwIfAborted()
     attemptsUsed = i + 1
 
     const repairedScript = modelRes.output.script
@@ -1457,9 +1432,6 @@ export async function repairAndRetryRun(
     if (!autoApproved) {
       // Non-allowlisted changes must never execute via an in-memory callback alone;
       // pause at the durable approval gate and resume via `executeApprovedRepairCandidate`.
-      // Note: Under production EXECUTE, an experiment begins with approvalState = 'approved'.
-      // Re-opening an approval gate on a failed repair run requires the approval state transition
-      // or repair gate support tracked in follow-up issue #63 (docs/05-plan.md:74, owned by ivory-26).
       if (!options.openApprovalGate) {
         throw new Error(
           'Non-allowlisted repair requires durable approval gate, but openApprovalGate was not provided',
@@ -1470,6 +1442,7 @@ export async function repairAndRetryRun(
         workspaceId: options.modelContext.workspaceId,
         experimentId: currentRun.experimentId,
         claimId: options.claimId!,
+        repairParentRunId: currentRun.id,
         spec: repairedSpec,
       })
 
@@ -1495,6 +1468,8 @@ export async function repairAndRetryRun(
         runner: options.runner,
         emitEvent: options.emitEvent,
         onStdout: options.onStdout,
+        signal,
+        abortedStatus: options.abortedStatus,
         now,
       },
     )
@@ -1523,25 +1498,38 @@ export async function repairAndRetryRun(
   }
 }
 
-export type ExecuteApprovedRepairCandidateOptions = {
+export type ExecuteChainedRepairRunOptions = {
   runStore: RepairRunStore
   runner: ExperimentRunner
   emitEvent?: (event: RepairPipelineEvent) => Promise<void> | void
   onStdout?: (chunk: string) => void
+  signal?: AbortSignal
+  abortedStatus?: () => 'cancelled' | 'timeout'
   now?: () => Date
-  gate?: {
-    status: string
-    offeredSpec?: ExperimentSpec
-  }
 }
+
+export type ExecuteApprovedRepairCandidateOptions =
+  ExecuteChainedRepairRunOptions & {
+    /**
+     * The verified durable gate decision. Required (not opt-in) so a non-allowlisted
+     * repair can never execute as if approved when the caller omits it. `offeredSpec`
+     * is required and must structurally equal `approvedSpec`; a missing gate or
+     * `offeredSpec` is treated as a rejection, never a default-approve.
+     */
+    gate: {
+      status: ApprovalGateStatus
+      offeredSpec: ExperimentSpec
+    }
+  }
 
 async function executeChainedRepairRun(
   parentRun: RepairRunRecord,
   spec: ExperimentSpec,
-  options: ExecuteApprovedRepairCandidateOptions,
+  options: ExecuteChainedRepairRunOptions,
 ): Promise<RepairRunRecord> {
   const now = options.now ?? (() => new Date())
   const startedAt = now()
+  options.signal?.throwIfAborted()
 
   const emit = async (
     event:
@@ -1568,7 +1556,7 @@ async function executeChainedRepairRun(
   }
 
   if (options.runStore.getChildRun) {
-    const existing = await options.runStore.getChildRun(parentRun.id)
+    const existing = await options.runStore.getChildRun(parentRun.id, parentRun.experimentId)
     if (existing) {
       throw new Error(
         `Child repair run already exists for parent run "${parentRun.id}" (idempotency guard)`,
@@ -1576,6 +1564,7 @@ async function executeChainedRepairRun(
     }
   }
 
+  options.signal?.throwIfAborted()
   const newRun = await options.runStore.createRun({
     experimentId: parentRun.experimentId,
     parentRunId: parentRun.id,
@@ -1598,6 +1587,7 @@ async function executeChainedRepairRun(
   let isKilledTimeout = false
   let result: ExperimentResult
   try {
+    options.signal?.throwIfAborted()
     result = await options.runner.run(spec, (chunk) => {
       options.onStdout?.(chunk)
       if (options.emitEvent) {
@@ -1619,10 +1609,34 @@ async function executeChainedRepairRun(
     ) {
       isKilledTimeout = true
     }
-    result = sanitizeRunnerError(err, spec, startedAt.toISOString())
+    result = options.signal?.aborted
+      ? {
+          exitCode: 1,
+          stdout: '',
+          stderr: '',
+          metrics: {},
+          artifacts: [],
+          durationMs: 0,
+          environment: newRun.environment,
+        }
+      : sanitizeRunnerError(err, spec, startedAt.toISOString())
   }
 
   await Promise.all(pendingStdoutEmits)
+
+  if (options.signal?.aborted) {
+    await options.runStore.updateRun(newRun.id, {
+      status: options.abortedStatus?.() ?? 'cancelled',
+      metrics: {},
+      environment: result.environment,
+      verdict: null,
+      verdictDetail: null,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      finishedAt: now(),
+    })
+    options.signal.throwIfAborted()
+  }
 
   const evaluated = evaluateExperiment(spec, result)
   const runStatus: RunStatus =
@@ -1673,11 +1687,13 @@ async function executeChainedRepairRun(
 /**
  * Resumes and executes an approved repair candidate spec once human approval
  * has been resolved (docs/03-agent-pipeline.md:112-124).
- * Precondition: Callers must verify the human approval decision on the durable gate
- * (confirming `gate.status === 'approved'` and passing `gate.offeredSpec`) before invoking this function.
- * Enforces the two-attempt repair ceiling against the run chain, re-validates the spec,
- * creates the next chained `runs` row with incremented attempt and `parentRunId`, executes
- * via runner, evaluates verdict by code, emits lifecycle events, and updates the run record.
+ * Requires the verified durable gate decision (`options.gate`): the caller passes the
+ * recorded `ApprovalGateView`, whose `status` must be `'approved'` and whose `offeredSpec`
+ * must structurally equal `approvedSpec`. A missing gate or `offeredSpec` is a rejection,
+ * never a default-approve. Enforces the two-attempt repair ceiling against the run chain,
+ * re-validates the spec, creates the next chained `runs` row with incremented attempt and
+ * `parentRunId`, executes via runner, evaluates verdict by code, emits lifecycle events,
+ * and updates the run record.
  */
 export async function executeApprovedRepairCandidate(
   parentRun: RepairRunRecord,
@@ -1690,19 +1706,15 @@ export async function executeApprovedRepairCandidate(
     )
   }
 
-  if (options.gate) {
-    if (options.gate.status !== 'approved') {
-      throw new Error(
-        `Cannot execute repair candidate: gate status is "${options.gate.status}", expected "approved"`,
-      )
-    }
-    if (options.gate.offeredSpec) {
-      if (!isDeepEqual(options.gate.offeredSpec, approvedSpec)) {
-        throw new Error(
-          'Approved repair spec does not match the gate offeredSpec',
-        )
-      }
-    }
+  if (options.gate.status !== 'approved') {
+    throw new Error(
+      `Cannot execute repair candidate: gate status is "${options.gate.status}", expected "approved"`,
+    )
+  }
+  if (!isDeepEqual(options.gate.offeredSpec, approvedSpec)) {
+    throw new Error(
+      'Approved repair spec does not match the gate offeredSpec',
+    )
   }
 
   if (remainingRepairAttempts(parentRun.attempt) <= 0) {

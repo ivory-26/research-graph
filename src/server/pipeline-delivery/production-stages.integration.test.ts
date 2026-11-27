@@ -5,7 +5,7 @@
  * real planner (`validateExperimentSpec`), the real delivery handlers and the
  * real schema. The E2B sandbox is replaced by a disclosed deterministic runner
  * because E2B credentials are not part of this suite; the delivery, claim,
- * gate, run-row and verdict paths are real.
+ * gate, run-row, verdict and #7 graph-projection paths are real.
  *
  * Skipped unless `TEST_DATABASE_URL` is set. See `test-support/pg.ts` for the
  * disposable-database rules.
@@ -20,6 +20,7 @@ import {
   it,
 } from 'vitest'
 
+import { createCallModel } from '../model'
 import type { PipelineEvent } from '../../shared/events'
 import type { ExperimentSpec } from '../../shared/types'
 import type { PipelineTimings } from './timings'
@@ -30,6 +31,7 @@ import {
   createRecordedCallModel,
   createStubRunner,
   makeValidSpec,
+  measuredResult,
   type StubRunner,
 } from './test-support/production-fixtures'
 import {
@@ -82,6 +84,7 @@ describeIntegration('production pipeline stages over real Postgres', () => {
   function handlersFor(
     runner: StubRunner,
     timings: Partial<PipelineTimings> = FAST_TIMINGS,
+    callModel = createRecordedCallModel(),
   ) {
     return createPipelineHandlers({
       data: createDrizzlePipelineData(testDb.db),
@@ -89,7 +92,7 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       stages: createProductionPipelineStages({
         db: testDb.db,
         runner,
-        callModel: createRecordedCallModel(),
+        callModel,
         randomUUID: () => '11111111-1111-4111-8111-111111111111',
       }),
       timings,
@@ -152,9 +155,11 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       verdict: string | null
       verdict_detail: { checks: unknown[]; explanation: string | null } | null
       experiment_id: string
+      parent_run_id: string | null
+      attempt: number
     }>(
       `SELECT id, status, spec, metrics, environment, stderr, verdict,
-              verdict_detail, experiment_id
+              verdict_detail, experiment_id, parent_run_id, attempt
          FROM runs
         WHERE experiment_id = $1
         ORDER BY created_at`,
@@ -162,6 +167,145 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     )
     return result.rows
   }
+
+  async function graphRows() {
+    const nodeResult = await testDb.pool.query<{
+      id: string
+      type: string
+      title: string
+      data: Record<string, unknown>
+    }>(
+      `SELECT id, type, title, data
+         FROM nodes
+        WHERE workspace_id = $1
+        ORDER BY created_at, id`,
+      [seed.workspaceId],
+    )
+    const edgeResult = await testDb.pool.query<{
+      id: string
+      source_node_id: string
+      target_node_id: string
+      relation: string
+      status: string
+      evidence_run_id: string | null
+    }>(
+      `SELECT id, source_node_id, target_node_id, relation, status,
+              evidence_run_id
+         FROM edges
+        WHERE workspace_id = $1
+        ORDER BY created_at, id`,
+      [seed.workspaceId],
+    )
+    return { nodes: nodeResult.rows, edges: edgeResult.rows }
+  }
+
+  /** The abort path writes the graph after the row update; wait for it. */
+  async function waitForRunNode(timeoutMs = 3_000) {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const graph = await graphRows()
+      if (graph.nodes.some((node) => node.type === 'run')) return graph
+      if (Date.now() > deadline) {
+        throw new Error('timed out waiting for the run graph projection')
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+  }
+
+  it.each(['automatic', 'approved', 'rejected'] as const)(
+    'records a failed run and handles a subsequent %s repair through the production stages',
+    async (mode) => {
+      const repairedScript = seed.spec.files['main.py']!
+      const brokenScript = repairedScript.replace('import json', 'import missing_json')
+      seed.spec.files['main.py'] = brokenScript
+      await testDb.pool.query('UPDATE experiments SET spec = $1 WHERE id = $2', [
+        JSON.stringify(seed.spec), seed.experimentId,
+      ])
+
+      const candidate = mode === 'automatic'
+        ? repairedScript
+        : repairedScript.replace('0.9', '0.8')
+      const runner: StubRunner = {
+        ...createStubRunner('succeed'),
+        async run(spec) {
+          this.runCalls++
+          if (this.runCalls === 1) {
+            expect(spec.files['main.py']).toBe(brokenScript)
+            return measuredResult({
+              exitCode: 1,
+              stderr: 'ModuleNotFoundError: missing_json',
+              metrics: {},
+            })
+          }
+          expect(spec.files['main.py']).toBe(candidate)
+          return measuredResult({ metrics: { score: mode === 'automatic' ? 0.9 : 0.8 } })
+        },
+      }
+      const callModel = createCallModel({
+        generate: async ({ prompt }) => ({
+          output: prompt.includes('ModuleNotFoundError: missing_json')
+            ? { script: candidate, summary: 'Fixed the import' }
+            : { explanation: 'The verdict was computed from the run.' },
+          inputTokens: 15,
+          outputTokens: 10,
+        }),
+      })
+      const handlers = handlersFor(runner, FAST_TIMINGS, callModel)
+      const sse = consume(await handlers.stream(streamRequest(seed.experimentId), {
+        experimentId: seed.experimentId,
+      }))
+      const initial = await approveRequested(handlers, sse)
+
+      if (mode !== 'automatic') {
+        const repairGate = await sse.waitFor(
+          (event) => event.type === 'approval.requested' && event.seq > initial.seq,
+        )
+        expect(runner.runCalls).toBe(1)
+        const replay = await handlers.approve(
+          approveRequest(seed.experimentId, initial.seq, 'approved'),
+          { experimentId: seed.experimentId },
+        )
+        expect(replay.status).toBe(200)
+        expect(runner.runCalls).toBe(1)
+
+        const decision = mode === 'approved' ? 'approved' : 'rejected'
+        const response = await handlers.approve(
+          approveRequest(seed.experimentId, repairGate.seq, decision),
+          { experimentId: seed.experimentId },
+        )
+        expect(response.status).toBe(200)
+        await sse.waitFor((event) => event.type === 'approval.resolved' && event.seq > repairGate.seq)
+      }
+
+      await sse.waitFor((event) => event.type === (
+        mode === 'rejected' ? 'pipeline.cancelled' : 'pipeline.completed'
+      ))
+      const rows = await runRows()
+      const [parent, child] = rows
+      expect(parent).toMatchObject({ attempt: 1, status: 'failed', verdict: 'failed' })
+      expect(parent!.spec.files['main.py']).toBe(brokenScript)
+      const task = await testDb.pool.query<{ input_ref: unknown }>(
+        "SELECT input_ref FROM agent_tasks WHERE task_kind = 'repair_script'",
+      )
+      expect(task.rows).toEqual([{
+        input_ref: { experimentId: seed.experimentId, runId: parent!.id },
+      }])
+
+      if (mode === 'rejected') {
+        expect(rows).toHaveLength(1)
+        expect(runner.runCalls).toBe(1)
+        return
+      }
+      expect(rows).toHaveLength(2)
+      expect(child).toMatchObject({
+        attempt: 2, parent_run_id: parent!.id, status: 'succeeded', verdict: 'match',
+      })
+      expect(child!.spec.files['main.py']).toBe(candidate)
+      expect(sse.events.at(-1)).toMatchObject({ type: 'pipeline.completed', runId: child!.id })
+      expect((await graphRows()).edges.map((edge) => edge.evidence_run_id))
+        .toEqual(expect.arrayContaining([parent!.id, child!.id]))
+    },
+  )
 
   it('offers the persisted plan at the gate after real planner validation', async () => {
     const runner = createStubRunner('succeed')
@@ -253,6 +397,35 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     expect(tasks.rows).toEqual([
       { task_kind: 'explain_gap', status: 'succeeded' },
     ])
+
+    // #7: the completed run is in the graph, projected from the run row after
+    // the verdict was persisted.
+    const graph = await graphRows()
+    const runNodes = graph.nodes.filter((node) => node.type === 'run')
+    const resultNodes = graph.nodes.filter((node) => node.type === 'result')
+    expect(runNodes).toHaveLength(1)
+    expect(resultNodes).toHaveLength(1)
+    expect(runNodes[0]?.data).toEqual({
+      type: 'run',
+      runId: completed.runId,
+      status: 'succeeded',
+      mode: 'adapted',
+    })
+    expect(resultNodes[0]?.data).toEqual({
+      type: 'result',
+      metrics: { score: 0.9 },
+      runId: completed.runId,
+      verdict: 'match',
+    })
+    expect(graph.edges).toEqual([
+      expect.objectContaining({
+        source_node_id: runNodes[0]?.id,
+        target_node_id: resultNodes[0]?.id,
+        relation: 'produced',
+        status: 'accepted',
+        evidence_run_id: completed.runId,
+      }),
+    ])
   })
 
   it('fails before opening a gate when the stored plan violates the planner rules', async () => {
@@ -322,6 +495,107 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     )
     expect(rows[0]?.stderr).not.toContain('sk-test-secret')
     expect(rows[0]?.stderr).not.toContain('db.internal')
+
+    // #7: a failed run still gets both nodes and the edge, and the run node's
+    // `data.runId` resolves the canonical stderr without copying it.
+    const graph = await graphRows()
+    const runNode = graph.nodes.find((node) => node.type === 'run')
+    const resultNode = graph.nodes.find((node) => node.type === 'result')
+    expect(runNode?.data).toEqual({
+      type: 'run',
+      runId: completed.runId,
+      status: 'failed',
+      mode: 'adapted',
+    })
+    expect(resultNode?.data).toEqual({
+      type: 'result',
+      metrics: {},
+      runId: completed.runId,
+      verdict: 'failed',
+    })
+    expect(JSON.stringify(runNode?.data)).not.toContain('sk-test-secret')
+    expect(JSON.stringify(runNode?.data)).not.toContain('db.internal')
+
+    const nodeRunId = (runNode?.data as { runId: string }).runId
+    const canonical = await testDb.pool.query<{ stderr: string }>(
+      'SELECT stderr FROM runs WHERE id = $1',
+      [nodeRunId],
+    )
+    expect(canonical.rows[0]?.stderr).toBe(
+      'The experiment runner failed before producing a result',
+    )
+    expect(graph.edges).toEqual([
+      expect.objectContaining({
+        source_node_id: runNode?.id,
+        target_node_id: resultNode?.id,
+        relation: 'produced',
+        status: 'accepted',
+        evidence_run_id: completed.runId,
+      }),
+    ])
+  })
+
+  it('fails the pipeline rather than reporting completion without the graph', async () => {
+    const runner = createStubRunner('succeed')
+    const handlers = handlersFor(runner)
+
+    // The projection writes its nodes before the edge; fail the last
+    // statement and the whole projection rolls back.
+    await testDb.pool.query(`
+      CREATE OR REPLACE FUNCTION rg_test_fail_edge_insert()
+      RETURNS trigger AS $$
+      BEGIN
+        RAISE EXCEPTION 'forced edge failure';
+      END;
+      $$ LANGUAGE plpgsql
+    `)
+    await testDb.pool.query(`
+      CREATE TRIGGER rg_test_fail_edge_insert
+      BEFORE INSERT ON edges
+      FOR EACH ROW EXECUTE FUNCTION rg_test_fail_edge_insert()
+    `)
+
+    try {
+      const sse = consume(
+        await handlers.stream(streamRequest(seed.experimentId), {
+          experimentId: seed.experimentId,
+        }),
+      )
+      await approveRequested(handlers, sse)
+
+      const failed = (await sse.waitFor(
+        (event) => event.type === 'pipeline.failed',
+      )) as Extract<PipelineEvent, { type: 'pipeline.failed' }>
+      await sse.waitForClose()
+
+      expect(failed.error).toBe(
+        'The completed run could not be written to the graph',
+      )
+      expect(
+        sse.events.some((event) => event.type === 'pipeline.completed'),
+      ).toBe(false)
+
+      // The run executed and its row is durable; the graph is absent, and the
+      // pipeline did not claim completion.
+      const rows = await runRows()
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.status).toBe('succeeded')
+
+      const graph = await graphRows()
+      expect(
+        graph.nodes.filter(
+          (node) => node.type === 'run' || node.type === 'result',
+        ),
+      ).toHaveLength(0)
+      expect(graph.edges).toHaveLength(0)
+    } finally {
+      await testDb.pool.query(
+        'DROP TRIGGER IF EXISTS rg_test_fail_edge_insert ON edges',
+      )
+      await testDb.pool.query(
+        'DROP FUNCTION IF EXISTS rg_test_fail_edge_insert()',
+      )
+    }
   })
 
   it('never creates a run when the human rejects the plan', async () => {
@@ -339,6 +613,15 @@ describeIntegration('production pipeline stages over real Postgres', () => {
 
     expect(runner.runCalls).toBe(0)
     expect(await runRows()).toHaveLength(0)
+
+    // A rejection never creates a run, so it never manufactures a graph node.
+    const graph = await graphRows()
+    expect(
+      graph.nodes.filter(
+        (node) => node.type === 'run' || node.type === 'result',
+      ),
+    ).toHaveLength(0)
+    expect(graph.edges).toHaveLength(0)
   })
 
   it('cancels the live sandbox and marks the run timed out when the budget expires', async () => {
@@ -384,5 +667,31 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     }
     const rows = await runRows()
     expect(rows[0]).toMatchObject({ status: 'timeout', verdict: null })
+
+    // The abort path still owes the graph once the row is terminal.
+    const graph = await waitForRunNode()
+    const runNode = graph.nodes.find((node) => node.type === 'run')
+    const resultNode = graph.nodes.find((node) => node.type === 'result')
+    expect(runNode?.data).toEqual({
+      type: 'run',
+      runId: rows[0]?.id,
+      status: 'timeout',
+      mode: 'adapted',
+    })
+    expect(resultNode?.data).toEqual({
+      type: 'result',
+      metrics: {},
+      runId: rows[0]?.id,
+      verdict: null,
+    })
+    expect(graph.edges).toEqual([
+      expect.objectContaining({
+        source_node_id: runNode?.id,
+        target_node_id: resultNode?.id,
+        relation: 'produced',
+        status: 'accepted',
+        evidence_run_id: rows[0]?.id,
+      }),
+    ])
   })
 })

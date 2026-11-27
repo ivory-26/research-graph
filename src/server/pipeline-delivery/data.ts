@@ -17,6 +17,7 @@ import {
   appendPipelineEvent,
   claimExecutionStart,
   decideApproval,
+  getApprovalGate,
   getExecutionClaim,
   getExperimentApprovalState,
   openApprovalGate,
@@ -24,12 +25,14 @@ import {
 } from '../../db/pipeline'
 import type {
   AppendPipelineEventInput,
+  ApprovalGateView,
   ClaimExecutionStartInput,
   ClaimExecutionStartResult,
   DecideApprovalInput,
   DecideApprovalResult,
   ExecutionClaimView,
   ExperimentApprovalView,
+  GetApprovalGateInput,
   GetExecutionClaimInput,
   GetExperimentApprovalStateInput,
   OpenApprovalGateInput,
@@ -84,6 +87,7 @@ export type PipelineData = {
   openApprovalGate(
     input: OpenApprovalGateInput,
   ): Promise<OpenApprovalGateResult>
+  getApprovalGate(input: GetApprovalGateInput): Promise<ApprovalGateView | null>
   decideApproval(input: DecideApprovalInput): Promise<DecideApprovalResult>
   getExperimentApprovalState(
     input: GetExperimentApprovalStateInput,
@@ -133,6 +137,7 @@ export function createDrizzlePipelineData(db: Database): PipelineData {
     appendPipelineEvent: (input) => appendPipelineEvent(db, input),
     replayPipelineEvents: (input) => replayPipelineEvents(db, input),
     openApprovalGate: (input) => openApprovalGate(db, input),
+    getApprovalGate: (input) => getApprovalGate(db, input),
     decideApproval: (input) => decideApproval(db, input),
     getExperimentApprovalState: (input) =>
       getExperimentApprovalState(db, input),

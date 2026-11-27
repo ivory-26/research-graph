@@ -15,6 +15,7 @@ import {
   type RepairRunUpdate,
 } from './branch'
 import {
+  AgentTaskPersistenceError,
   createCallModel,
   type AgentTaskInsert,
   type AgentTaskStore,
@@ -492,7 +493,11 @@ describe('repairAndRetryRun (Issue #26)', () => {
     const resumed = await executeApprovedRepairCandidate(
       paused.finalRun,
       paused.candidateSpec!,
-      { runStore, runner },
+      {
+        runStore,
+        runner,
+        gate: { status: 'approved', offeredSpec: paused.candidateSpec! },
+      },
     )
     expect(runnerCalls).toBe(1)
     expect(resumed.parentRunId).toBe(failedRun.id)
@@ -637,6 +642,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     const firstChild = await executeApprovedRepairCandidate(failedRun, brokenSpec, {
       runStore,
       runner,
+      gate: { status: 'approved', offeredSpec: brokenSpec },
     })
     expect(firstChild.parentRunId).toBe(failedRun.id)
 
@@ -645,6 +651,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
       executeApprovedRepairCandidate(failedRun, brokenSpec, {
         runStore,
         runner,
+        gate: { status: 'approved', offeredSpec: brokenSpec },
       }),
     ).rejects.toThrow(/Child repair run already exists/)
   })
@@ -697,7 +704,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     expect(result.finalRun.stderr).toBe('SyntaxError: invalid syntax')
   })
 
-  it('retries recoverable network errors with code ECONNRESET but rethrows Postgres 5-char SQLSTATE errors', async () => {
+  it('retries provider errors but stops when the model attempt cannot be recorded', async () => {
     const brokenSpec = makeBrokenImportSpec()
     const failedRun = makeFailedRun(brokenSpec, 'SyntaxError: invalid syntax')
     const runStore = new MemoryRepairRunStore()
@@ -731,24 +738,36 @@ describe('repairAndRetryRun (Issue #26)', () => {
     expect(netResult.repaired).toBe(false)
     expect(netResult.status).toBe('model_failed')
 
-    // Postgres SQLSTATE error (5 chars) must be rethrown immediately without consuming subsequent attempts
     let dbAttempts = 0
-    const dbFailCallModel: CallModel = async () => {
-      dbAttempts++
-      const dbErr = new Error('duplicate key value violates unique constraint')
-      ;(dbErr as any).code = '23505'
-      throw dbErr
+    const dbError = new Error('connection lost')
+    const dbFailCallModel = createCallModel({
+      generate: async () => {
+        dbAttempts++
+        return {
+          output: { script: 'import numpy as np', summary: 'Fixed import' },
+          inputTokens: 10,
+          outputTokens: 10,
+        }
+      },
+    })
+    const failingStore: AgentTaskStore = {
+      async insert() {
+        throw dbError
+      },
     }
 
     await expect(
       repairAndRetryRun(failedRun, {
         runStore,
         runner,
-        modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+        modelContext: { workspaceId: 'ws-1', strategyId: null, store: failingStore },
         callModelFn: dbFailCallModel,
         maxAttempts: 2,
       }),
-    ).rejects.toThrow(/duplicate key/)
+    ).rejects.toMatchObject({
+      name: AgentTaskPersistenceError.name,
+      cause: dbError,
+    })
     expect(dbAttempts).toBe(1)
   })
 
@@ -772,6 +791,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
       executeApprovedRepairCandidate(succeededRun, spec, {
         runStore,
         runner,
+        gate: { status: 'approved', offeredSpec: spec },
       }),
     ).rejects.toThrow(/Cannot execute repair candidate for non-failed parent run/)
 
@@ -783,7 +803,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
       executeApprovedRepairCandidate(failedRun, spec, {
         runStore,
         runner,
-        gate: { status: 'rejected' },
+        gate: { status: 'rejected', offeredSpec: spec },
       }),
     ).rejects.toThrow(/gate status is "rejected"/)
 
@@ -857,7 +877,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     expect(result.status).toBe('not_failed')
   })
 
-  it('returns exhausted from repairAndRetryRun when a child repair run already exists', async () => {
+  it('returns the existing repaired child from repairAndRetryRun when a child repair run already exists', async () => {
     const spec = makeBrokenImportSpec()
     const failedRun = makeFailedRun(spec, 'error')
     const runStore = new MemoryRepairRunStore()
@@ -874,9 +894,10 @@ describe('repairAndRetryRun (Issue #26)', () => {
     await executeApprovedRepairCandidate(failedRun, spec, {
       runStore,
       runner,
+      gate: { status: 'approved', offeredSpec: spec },
     })
 
-    // Calling repairAndRetryRun on the parent now should return exhausted rather than throw
+    // Calling repairAndRetryRun on the parent now returns the existing child rather than throwing
     const result = await repairAndRetryRun(failedRun, {
       runStore,
       runner,
@@ -884,6 +905,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     })
     expect(result.status).toBe('repaired')
     expect(result.repaired).toBe(true)
+    expect(result.attemptsUsed).toBe(1)
     expect(result.runs).toHaveLength(2)
   })
 
@@ -1176,6 +1198,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
       {
         runStore,
         runner,
+        gate: { status: 'approved', offeredSpec: HERO_EXPERIMENT_SPEC_RUN_A },
         emitEvent: (ev) => {
           events.push(ev)
         },
@@ -1197,7 +1220,11 @@ describe('repairAndRetryRun (Issue #26)', () => {
       executeApprovedRepairCandidate(
         attemptThreeRun,
         HERO_EXPERIMENT_SPEC_RUN_A,
-        { runStore, runner },
+        {
+          runStore,
+          runner,
+          gate: { status: 'approved', offeredSpec: HERO_EXPERIMENT_SPEC_RUN_A },
+        },
       ),
     ).rejects.toThrow('Repair ceiling reached')
   })
@@ -1222,6 +1249,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     await executeApprovedRepairCandidate(failedRun, HERO_EXPERIMENT_SPEC_RUN_A, {
       runStore,
       runner,
+      gate: { status: 'approved', offeredSpec: HERO_EXPERIMENT_SPEC_RUN_A },
       emitEvent: (ev) => {
         events.push(ev)
       },
@@ -1274,8 +1302,12 @@ describe('repairAndRetryRun (Issue #26)', () => {
           values(vals: Record<string, unknown>) {
             insertedValues.push(vals)
             return {
-              async returning() {
-                return returnCreated ? [createdRow] : []
+              onConflictDoNothing() {
+                return {
+                  async returning() {
+                    return returnCreated ? [createdRow] : []
+                  },
+                }
               },
             }
           },
@@ -1297,7 +1329,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
           },
         }
       },
-    } as unknown as Pick<Database, 'insert' | 'update'>
+    } as unknown as Pick<Database, 'insert' | 'update' | 'select'>
 
     const store = createDrizzleRepairRunStore(fakeDb)
     const created = await store.createRun({
@@ -1343,7 +1375,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
         environment: structuredClone(HERO_RECORDED_RUN_RESULT.environment),
         startedAt,
       }),
-    ).rejects.toThrow('runs insert returned no row')
+    ).rejects.toThrow('A child repair run already exists')
 
     returnUpdated = false
     await expect(
@@ -1423,6 +1455,28 @@ describeIntegration('createDrizzleRepairRunStore over real Postgres', () => {
       expect(result.finalRun.parentRunId).toBe(parentId)
       expect(result.finalRun.attempt).toBe(2)
       expect(result.finalRun.status).toBe('succeeded')
+
+      const child = result.finalRun
+      const input: NewRepairRunRecord = {
+        experimentId: seed.experimentId,
+        parentRunId: child.id,
+        attempt: 3,
+        status: 'running',
+        spec: child.spec,
+        parameters: child.parameters,
+        environment: child.environment,
+        startedAt: new Date(),
+      }
+      const inserted = await Promise.allSettled([
+        runStore.createRun(input),
+        runStore.createRun(input),
+      ])
+      expect(inserted.map(({ status }) => status).sort()).toEqual([
+        'fulfilled',
+        'rejected',
+      ])
+      expect(await runStore.getChildRun?.(child.id, seed.experimentId))
+        .toMatchObject({ parentRunId: child.id, attempt: 3 })
     } finally {
       await testDb.close()
     }
