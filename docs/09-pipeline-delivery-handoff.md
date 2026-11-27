@@ -127,11 +127,11 @@ names a disposable Postgres server with `CREATEDB`:
   or `callModel` replacement: a real sandbox on the pinned template, then a
   real `explain_gap` call on `gemini-4-hydrogen`. It asserts the run row,
   metrics, verdict, `agent_tasks` row and `agent_task.recorded` linkage.
-  `gemini-4-hydrogen` is the evaluator's text model only: the verdict is
-  computed before the call, and every other call site uses `DEFAULT_MODEL_ID`
-  (`gemini-3.8-flash`). `DEFAULT_PRICING` costs the call at the published
-  Standard paid rate ($1.50 input / $7.50 output per million tokens, thinking
-  billed as output); that is an accounting estimate, not billing telemetry.
+  `gemini-4-hydrogen` is also `DEFAULT_MODEL_ID` for every text call site; the
+  verdict is computed before the explanation call. `DEFAULT_PRICING` costs
+  hydrogen at the published Standard paid rate ($1.50 input / $7.50 output per
+  million tokens, thinking billed as output); that is an accounting estimate,
+  not billing telemetry.
 
 `test-support/production-fixtures.ts` holds the valid plan, the deterministic
 runner and the recording model call. No production path imports it.

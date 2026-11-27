@@ -454,7 +454,9 @@ describe('agent_tasks accounting, retries, and usage fallback (ADR 0009)', () =>
     )
   })
 
-  it('handles 429 rate limit with bounded backoff and records retried task row (ADR 0009)', async () => {
+  it.each([429, 503] as const)(
+    'handles %i with bounded backoff and records a retried task row (ADR 0009)',
+    async (status) => {
     const insertedTasks: any[] = []
     const fakeStore = {
       insert: vi.fn(async (task) => {
@@ -467,9 +469,11 @@ describe('agent_tasks accounting, retries, and usage fallback (ADR 0009)', () =>
     const fakeEmbedMany = vi.fn(async () => {
       callCount++
       if (callCount === 1) {
-        const rateLimitErr: any = new Error('Too Many Requests')
-        rateLimitErr.statusCode = 429
-        throw rateLimitErr
+        const providerErr: any = new Error(
+          status === 429 ? 'Too Many Requests' : 'Service Unavailable',
+        )
+        providerErr.statusCode = status
+        throw providerErr
       }
       return {
         embeddings: [new Array(768).fill(0.1)],

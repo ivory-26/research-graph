@@ -317,9 +317,12 @@ seed never resets it for you.
 
 ## Remaining decisions / blockers
 
-1. **Live credentials and approvals.** A complete live seed needs Gemini, E2B,
-   a Neon Auth cookie and the operator's reviewed logical hash pair. None is
-   committed; graph-only mode needs only Gemini and `SEED_ACTOR_USER_ID`.
+1. **Live capacity.** Credentials and the reviewed logical hash pair were
+   supplied for the 27 November live attempt, and the Neon Auth/E2B preflight
+   passed. Gemini then returned 503 "high demand" on both text models, so no
+   complete pair was produced. The wrapper now retries 503 with the same
+   bounded backoff as 429; the live baseline still needs a quiet capacity
+   window. No credential is committed.
 2. **Exactness of two live seeds.** Live Gemini extraction can vary between
    runs. The baseline requires the two seeds to match; if `seed:compare`
    reports node/edge differences, the project must accept process-level
@@ -347,13 +350,21 @@ seed never resets it for you.
   selector/fallback anchors, the five persisted edges, non-terminal-run
   refusal, foreign-workspace refusal.
 - `pnpm test` with `TEST_DATABASE_URL` pointing at a disposable pgvector
-  container — 434 tests pass, 7 skipped, exit 0 (29 files), after merging
-  current `main` (#65/#66/#67).
+  container — 436 tests pass, 7 skipped, exit 0 (29 files), after merging
+  current `main` (#65/#66/#67) and adding the 429/503 retry matrix.
 - `pnpm build` — pass; `pnpm db:check` — pass.
 - `pnpm verify:hero` — pass in Docker: Run A and Run B execute the frozen
   parameters, produce distinct measured metrics, write `importance.csv`, match
   the recorded rank values, and reject an invalid `importance_method`.
 - `pnpm seed --print-approval` — prints both logical specs and hashes without
   a database or credential.
-- No live seed was run: Gemini, E2B and the Neon Auth cookie were not present
-  in this environment. The live two-seed baseline is the remaining gate.
+- Live attempts on 27 November: the Gemini/E2B/Neon Auth preflight passed,
+  but Gemini returned 503 "high demand" on both `gemini-3.8-flash` and
+  `gemini-4-hydrogen`. One hydrogen attempt completed extraction and six
+  embedding calls before the edge call returned 503; one attempt failed
+  structured-output validation. No complete pair was produced, so
+  `pnpm seed:compare` was not reached.
+- `callModel` and embeddings now retry 429 and 503 with bounded backoff and
+  one `agent_tasks` row per physical attempt. The live two-seed baseline
+  remains the outstanding gate; the "under one minute" budget is not yet
+  measured.

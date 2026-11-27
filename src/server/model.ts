@@ -5,9 +5,9 @@
  *
  * 1. Calls are sequential. Gemini's free-tier quota is per project and
  *    unpublished, so this wrapper queues every call behind the previous one.
- * 2. A 429 backs off exponentially with jitter. Other failures do not retry;
- *    they are the caller's problem (a repair is a new pipeline task, not a
- *    hidden retry).
+ * 2. A 429 rate-limit or 503 provider-capacity response backs off
+ *    exponentially with jitter. Other failures do not retry; they are the
+ *    caller's problem (a repair is a new pipeline task, not a hidden retry).
  * 3. Every physical request attempt writes exactly one `agent_tasks` row,
  *    including the attempts that fail. A retried attempt is `retried`; the
  *    final attempt is `succeeded` or `failed`.
@@ -33,12 +33,12 @@ import { agentTasks, type NewAgentTask } from '../db/schema'
 import type { Database } from '../db/client'
 
 /** The pinned text model (CLAUDE.md). */
-export const DEFAULT_MODEL_ID = 'gemini-3.8-flash'
+export const DEFAULT_MODEL_ID = 'gemini-4-hydrogen'
 
 /**
  * One initial attempt plus two retries. docs/03-agent-pipeline.md sets the
  * ceiling for repair at two attempts and docs/06-risks.md budgets the pipeline
- * around that ceiling; the same bound keeps a 429 cascade inside the
+ * around that ceiling; the same bound keeps a 429/503 cascade inside the
  * 240-second stream budget.
  */
 export const DEFAULT_MAX_ATTEMPTS = 3
@@ -57,22 +57,24 @@ export type ModelPricing = {
  * `agent_tasks.cost_usd`. Override through `createCallModel({ pricing })` if
  * Google changes them; the row records the cost this table produced.
  *
- * `gemini-4-hydrogen` is the evaluator's `explain_gap` pin (see `evaluate.ts`),
- * not a general default. Its entry is the published Standard paid rate:
- * $1.50 per million input tokens and $7.50 per million output tokens. Gemini
- * bills thinking tokens at the output rate, and the SDK's `outputTokens` is
- * the total output count, so thinking is included. This is an accounting
- * estimate from published prices, not billing telemetry or a statement about
- * the account's entitlement; the Standard free tier is not charged.
+ * `gemini-4-hydrogen` is the default text model; the evaluator's
+ * `explain_gap` pin (see `evaluate.ts`) uses the same model. Its entry is the
+ * published Standard paid rate: $1.50 per million input tokens and $7.50 per
+ * million output tokens. Gemini bills thinking tokens at the output rate, and
+ * the SDK's `outputTokens` is the total output count, so thinking is included.
+ * `gemini-3.8-flash` is retained for a caller that explicitly overrides the
+ * default. This is an accounting estimate from published prices, not billing
+ * telemetry or a statement about the account's entitlement; the Standard free
+ * tier is not charged.
  */
 export const DEFAULT_PRICING: Readonly<Record<string, ModelPricing>> = {
-  [DEFAULT_MODEL_ID]: {
-    inputUsdPerMillionTokens: 0.3,
-    outputUsdPerMillionTokens: 2.5,
-  },
   'gemini-4-hydrogen': {
     inputUsdPerMillionTokens: 1.5,
     outputUsdPerMillionTokens: 7.5,
+  },
+  'gemini-3.8-flash': {
+    inputUsdPerMillionTokens: 0.3,
+    outputUsdPerMillionTokens: 2.5,
   },
 }
 
@@ -271,7 +273,7 @@ export type CallModelContext = {
   strategyId?: string | null
   /** Whatever identifies the inputs for this call, e.g. source or chunk ids. */
   inputRef?: Record<string, unknown>
-  /** Defaults to `gemini-3.8-flash`. */
+  /** Defaults to `gemini-4-hydrogen`. */
   modelId?: string
   /**
    * `undefined` uses the configured default price table; `null` records no
@@ -344,18 +346,32 @@ function elapsedMs(startedAt: number, finishedAt: number): number {
 }
 
 /**
- * A 429 is the only error the wrapper retries. The fallback covers provider
- * errors that carry the status but are not the SDK's `APICallError` instance.
+ * Statuses the wrapper retries: rate limiting (429) and transient provider
+ * capacity (503, e.g. Gemini's "high demand"). Everything else is final.
  */
-export function isRateLimitError(error: unknown): boolean {
-  if (APICallError.isInstance(error)) return error.statusCode === 429
+const RETRYABLE_PROVIDER_STATUS_CODES = new Set([429, 503])
+
+function isRetryableStatus(value: unknown): boolean {
+  return (
+    typeof value === 'number' && RETRYABLE_PROVIDER_STATUS_CODES.has(value)
+  )
+}
+
+/**
+ * A 429 or 503 is retried. The fallback covers provider errors that carry the
+ * status but are not the SDK's `APICallError` instance.
+ */
+export function isRetryableProviderError(error: unknown): boolean {
+  if (APICallError.isInstance(error)) return isRetryableStatus(error.statusCode)
   if (typeof error !== 'object' || error === null) return false
-  if ((error as { statusCode?: unknown }).statusCode === 429) return true
+  if (isRetryableStatus((error as { statusCode?: unknown }).statusCode)) {
+    return true
+  }
   const cause = (error as { cause?: unknown }).cause
   return (
     typeof cause === 'object' &&
     cause !== null &&
-    (cause as { statusCode?: unknown }).statusCode === 429
+    isRetryableStatus((cause as { statusCode?: unknown }).statusCode)
   )
 }
 
@@ -518,7 +534,8 @@ async function executeCall<T>(
       return { output: outcome.output, task, attempts }
     }
 
-    const retry = isRateLimitError(outcome.error) && attempt < runtime.maxAttempts
+    const retry =
+      isRetryableProviderError(outcome.error) && attempt < runtime.maxAttempts
 
     // Persistence is deliberately outside the request handling above: if the
     // insert fails, it must surface as a database error, not trigger a second

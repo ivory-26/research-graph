@@ -143,7 +143,7 @@ One parameter, enforced: the diff between parent and child `spec` must have exac
 
 ## Retry and repair
 
-**Status on `main`: built.** `src/server/branch.ts` implements the loop and `src/server/pipeline-delivery/production-stages.ts` starts it after a failed or timed-out run. Bounded 429 backoff in `callModel` remains the only retry behaviour for other stages.
+**Status on `main`: built.** `src/server/branch.ts` implements the loop and `src/server/pipeline-delivery/production-stages.ts` starts it after a failed or timed-out run. Bounded 429/503 backoff in `callModel` remains the only retry behaviour for other stages.
 
 On `failed` or `timeout`, up to **two** repair attempts:
 
@@ -203,6 +203,6 @@ Because of Gemini's structured-output subset ([ADR 0009](./adr/0009-gemini-only.
 
 Every call is sequential. Gemini's quotas are per project and unpublished, so the pipeline never issues parallel requests. Text calls go through one `callModel()` wrapper (`src/server/model.ts`) that implements exponential backoff with jitter on 429, disables the SDK's own retries, and writes one `agent_tasks` row per **physical attempt** with cost, tokens and latency. Embeddings use the same queue and task-row helpers but call `embedMany` directly.
 
-Only rate-limit responses are retried. A provider capacity response (`high demand`) is persisted as a failed task row and surfaces as a missing explanation; the deterministic verdict still completes.
+429 rate-limit and 503 provider-capacity responses (`high demand`) are retried with bounded exponential backoff and jitter; every other provider failure is persisted immediately and surfaces as a missing explanation. The deterministic verdict still completes. `DEFAULT_MAX_ATTEMPTS` and the 240-second stream budget bound the retry chain.
 
-The one model exception is the Stage 7 `explain_gap` call, which pins `gemini-4-hydrogen` for the two-sentence explanation (`src/server/evaluate.ts`). The verdict is computed by `evaluateExperiment` before that call and the model cannot alter it. Every other text call site uses `gemini-3.8-flash`, and embeddings stay on `gemini-embedding-2`. `DEFAULT_PRICING` costs the evaluator call from the published Standard paid rate: $1.50 per million input tokens and $7.50 per million output tokens, with thinking billed at the output rate. The table is an accounting estimate from published prices, not billing telemetry or a statement about account entitlement.
+The default text model is `gemini-4-hydrogen`. The Stage 7 `explain_gap` call pins the same model for the two-sentence explanation (`src/server/evaluate.ts`); the verdict is computed by `evaluateExperiment` before that call and the model cannot alter it. `gemini-3.8-flash` remains in the price table only for a caller that explicitly overrides the default. Embeddings stay on `gemini-embedding-2`. `DEFAULT_PRICING` costs hydrogen from the published Standard paid rate: $1.50 per million input tokens and $7.50 per million output tokens, with thinking billed at the output rate. The table is an accounting estimate from published prices, not billing telemetry or a statement about account entitlement.

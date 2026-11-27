@@ -1,7 +1,11 @@
 import { embed, embedMany, type EmbeddingModel } from 'ai'
 import { createGoogleGenerativeAI, google } from '@ai-sdk/google'
 import type { Chunk, EmbedOptions } from './types'
-import { agentTaskStore, enqueueProcessTask, isRateLimitError } from '../model'
+import {
+  agentTaskStore,
+  enqueueProcessTask,
+  isRetryableProviderError,
+} from '../model'
 
 /** The pinned embedding model (CLAUDE.md & Issue #11). */
 export const DEFAULT_EMBEDDING_MODEL_ID = 'gemini-embedding-2'
@@ -103,7 +107,7 @@ export interface EmbedDeps {
  * - gemini-embedding-2 at 768 dimensions passed to provider via outputDimensionality
  * - One call per batch of at most 20 chunks
  * - Sequential queue to prevent parallel burst rate-limiting across concurrent ingests
- * - maxRetries: 0 with manual 429 backoff recording 'retried' rows for intermediate attempts
+ * - maxRetries: 0 with manual 429/503 backoff recording 'retried' rows for intermediate attempts
  * - Estimated tokens recorded when provider returns undefined usage
  * - Vector dimension validated BEFORE recording success in agent_tasks
  * - Accounting failures surface rather than being swallowed
@@ -160,9 +164,9 @@ export async function embedChunks(
         break
       } catch (err) {
         const latencyMs = Math.max(0, Date.now() - startedAt)
-        const is429 = isRateLimitError(err)
+        const retryable = isRetryableProviderError(err)
 
-        if (is429 && attempt < maxAttempts) {
+        if (retryable && attempt < maxAttempts) {
           if (options.workspaceId) {
             await taskStore.insert({
               workspaceId: options.workspaceId,
@@ -184,7 +188,7 @@ export async function embedChunks(
           continue
         }
 
-        // Exhausted retries or non-429 error
+        // Exhausted retries or a non-retryable error
         if (options.workspaceId) {
           await taskStore.insert({
             workspaceId: options.workspaceId,
@@ -330,9 +334,9 @@ export async function embedQuery(
       break
     } catch (err) {
       const latencyMs = Math.max(0, Date.now() - startedAt)
-      const is429 = isRateLimitError(err)
+      const retryable = isRetryableProviderError(err)
 
-      if (is429 && attempt < maxAttempts) {
+      if (retryable && attempt < maxAttempts) {
         if (options.workspaceId) {
           await taskStore.insert({
             workspaceId: options.workspaceId,

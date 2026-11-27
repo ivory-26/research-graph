@@ -147,7 +147,7 @@ export const AgentMonitorPage: React.FC = () => {
             <pre className="p-3 bg-[var(--bg-surface)] border border-[var(--border-primary)] text-[11px] text-[var(--text-secondary)] font-mono overflow-x-auto leading-relaxed">
 {`source_ids: ["src-1"]
 strategy: "sectioned"
-model: "gemini-3.8-flash"
+model: "gemini-4-hydrogen"
 max_attempts: 2`}
             </pre>
           </div>

@@ -75,7 +75,7 @@ pnpm db:studio      # inspect the public schema
 
 ## Stack
 
-TanStack Start 1.169.x · React 19 · TypeScript 7 · Neon Postgres (pgvector) · Drizzle · Vercel AI SDK 7 · Google Gemini (`gemini-3.8-flash`, `gemini-4-hydrogen` for `explain_gap`, `gemini-embedding-2`) · E2B · Firecrawl · `@xyflow/react` 13
+TanStack Start 1.169.x · React 19 · TypeScript 7 · Neon Postgres (pgvector) · Drizzle · Vercel AI SDK 7 · Google Gemini (`gemini-4-hydrogen`, `gemini-3.8-flash` only as an explicit override, `gemini-embedding-2`) · E2B · Firecrawl · `@xyflow/react` 13
 
 Node 26.x, ESM only. `.nvmrc` and `.node-version` pin 26.13.1.
 

@@ -675,7 +675,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
     expect(isAutoApprovableRepair(originalScript, modifiedScript)).toBe(false)
   })
 
-  it('handles non-429 callModel failures gracefully without mutating persisted finalRun.stderr', async () => {
+  it('handles non-retryable callModel failures gracefully without mutating persisted finalRun.stderr', async () => {
     const brokenSpec = makeBrokenImportSpec()
     const failedRun = makeFailedRun(brokenSpec, 'SyntaxError: invalid syntax')
 

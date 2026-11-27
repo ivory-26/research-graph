@@ -11,7 +11,7 @@ import {
   createCallModel,
   createDrizzleAgentTaskStore,
   createGeminiGenerator,
-  isRateLimitError,
+  isRetryableProviderError,
   type AgentTaskInsert,
   type AgentTaskStore,
   type CallModelContext,
@@ -60,16 +60,30 @@ function agentTaskDb(rows: AgentTaskInsert[]): Pick<Database, 'insert'> {
   return fake as unknown as Pick<Database, 'insert'>
 }
 
-function rateLimitError(): APICallError {
+function providerError(statusCode: 429 | 503): APICallError {
   return new APICallError({
-    message: '429 Too Many Requests',
-    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent',
+    message:
+      statusCode === 429
+        ? '429 Too Many Requests'
+        : '503 Service Unavailable: high demand',
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${DEFAULT_MODEL_ID}:generateContent`,
     requestBodyValues: {},
-    statusCode: 429,
-    responseHeaders: { 'retry-after': '1' },
-    responseBody: '{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}',
+    statusCode,
+    responseHeaders: statusCode === 429 ? { 'retry-after': '1' } : {},
+    responseBody:
+      statusCode === 429
+        ? '{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}'
+        : '{"error":{"code":503,"status":"UNAVAILABLE"}}',
     isRetryable: true,
   })
+}
+
+function rateLimitError(): APICallError {
+  return providerError(429)
+}
+
+function capacityError(): APICallError {
+  return providerError(503)
 }
 
 /** Two `now()` reads per attempt, so every attempt records a 25 ms latency. */
@@ -100,7 +114,12 @@ function context(store: AgentTaskStore): CallModelContext {
 // ---------------------------------------------------------------------------
 
 describe('callModel task accounting', () => {
-  it('retries a 429 and records one real agent_tasks row per attempt', async () => {
+  it.each([
+    ['429 rate limit', 429],
+    ['503 provider capacity', 503],
+  ] as const)(
+    'retries a %s and records one real agent_tasks row per attempt',
+    async (_label, status) => {
     const inserted: AgentTaskInsert[] = []
     const store = createDrizzleAgentTaskStore(agentTaskDb(inserted))
     const sleeps: number[] = []
@@ -108,7 +127,7 @@ describe('callModel task accounting', () => {
 
     const generate: StructuredGenerator = async () => {
       requests += 1
-      if (requests === 1) throw rateLimitError()
+      if (requests === 1) throw providerError(status)
       return {
         output: { claims: ['noise can outrank informative features'] },
         inputTokens: 120,
@@ -134,7 +153,7 @@ describe('callModel task accounting', () => {
     expect(requests).toBe(2)
     expect(inserted).toHaveLength(2)
 
-    // The 429 attempt: its own row, its own latency, no invented token counts.
+    // The failed attempt: its own row, its own latency, no invented tokens.
     expect(inserted[0]).toMatchObject({
       workspaceId: 'workspace-1',
       strategyId: 'strategy-1',
@@ -148,14 +167,14 @@ describe('callModel task accounting', () => {
       costUsd: null,
       latencyMs: 25,
     })
-    expect(inserted[0]!.error).toContain('429')
+    expect(inserted[0]!.error).toContain(String(status))
 
     // The successful attempt: tokens, cost and latency on the same row.
     expect(inserted[1]).toMatchObject({
       status: 'succeeded',
       promptTokens: 120,
       completionTokens: 30,
-      costUsd: '0.000111',
+      costUsd: '0.000405',
       latencyMs: 25,
       error: null,
     })
@@ -215,7 +234,7 @@ describe('callModel task accounting', () => {
     expect(sleeps).toEqual([500, 1000])
   })
 
-  it('does not retry a non-429 failure', async () => {
+  it('does not retry a non-retryable failure', async () => {
     const store = new MemoryTaskStore()
     const sleeps: number[] = []
     const failure = new Error('model exploded')
@@ -328,7 +347,7 @@ describe('callModel task accounting', () => {
       now: steppingClock(),
     })
     await priced(ClaimSchema, 'p', context(pricedStore))
-    expect(pricedStore.rows[0]!.costUsd).toBe('2.800000')
+    expect(pricedStore.rows[0]!.costUsd).toBe('9.000000')
 
     const unpricedStore = new MemoryTaskStore()
     const unpriced = createCallModel({
@@ -455,11 +474,12 @@ describe('createGeminiGenerator', () => {
   })
 })
 
-describe('isRateLimitError', () => {
-  it('recognises a 429 and nothing else', () => {
-    expect(isRateLimitError(rateLimitError())).toBe(true)
+describe('isRetryableProviderError', () => {
+  it('recognises 429 and 503 and nothing else', () => {
+    expect(isRetryableProviderError(rateLimitError())).toBe(true)
+    expect(isRetryableProviderError(capacityError())).toBe(true)
     expect(
-      isRateLimitError(
+      isRetryableProviderError(
         new APICallError({
           message: '500 Internal Server Error',
           url: 'https://example.test',
@@ -469,7 +489,8 @@ describe('isRateLimitError', () => {
         }),
       ),
     ).toBe(false)
-    expect(isRateLimitError({ statusCode: 429 })).toBe(true)
-    expect(isRateLimitError(new Error('429 in a message'))).toBe(false)
+    expect(isRetryableProviderError({ statusCode: 429 })).toBe(true)
+    expect(isRetryableProviderError({ statusCode: 503 })).toBe(true)
+    expect(isRetryableProviderError(new Error('429 in a message'))).toBe(false)
   })
 })
