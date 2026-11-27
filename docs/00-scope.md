@@ -58,7 +58,7 @@ The comparison view ships in the UI. The what-if branch that creates Run B (`BRA
 | Learn | What-if child run, comparison, and the strategy table showing which extraction strategy won |
 | Share | Notebook export, opened in Colab, plus a workspace JSON export |
 
-### Where the beats stand on 25 November
+### Where the beats stand on 27 November
 
 | Beat | Backend on `main` | UI on `main` |
 |---|---|---|
@@ -66,8 +66,8 @@ The comparison view ships in the UI. The what-if branch that creates Run B (`BRA
 | Organise | Claims and edges are extracted and validated against quotes | Canvas renders the fixture graph |
 | Understand | Retrieval API with verified citations works | Ask page answers from fixture chunks |
 | Experiment | Planner validation, real E2B runner and deterministic verdict work; SSE delivery mounts | Approval and experiment pages render from the hero fixture |
-| Learn | No branch execution and no strategy selection yet | Comparison and dashboard render recorded values |
-| Share | No server-side notebook or workspace export | Both exports are built client-side from the fixture |
+| Learn | What-if branch execution and queued Run B adoption work (#62); no strategy selection yet | Comparison and dashboard render recorded values |
+| Share | Server-side notebook export is built and persisted in `run_artifacts`; no workspace JSON export | Export modal builds both client-side from the fixture; the persisted notebook is not surfaced yet |
 
 The gap that matters for the recording is the bridge: the browser does not yet call the pipeline endpoint or read the database. Graph write-back (#7) and the deploy (#9) are the remaining spine work; the seed script (#8) is built.
 
