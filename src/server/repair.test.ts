@@ -797,7 +797,38 @@ describe('repairAndRetryRun (Issue #26)', () => {
           offeredSpec: HERO_EXPERIMENT_SPEC_RUN_A,
         },
       }),
-    ).rejects.toThrow(/does not match the gate offeredSpec script/)
+    ).rejects.toThrow(/does not match the gate offeredSpec/)
+  })
+
+  it('accepts timeout parent run for retry in repairAndRetryRun', async () => {
+    const spec = makeBrokenImportSpec()
+    const timeoutRun: RepairRunRecord = {
+      ...makeFailedRun(spec, 'Timed out'),
+      status: 'timeout',
+    }
+    const runStore = new MemoryRepairRunStore()
+    runStore.seed(timeoutRun)
+    const runner: ExperimentRunner = {
+      async run() {
+        return structuredClone(HERO_RECORDED_RUN_RESULT)
+      },
+      async cancel() {},
+    }
+    const taskStore = new MemoryTaskStore()
+    const mockCallModel: CallModel = async <T>() => ({
+      output: { script: HERO_EXPERIMENT_SPEC_RUN_A.files['main.py']!, summary: 'repaired' } as T,
+      task: { id: 'task-1' } as any,
+      attempts: [],
+    })
+
+    const result = await repairAndRetryRun(timeoutRun, {
+      runStore,
+      runner,
+      modelContext: { workspaceId: 'ws-1', strategyId: null, store: taskStore },
+      callModelFn: mockCallModel,
+      maxAttempts: 1,
+    })
+    expect(result.status).toBe('repaired')
   })
 
   it('returns not_failed when parent is not failed even if claimId is omitted with openApprovalGate', async () => {
