@@ -192,4 +192,62 @@ describe('subscribeToPipelineStream', () => {
 
     cleanup();
   });
+
+  it('encodes initialLastSeq as ?seq=N and deduplicates events at or below lastSeq', () => {
+    let messageListener: ((e: any) => void) | null = null;
+    let capturedUrl = '';
+
+    class MockEventSource {
+      constructor(url: string) {
+        capturedUrl = url;
+      }
+      set onmessage(fn: any) {
+        messageListener = fn;
+      }
+      close() {}
+    }
+
+    const events: PipelineEvent[] = [];
+    const cleanup = subscribeToPipelineStream(
+      'exp-resume',
+      { onEvent: (e) => events.push(e) },
+      { EventSourceClass: MockEventSource as any, initialLastSeq: 4 },
+    );
+
+    expect(capturedUrl).toBe('/api/pipeline/exp-resume?seq=4');
+
+    // Replayed event at seq <= 4 is skipped
+    messageListener!({
+      data: JSON.stringify({
+        seq: 4,
+        experimentId: 'exp-resume',
+        at: new Date().toISOString(),
+        type: 'stage.started',
+        stage: 'PLAN_EXPERIMENT',
+      }),
+    });
+    // Fresh event at seq 5 is delivered
+    messageListener!({
+      data: JSON.stringify({
+        seq: 5,
+        experimentId: 'exp-resume',
+        at: new Date().toISOString(),
+        type: 'stage.started',
+        stage: 'EXECUTE',
+      }),
+    });
+    // Duplicate seq 5 is skipped
+    messageListener!({
+      data: JSON.stringify({
+        seq: 5,
+        experimentId: 'exp-resume',
+        at: new Date().toISOString(),
+        type: 'stage.started',
+        stage: 'EXECUTE',
+      }),
+    });
+
+    expect(events.map((e) => e.seq)).toEqual([5]);
+    cleanup();
+  });
 });

@@ -192,6 +192,7 @@ function WorkspacePage() {
   const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const streamCleanupRef = useRef<(() => void) | null>(null);
+  const lastSeqRef = useRef<Record<string, number>>({});
 
   // Load live user workspaces (with UUIDs) on mount, preserving the demo fixture entry
   useEffect(() => {
@@ -346,46 +347,55 @@ function WorkspacePage() {
         `[${new Date().toLocaleTimeString()}] [SSE] Connecting to /api/pipeline/${expId}...`,
       ]);
 
-      streamCleanupRef.current = subscribeToPipelineStream(expId, {
-        onLog: (line) => {
-          setExecutionLogs((prev) => [...prev, line]);
-        },
-        onApprovalRequested: (event) => {
-          setExperimentId(event.experimentId);
-          setGateSeq(event.seq);
-          setActiveGateSpec(event.spec);
-          setApprovalError(null);
-          setIsApprovalOpen(true);
-        },
-        onApprovalResolved: () => {
-          setGateSeq(null);
-          setActiveGateSpec(null);
-        },
-        onError: (err) => {
-          const es = (err as any)?.target;
-          // Let native EventSource auto-reconnect with Last-Event-ID on transient errors
-          if (es && typeof EventSource !== 'undefined' && es.readyState === EventSource.CONNECTING) {
-            return;
-          }
-          const msg = `Pipeline stream error for ${expId}`;
-          setExecutionLogs((prev) => [
-            ...prev,
-            `[${new Date().toLocaleTimeString()}] [SSE ERROR] ${msg}`,
-          ]);
-          showToast(msg);
-          if (streamCleanupRef.current) {
-            streamCleanupRef.current();
+      streamCleanupRef.current = subscribeToPipelineStream(
+        expId,
+        {
+          onEvent: (event) => {
+            if (typeof event.seq === 'number') {
+              lastSeqRef.current[expId] = Math.max(lastSeqRef.current[expId] ?? 0, event.seq);
+            }
+          },
+          onLog: (line) => {
+            setExecutionLogs((prev) => [...prev, line]);
+          },
+          onApprovalRequested: (event) => {
+            setExperimentId(event.experimentId);
+            setGateSeq(event.seq);
+            setActiveGateSpec(event.spec);
+            setApprovalError(null);
+            setIsApprovalOpen(true);
+          },
+          onApprovalResolved: () => {
+            setGateSeq(null);
+            setActiveGateSpec(null);
+          },
+          onError: (err) => {
+            const es = (err as any)?.target;
+            // Let native EventSource auto-reconnect with Last-Event-ID on transient errors
+            if (es && typeof EventSource !== 'undefined' && es.readyState === EventSource.CONNECTING) {
+              return;
+            }
+            const msg = `Pipeline stream error for ${expId}`;
+            setExecutionLogs((prev) => [
+              ...prev,
+              `[${new Date().toLocaleTimeString()}] [SSE ERROR] ${msg}`,
+            ]);
+            showToast(msg);
+            if (streamCleanupRef.current) {
+              streamCleanupRef.current();
+              streamCleanupRef.current = null;
+            }
+            setIsStreaming(false);
+          },
+          onComplete: () => {
             streamCleanupRef.current = null;
-          }
-          setIsStreaming(false);
+            setIsStreaming(false);
+            setGateSeq(null);
+            setActiveGateSpec(null);
+          },
         },
-        onComplete: () => {
-          streamCleanupRef.current = null;
-          setIsStreaming(false);
-          setGateSeq(null);
-          setActiveGateSpec(null);
-        },
-      });
+        { initialLastSeq: lastSeqRef.current[expId] ?? 0 },
+      );
     } else {
       setIsApprovalOpen(true);
     }

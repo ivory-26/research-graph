@@ -112,6 +112,13 @@ export interface PipelineStreamHandlers {
 
 export interface PipelineStreamOptions {
   EventSourceClass?: typeof EventSource;
+  /**
+   * Resume cursor: the seq of the last event seen in a previous connection.
+   * When > 0 it is encoded as `?seq=N` in the stream URL so the server
+   * replays only events after that cursor, matching the behaviour of the
+   * native `Last-Event-ID` header sent on automatic reconnects.
+   */
+  initialLastSeq?: number;
 }
 
 /**
@@ -132,9 +139,13 @@ export function subscribeToPipelineStream(
     return () => {};
   }
 
-  const url = `/api/pipeline/${encodeURIComponent(experimentId)}`;
+  const baseUrl = `/api/pipeline/${encodeURIComponent(experimentId)}`;
+  const startSeq = typeof options?.initialLastSeq === 'number' && options.initialLastSeq > 0
+    ? options.initialLastSeq
+    : 0;
+  const url = startSeq > 0 ? `${baseUrl}?seq=${startSeq}` : baseUrl;
   const es = new ES(url);
-  let lastSeq = 0;
+  let lastSeq = startSeq;
 
   es.onmessage = (e: MessageEvent) => {
     try {

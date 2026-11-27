@@ -203,7 +203,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
               Hypothesis Specification & Fixture Preview
             </div>
             <div className="text-xs text-[var(--text-dim)] mt-0.5 font-mono">
-              Specification preview: Replacing Gini impurity with permutation drops 20-category noise feature from Rank #{rankA} to Rank #{rankB}{delta !== null ? ` (Δ = +${delta} positions)` : ''}.
+              Specification preview: Replacing Gini impurity with permutation drops 20-category noise feature from Rank #{rankA} to Rank #{rankB}{delta !== null ? ` (Δ = ${delta >= 0 ? `+${delta}` : delta} positions)` : ''}.
             </div>
           </div>
         </div>
