@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { agentTasks } from '../db/schema'
 import type { Database } from '../db/client'
 import {
+  AgentTaskPersistenceError,
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_MODEL_ID,
   createCallModel,
@@ -269,9 +270,13 @@ describe('callModel task accounting', () => {
       now: steppingClock(),
     })
 
-    await expect(
-      call(ClaimSchema, 'extract the claims', context(store)),
-    ).rejects.toThrow('database is down')
+    const failure = await call(ClaimSchema, 'extract the claims', context(store))
+      .then(() => null, (error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(AgentTaskPersistenceError)
+    expect((failure as AgentTaskPersistenceError).cause).toMatchObject({
+      message: 'database is down',
+    })
 
     expect(inserts).toBe(1)
   })

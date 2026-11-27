@@ -18,7 +18,7 @@
 /src/server/auth/                @ivory-26
 /src/server/pipeline-delivery/   @ivory-26
 /src/server/pipeline-transport/  @ivory-26
-/src/server/pipeline.ts          @ivory-26   # #7, not created yet
+/src/server/pipeline.ts          @ivory-26   # #7 run → graph projection
 /scripts/                        @ivory-26
 /.github/                        @ivory-26
 /.opencode/                      @ivory-26
@@ -38,5 +38,6 @@
 /src/server/runner.ts           @yashhh-23
 /src/server/evaluate.ts         @yashhh-23
 /src/server/evaluate-verdict.ts @yashhh-23
-/src/server/branch.ts           @yashhh-23   # not created yet
+/src/server/branch.ts           @yashhh-23   # repair loop and what-if branch
+/src/server/repair.test.ts      @yashhh-23
 /src/server/notebook.ts         @yashhh-23   # not created yet

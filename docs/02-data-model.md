@@ -147,7 +147,11 @@ export const runs = pgTable('runs', {
   startedAt: timestamp('started_at'),
   finishedAt: timestamp('finished_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (t) => [
+  // One repair child per parent in an experiment. What-if branches own a new
+  // experiment, so the same parent run may have one child in each.
+  unique('runs_experiment_parent_unique').on(t.experimentId, t.parentRunId),
+]);
 
 export const runArtifacts = pgTable('run_artifacts', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -236,6 +240,8 @@ export const approvalGates = pgTable('approval_gates', {
   experimentId: uuid('experiment_id').notNull(),
   workspaceId: uuid('workspace_id').notNull(),
   executionClaimId: uuid('execution_claim_id').notNull(),
+  repairParentRunId: uuid('repair_parent_run_id')  // set for a repair gate
+    .references(() => runs.id, { onDelete: 'cascade' }),
   gateSeq: integer('gate_seq').notNull(),        // the approval.requested seq
   offeredSpec: jsonb('offered_spec').$type<ExperimentSpec>().notNull(),
   status: text('status').$type<'pending' | 'approved' | 'rejected'>().notNull().default('pending'),
@@ -244,7 +250,12 @@ export const approvalGates = pgTable('approval_gates', {
   decisionEventSeq: integer('decision_event_seq'),
 }, (t) => [
   unique('approval_gates_experiment_gate_seq_unique').on(t.experimentId, t.gateSeq),
-  unique('approval_gates_execution_claim_unique').on(t.executionClaimId),
+  uniqueIndex('approval_gates_initial_claim_unique')
+    .on(t.executionClaimId).where(sql`${t.repairParentRunId} is null`),
+  unique('approval_gates_claim_repair_parent_unique').on(
+    t.executionClaimId,
+    t.repairParentRunId,
+  ),
   uniqueIndex('approval_gates_one_pending_per_experiment')
     .on(t.experimentId).where(sql`${t.status} = 'pending'`),
 ]);
@@ -308,7 +319,7 @@ type VerdictDetail = {
 | An edge has evidence | `CHECK` constraint |
 | A claim's reported value is never overwritten by a measurement | separate tables, separate columns |
 | A run's specification is immutable once executed | `runs.spec` is a frozen copy |
-| A what-if changes exactly one parameter | not built yet; will be validated against `parentRunId` |
+| A what-if changes exactly one parameter | validated in `src/server/branch.ts` against the frozen parent spec; queued Run B adoption is #62 |
 | Every model call is accounted for | one `agent_tasks` row per physical attempt, success or failure |
 | Deleting a source or run cannot silently orphan an edge | `ON DELETE RESTRICT` on `evidence_chunk_id` and `evidence_run_id` |
 | One experiment starts at most one execution | unique `execution_claims.experiment_id` |
