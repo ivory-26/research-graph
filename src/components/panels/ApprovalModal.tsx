@@ -44,6 +44,14 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
     .map((c) => `${c.metric} ${c.op === 'lte' ? '≤' : c.op === 'gt' ? '>' : c.op} ${c.value}`)
     .join(' & ');
 
+  const entrypointScript = (() => {
+    const pyToken = spec.entrypoint.trim().split(/\s+/).find((t) => t.endsWith('.py'));
+    if (pyToken && spec.files[pyToken] !== undefined) return spec.files[pyToken];
+    if (spec.files['main.py'] !== undefined) return spec.files['main.py'];
+    const firstPy = Object.keys(spec.files).find((k) => k.endsWith('.py'));
+    return firstPy ? spec.files[firstPy] : '';
+  })();
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md animate-fade-in">
       <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-none border border-[var(--border-primary)] bg-[var(--bg-primary)] text-[var(--text-secondary)] shadow-2xl">
@@ -201,7 +209,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
               </span>
             </div>
             <pre className="max-h-60 overflow-y-auto rounded-none border border-[var(--border-primary)] bg-[var(--card-bg)] p-4 font-mono text-[11px] text-[var(--text-primary)] leading-relaxed">
-              <code>{spec.files[spec.entrypoint] ?? spec.files['main.py']}</code>
+              <code>{entrypointScript}</code>
             </pre>
           </div>
         </div>

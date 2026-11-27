@@ -29,6 +29,7 @@ import { computeForceLayout } from '../../utils/forceSimulation';
 import {
   clearPersistedPositions,
   loadPersistedPositions,
+  resolveNodePosition,
   savePersistedPositions,
   type PositionMap,
 } from '../../utils/graphClient';
@@ -161,11 +162,13 @@ function CanvasInner({
   const nodesRef = useRef<Node[]>([]);
   const [persistedPositions, setPersistedPositions] = useState<PositionMap>({});
 
-  // Load persisted node coordinates on the client after mount / viewMode / workspace switch (SSR-safe)
+  // Load persisted node coordinates on the client after mount / viewMode / workspace switch (SSR-safe).
+  // Keep userDraggedNodeIdsRef clear here so the synchronizer applies the restored coordinates
+  // from `persistedPositions` instead of holding onto pre-load computed positions.
   useEffect(() => {
     const loaded = loadPersistedPositions(viewMode, undefined, workspaceId);
+    userDraggedNodeIdsRef.current.clear();
     setPersistedPositions(loaded);
-    userDraggedNodeIdsRef.current = new Set(Object.keys(loaded));
   }, [viewMode, workspaceId]);
 
   // Double-click focus on node and immediate neighborhood (centred on actually rendered position)
@@ -312,13 +315,12 @@ function CanvasInner({
       const isDimmed = isCategoryDimmed || (hasLineage && !isLineageNode);
       const isHighlighted = hasLineage ? isLineageNode : false;
 
-      // Position: persisted user drag coordinates (per viewMode), organic force-directed position, or cards pipeline position
-      const persisted = persistedPositions[n.id];
-      const position =
-        persisted ||
-        (viewMode === 'memory'
+      // Position: persisted user drag coordinates (per viewMode & workspace), organic force-directed position, or cards pipeline position
+      const fallbackPosition =
+        viewMode === 'memory'
           ? forceLayout.positions[n.id] || { x: n.position.x - 450, y: n.position.y - 200 }
-          : n.position);
+          : n.position;
+      const position = resolveNodePosition(n.id, fallbackPosition, persistedPositions);
 
       return {
         id: n.id,

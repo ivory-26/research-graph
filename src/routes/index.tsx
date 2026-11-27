@@ -197,14 +197,22 @@ function WorkspacePage() {
   useEffect(() => {
     let active = true;
     fetch('/api/workspaces', { headers: { Accept: 'application/json' } })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => {
+        if (!res.ok) {
+          if (res.status !== 401 && res.status !== 403 && active) {
+            showToast(`Workspace list unavailable (HTTP ${res.status})`);
+          }
+          return null;
+        }
+        return res.json();
+      })
       .then((data) => {
         if (active && data && Array.isArray(data.workspaces) && data.workspaces.length > 0) {
           setWorkspaces([...WORKSPACES, ...data.workspaces]);
         }
       })
       .catch(() => {
-        // Keep fixture workspace fallback
+        if (active) showToast('Failed to load workspace list');
       });
     return () => {
       active = false;

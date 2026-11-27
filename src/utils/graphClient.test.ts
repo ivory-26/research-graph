@@ -3,6 +3,7 @@ import {
   loadPersistedPositions,
   savePersistedPositions,
   clearPersistedPositions,
+  resolveNodePosition,
   fetchWorkspaceGraph,
   GRAPH_POSITIONS_STORAGE_KEY,
 } from './graphClient';
@@ -69,6 +70,13 @@ describe('graphClient', () => {
       savePersistedPositions({ 'node-1': { x: 10, y: 20 } }, 'memory', storageAdapter);
       clearPersistedPositions('memory', storageAdapter);
       expect(loadPersistedPositions('memory', storageAdapter)).toEqual({});
+    });
+
+    it('restores loaded position over default fallback when resolving node coordinates', () => {
+      savePersistedPositions({ 'node-claim': { x: 777, y: 333 } }, 'cards', storageAdapter, 'ws-1');
+      const loaded = loadPersistedPositions('cards', storageAdapter, 'ws-1');
+      expect(resolveNodePosition('node-claim', { x: 10, y: 20 }, loaded)).toEqual({ x: 777, y: 333 });
+      expect(resolveNodePosition('node-other', { x: 10, y: 20 }, loaded)).toEqual({ x: 10, y: 20 });
     });
   });
 

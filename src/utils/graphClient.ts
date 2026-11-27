@@ -71,6 +71,14 @@ export function savePersistedPositions(
 /**
  * Clears persisted node positions, resetting to default calculated layout.
  */
+export function resolveNodePosition(
+  nodeId: string,
+  fallbackPosition: { x: number; y: number },
+  persistedPositions: PositionMap,
+): { x: number; y: number } {
+  return persistedPositions[nodeId] ?? fallbackPosition;
+}
+
 export function clearPersistedPositions(
   viewMode?: CanvasViewMode,
   storage: Storage | null = typeof window !== 'undefined' ? window.localStorage : null,
