@@ -64,6 +64,7 @@ import { validateExperimentSpec } from '../planner'
 import { StreamBudgetExceededError } from '../pipeline-transport'
 import {
   E2BRunner,
+  SandboxTimeoutError,
   runnerErrorToFailedResult,
   type ExperimentRunner,
 } from '../runner'
@@ -382,12 +383,14 @@ export function createProductionPipelineStages(
 
       let result: ExperimentResult
       let runnerThrew = false
+      let runnerTimedOut = false
       try {
         result = await executionRunner.run(spec, () => {
           // Durable stdout lives in `runs.stdout`; see the module header.
         })
       } catch (error) {
         runnerThrew = true
+        runnerTimedOut = error instanceof SandboxTimeoutError
         result = failedResultFromRunnerError(error, spec, startedAt)
       }
 
@@ -429,7 +432,12 @@ export function createProductionPipelineStages(
           : new Error('the pipeline was aborted')
       }
 
-      const runStatus = result.exitCode === 0 ? 'succeeded' : 'failed'
+      const runStatus =
+        result.exitCode === 0
+          ? 'succeeded'
+          : runnerTimedOut
+            ? 'timeout'
+            : 'failed'
       await db
         .update(runs)
         .set({
@@ -462,7 +470,8 @@ export function createProductionPipelineStages(
         await context.emit({
           type: 'stage.finished',
           stage: 'EXECUTE',
-          status: runStatus,
+          // StageStatus has no `timeout`; the run row keeps that distinction.
+          status: runStatus === 'succeeded' ? 'succeeded' : 'failed',
           taskId: null,
           error:
             runStatus === 'succeeded'
@@ -574,7 +583,7 @@ export function createProductionPipelineStages(
           )
         }
 
-        if (runStatus === 'failed' && !runnerThrew) {
+        if (runStatus === 'timeout' || (runStatus === 'failed' && !runnerThrew)) {
           return await repair(context, terminalRun, executionRunner)
         }
         return { runId }

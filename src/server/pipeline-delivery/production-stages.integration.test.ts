@@ -21,6 +21,7 @@ import {
 } from 'vitest'
 
 import { createCallModel } from '../model'
+import { SandboxTimeoutError } from '../runner'
 import type { PipelineEvent } from '../../shared/events'
 import type { ExperimentSpec } from '../../shared/types'
 import type { PipelineTimings } from './timings'
@@ -306,6 +307,46 @@ describeIntegration('production pipeline stages over real Postgres', () => {
         .toEqual(expect.arrayContaining([parent!.id, child!.id]))
     },
   )
+
+  it('starts the repair loop after a sandbox timeout and records the parent as timeout', async () => {
+    const originalScript = seed.spec.files['main.py']!
+    const candidate = originalScript.replace('import json', 'import json as json')
+    const runner: StubRunner = {
+      ...createStubRunner('succeed'),
+      async run() {
+        this.runCalls++
+        if (this.runCalls === 1) {
+          throw new SandboxTimeoutError('Execution timed out after 30 seconds', 30)
+        }
+        return measuredResult({ metrics: { score: 0.9 } })
+      },
+    }
+    const callModel = createCallModel({
+      generate: async ({ prompt }) => ({
+        output: prompt.includes('timed out')
+          ? { script: candidate, summary: 'Retry after the sandbox timeout' }
+          : { explanation: 'The verdict was computed from the run.' },
+        inputTokens: 15,
+        outputTokens: 10,
+      }),
+    })
+    const handlers = handlersFor(runner, FAST_TIMINGS, callModel)
+    const sse = consume(await handlers.stream(streamRequest(seed.experimentId), {
+      experimentId: seed.experimentId,
+    }))
+    await approveRequested(handlers, sse)
+    await sse.waitFor((event) => event.type === 'pipeline.completed')
+
+    const rows = await runRows()
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ attempt: 1, status: 'timeout' })
+    expect(rows[1]).toMatchObject({
+      attempt: 2,
+      parent_run_id: rows[0]!.id,
+      status: 'succeeded',
+    })
+    expect(runner.runCalls).toBe(2)
+  })
 
   it('offers the persisted plan at the gate after real planner validation', async () => {
     const runner = createStubRunner('succeed')

@@ -152,10 +152,10 @@ describe('isAutoApprovableRepair', () => {
     expect(isAutoApprovableRepair(orig, injected)).toBe(false)
   })
 
-  it('rejects auto-approval on metric key renames', () => {
-    const orig = 'metrics = {"rank_impurity_noise_20": 1}'
-    const repaired = 'metrics = {"rank_permutation_noise_20": 1}'
-    expect(isAutoApprovableRepair(orig, repaired)).toBe(false)
+  it('rejects auto-approval when a frozen-spec metric key is renamed', () => {
+    const orig = 'metrics = {"accuracy": 1}'
+    const repaired = 'metrics = {"acc": 1}'
+    expect(isAutoApprovableRepair(orig, repaired, ['accuracy'])).toBe(false)
   })
 
   it('rejects auto-approval on indentation-only shifts', () => {

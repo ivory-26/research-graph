@@ -39,6 +39,7 @@ import {
   requireExperimentId,
   requireObjectInput,
   requireSequence,
+  requireUuid,
   requireWorkspaceId,
   validateExperimentSpec,
 } from './pipeline-validation'
@@ -63,7 +64,7 @@ export async function openApprovalGate(
   const spec = validateExperimentSpec(data.spec)
   const repairParentRunId = data.repairParentRunId === undefined
     ? null
-    : requireExperimentId(data.repairParentRunId)
+    : requireUuid(data.repairParentRunId, 'repairParentRunId')
 
   return db.transaction(async (tx) => {
     const experiment = await lockExperiment(tx, experimentId, workspaceId)
