@@ -474,7 +474,7 @@
       "chunkNumber": 2,
       "sourceTitle": "Strobl et al. 2007",
       "targetTitle": "breast-w + 3 noise cols",
-      "rationale": "The demo adapts the paper's simulation design (predictors with 2-20 categories) to breast-w.",
+      "rationale": "The cited passage describes the paper's simulated predictors with 2–20 categories. This demo uses breast-w as its dataset and adds three noise columns to adapt that design.",
       "sourceNodeId": "claim-gini-bias",
       "targetNodeId": "dataset-breast-w",
       "evidenceRunId": null

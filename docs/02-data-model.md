@@ -111,6 +111,10 @@ export const edges = pgTable('edges', {
 
 The `edges_have_evidence` constraint is the whole point of the graph. It lives in the database so that no future code path — not a migration, not a backfill script, not a model — can create an assertion without a citation.
 
+### Edge inspector acceptance criterion
+
+Every accepted edge in the seeded workspace opens the evidence inspector. For a source-grounded edge, the inspector shows the cited source, a verbatim quote, and its page number. For a run-grounded edge, the inspector shows a distinct run-evidence state that names the run and identifies it by ID. This is the criterion proposed by the repository owner in [issue #19](https://github.com/ivory-26/research-graph/issues/19#issuecomment-7165123016).
+
 ## Runs
 
 ```ts
