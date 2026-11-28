@@ -70,16 +70,16 @@ The UI still renders `fixtures/workspace.json`; the runtime is exercised with `H
 
 - **CyberCodezilla** — wire `ingestPdf`/`ingestWebSource` → `extractClaims` → `proposeEdges` into one workspace-scoped call path, and add the `sectioned` and `table_first` strategies behind the existing interface.
 - **frag2win** — wire the remaining canvas panels to the live graph and strategy routes; the approval modal now POSTs to the real gate and the browser reads live data when a database workspace is active. Keep every fixture value labelled as recorded when no database workspace is selected.
-- **yashhh-23** — surface the persisted notebook in the UI and generate it from `run_artifacts` rather than the fixture.
+- **yashhh-23** — surface the persisted notebook from `run_artifacts` in the UI.
 - **ivory-26** — #7 graph write-back, #9 deploy; #8 seed and #16 sign-in screens are built.
 
 ## Where each stream stands — 27 November
 
 | Stream | Landed | Open |
 |---|---|---|
-| Foundation & Integration (ivory-26) | scaffold, schema, auth server, transport, pipeline persistence, SSE delivery, CI reviewer, seed (#8), sign-in screens (#16), browser→pipeline bridge (#20), guarded graph/workspace/strategy reads (#18, #21) | #7 graph write-back, #9 deploy |
+| Foundation & Integration (ivory-26) | scaffold, schema, auth server, transport, pipeline persistence, SSE delivery, CI reviewer, seed (#8), sign-in screens (#16), browser→pipeline bridge (#20), guarded graph and workspace reads (#18), guarded strategy dashboard reads (related to #22) | #7 graph write-back, #9 deploy |
 | Ingestion & Extraction (CyberCodezilla) | PDF reading order, chunking, embeddings, claim extraction, edge proposal, retrieval, Firecrawl | `sectioned` and `table_first` strategies; live end-to-end ingestion from the UI |
-| Canvas & UI (frag2win) | canvas, evidence, approval, comparison, dashboard, exports; live graph, strategy and pipeline reads when a database workspace or experiment is active | starting a real run from the UI, writing run results back to the canvas (#7) |
+| Canvas & UI (frag2win) | canvas, evidence, approval, fixture run comparison (#21), dashboard, exports, and live graph, strategy and pipeline reads when a database workspace or experiment is active | starting a real run from the UI, writing run results back to the canvas (#7) |
 | Runtime & Evaluation (yashhh-23) | planner validation, E2B runner, pinned-environment verification, hero run, deterministic verdict, what-if branch module and queued-run adoption (#62), repair loop, server-side notebook | strategy selection, plan generation |
 
 ## The original day-by-day
