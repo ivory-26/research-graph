@@ -32,10 +32,13 @@ The graph is the presentation, not the product. The product is the claim:
 
 **Not on `main` yet**
 
-- the production deploy (#9); the Nitro preset, Node 26 pin, 300 s function duration and environment-variable list are configured in [`docs/11-deploy.md`](./docs/11-deploy.md)
 - strategy selection (the repair loop and what-if branch are built)
 
-**Verified 28 November 2026:** `pnpm typecheck`, `pnpm db:check`, `pnpm test`, `pnpm build` and a `VERCEL=1 pnpm build` passed. The default suite passed 27 transport checks, 571 app tests and 93 seed tests. It skipped 75 opt-in integration tests; with a disposable Postgres (`TEST_DATABASE_URL`) 66 of those ran and Vitest passed 637 tests, leaving 9 that need a real Neon branch or live Gemini/Meta/E2B credentials. A live browser E2E on 28 November passed through Google sign-in, Firecrawl ingestion, Gemini/Meta extraction, an E2B run and a Colab reproduction; see the [pipeline delivery handoff](./docs/09-pipeline-delivery-handoff.md). See the [pipeline delivery handoff](./docs/09-pipeline-delivery-handoff.md) for their configuration.
+**Deployed**
+
+Production is live at <https://research-graph-sage.vercel.app> (Vercel project `research-graph`, team `sahil-64d5`; #9 closed). The remaining step is redeploying `main` after this PR merges; the Nitro preset, Node 26 pin, 300 s function duration and environment-variable list are configured in [`docs/11-deploy.md`](./docs/11-deploy.md).
+
+**Verified 28 November 2026:** `pnpm typecheck`, `pnpm db:check`, `pnpm test`, `pnpm build` and a `VERCEL=1 pnpm build` passed. The default suite passed 27 transport checks, 572 app tests and 93 seed tests. It skipped 77 opt-in integration tests; with a disposable Postgres (`TEST_DATABASE_URL`) 68 of those ran and Vitest passed 640 tests, leaving 9 that need a real Neon branch or live Gemini/Meta/E2B credentials. A live browser E2E on 28 November passed through Google sign-in, Firecrawl ingestion, Gemini/Meta extraction, an E2B run and a Colab reproduction; the [pipeline delivery handoff](./docs/09-pipeline-delivery-handoff.md) records it and the configuration of the opt-in suites.
 
 | Document | Contents |
 |---|---|

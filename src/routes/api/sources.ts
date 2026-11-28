@@ -1,5 +1,4 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
 
 import { getDb } from '../../db/client'
@@ -310,7 +309,10 @@ export const Route = createFileRoute('/api/sources')({
 
           const outcome = await ingestSourceToGraphForWorkspace({
             workspaceId: membership.workspaceId,
-            runId: randomUUID(),
+            // No run id: this request has no `runs` row, so inventing one
+            // would make the Agent Monitor show an id that resolves to
+            // nothing. The label alone keeps the rows distinguishable; rows
+            // without a run id stay in the Unattributed bucket (docs/03).
             runLabel: `ui:${input.kind}`,
             source:
               input.kind === 'pdf'

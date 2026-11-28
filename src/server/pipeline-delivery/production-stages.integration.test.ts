@@ -1101,6 +1101,77 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     ])
   })
 
+  it('emits run.failed for a non-zero exit that still produced valid metrics', async () => {
+    const originalScript = seed.spec.files['main.py']!
+    // A substantive change, so the repaired candidate re-opens the gate.
+    const candidate = originalScript.replace('0.9', '0.8')
+    const runner: StubRunner = {
+      ...createStubRunner('succeed'),
+      async run() {
+        this.runCalls++
+        if (this.runCalls === 1) {
+          // The script wrote valid metrics but exited non-zero: the row is
+          // `failed`, so the event must be `run.failed`, not `run.succeeded`.
+          return measuredResult({
+            exitCode: 1,
+            stderr: 'AssertionError: score too low',
+            metrics: { score: 0.4 },
+          })
+        }
+        return measuredResult({ metrics: { score: 0.8 } })
+      },
+    }
+    const callModel = createCallModel({
+      generate: async ({ prompt }) => ({
+        output: prompt.includes('score too low')
+          ? { script: candidate, summary: 'Relaxed the failing threshold' }
+          : { explanation: 'The verdict was computed from the run.' },
+        inputTokens: 15,
+        outputTokens: 10,
+      }),
+    })
+    const handlers = handlersFor(runner, FAST_TIMINGS, callModel)
+    const sse = consume(await handlers.stream(streamRequest(seed.experimentId), {
+      experimentId: seed.experimentId,
+    }))
+    const initial = await approveRequested(handlers, sse)
+
+    const runFailed = (await sse.waitFor(
+      (event) => event.type === 'run.failed',
+    )) as Extract<PipelineEvent, { type: 'run.failed' }>
+    expect(runFailed.error).toBe('The experiment script did not exit successfully')
+
+    const failedRows = await runRows()
+    expect(failedRows).toHaveLength(1)
+    expect(failedRows[0]).toMatchObject({
+      id: runFailed.runId,
+      status: 'failed',
+      metrics: { score: 0.4 },
+    })
+
+    // A non-zero exit with valid metrics is still repairable, so the repair
+    // gate must appear after the failed event.
+    const repairGate = await sse.waitFor(
+      (event) => event.type === 'approval.requested' && event.seq > initial.seq,
+    )
+    expect(runner.runCalls).toBe(1)
+
+    const response = await handlers.approve(
+      approveRequest(seed.experimentId, repairGate.seq, 'approved'),
+      { experimentId: seed.experimentId },
+    )
+    expect(response.status).toBe(200)
+    await sse.waitFor((event) => event.type === 'pipeline.completed')
+
+    const rows = await runRows()
+    expect(rows).toHaveLength(2)
+    expect(rows[1]).toMatchObject({
+      attempt: 2,
+      parent_run_id: rows[0]!.id,
+      status: 'succeeded',
+    })
+  })
+
   it('fails the pipeline rather than reporting completion without the graph', async () => {
     const runner = createStubRunner('succeed')
     const handlers = handlersFor(runner)

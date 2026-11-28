@@ -750,7 +750,10 @@ export function createProductionPipelineStages(
             ? safeRunnerFailureMessage(runnerFailureKind)
             : 'The experiment script did not exit successfully'
 
-        if (runnerThrew) {
+        // The event must agree with the row: any non-zero exit is `failed`
+        // (or `timeout`), whether the runner threw or returned a measured
+        // result with valid metrics.
+        if (runnerThrew || result.exitCode !== 0) {
           await context.emit({
             type: 'run.failed',
             runId,

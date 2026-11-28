@@ -65,7 +65,7 @@ The delivery layer is in `src/server/pipeline-delivery/`. It owns the stream, th
 | `EXECUTE` | Writes the `runs` row with the approved, frozen spec, then calls the real `E2BRunner`. The measured result updates the row and becomes `run.succeeded` / `run.failed`. |
 | `EVALUATE` | `evaluateExperiment` computes the verdict first; `explain_gap` on `gemini-4-hydrogen` only writes the explanation. The verdict and checks are persisted and emitted as `verdict.computed`. |
 
-It deliberately does **not** run `INGEST_SOURCE`, `EXTRACT_CLAIMS` or `PROPOSE_EDGES` in this request, and it does **not** write result/run graph nodes or the `produced` edge. Those graph writes are `src/server/pipeline.ts` (#7), which has not landed. The durable run row and event log are the record this layer owns.
+It deliberately does **not** run `INGEST_SOURCE`, `EXTRACT_CLAIMS` or `PROPOSE_EDGES` in this request; those stages produced the graph and the experiment row before it. The graph write-back **is** landed: `projectRunToGraph` in `src/server/pipeline.ts` (#7) is called on every terminal run and writes the run/result nodes and their `produced` edge. The durable run row and event log are the record this layer owns.
 
 A reconnect, a concurrent GET, or a GET after the budget sees the existing `execution_claims` row and becomes a follower; only the claim owner appends a terminal event. Terminal events close the claim. If the terminal append itself fails, the claim expires on its lease and ADR 0003 applies: the run is lost.
 
