@@ -1371,7 +1371,7 @@ describe('Issue #13 contract hardening: RATIONALE_EMPTY reachability, persistenc
 })
 
 describe('propose_edges run attribution', () => {
-  it('records the extraction batch run id and label in inputRef', async () => {
+  it('records the extraction batch run id, label, and strategy name in inputRef', async () => {
     const nodes: NodeSummary[] = [
       { id: '11111111-1111-4111-8111-111111111111', type: 'source', title: 'Paper' },
       { id: '22222222-2222-4222-8222-222222222222', type: 'method', title: 'Random forest' },
@@ -1392,6 +1392,7 @@ describe('propose_edges run attribution', () => {
       chunks,
       runId: 'extract:strobl-2007:single_pass',
       runLabel: 'Strobl 2007 · single_pass',
+      strategyName: 'single_pass',
       callModelFn: (async (_schema: unknown, _prompt: string, ctx: any) => {
         captured = ctx
         return { output: { edges: [] }, task: { id: 'task-edge-run' }, attempts: [] }
@@ -1400,6 +1401,7 @@ describe('propose_edges run attribution', () => {
 
     expect(captured!.inputRef.extractionRunId).toBe('extract:strobl-2007:single_pass')
     expect(captured!.inputRef.extractionRunLabel).toBe('Strobl 2007 · single_pass')
+    expect(captured!.inputRef.strategy).toBe('single_pass')
     expect(captured!.inputRef).not.toHaveProperty('runId')
   })
 })

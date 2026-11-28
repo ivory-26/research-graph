@@ -496,7 +496,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
             <span>
               EVIDENCE CHUNK · PAGE {evidence.page}
               {evidence.chunkNumber !== null && ` · #${evidence.chunkNumber}`}
-              {evidence.charStart !== null && evidence.charEnd !== null && ` · CHARS ${evidence.charStart}–${evidence.charEnd}`}
+              {evidence.charStart !== null && evidence.charEnd !== null && ` · CHUNK CHARS ${evidence.charStart}–${evidence.charEnd}`}
             </span>
             <button
               type="button"

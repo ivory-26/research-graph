@@ -62,7 +62,7 @@ describe('EvidencePanel presentation (#19)', () => {
     // Derived from the fixture so a re-recorded workspace (#17) cannot make
     // this test assert a stale page or character span.
     expect(html).toContain(`EVIDENCE CHUNK · PAGE ${edge.page}`);
-    expect(html).toContain(`CHARS ${edge.charStart}–${edge.charEnd}`);
+    expect(html).toContain(`CHUNK CHARS ${edge.charStart}–${edge.charEnd}`);
     expect(visibleText(html)).toContain(quote.slice(0, 60));
     expect(edge.evidenceSourceTitle).toBeTruthy();
     expect(visibleText(html)).toContain(edge.evidenceSourceTitle);

@@ -201,6 +201,8 @@ export interface ProposeEdgesOptions {
   chunks: ChunkRef[]
   topKChunks?: number
   strategyId?: string | null
+  /** Strategy name for telemetry when no registered strategy name is available. */
+  strategyName?: string
   /** Stable identifier for the extraction batch that produced these nodes. */
   runId?: string | null
   /** Optional human-readable label stored beside `runId`. Never inferred. */
@@ -374,6 +376,7 @@ export async function proposeEdges(
     options.strategyId && UUID_REGEX.test(options.strategyId) ? options.strategyId : null
   const runId = options.runId?.trim() || null
   const runLabel = options.runLabel?.trim() || null
+  const strategyName = options.strategyName || (validStrategyId ? null : options.strategyId)
   const taskStore = options.taskStore ?? agentTaskStore
 
   const prompt = buildProposeEdgesPrompt(nodes, selectedChunks, { topKChunks: topK })
@@ -392,7 +395,7 @@ export async function proposeEdges(
         evidenceSelection: options.evidenceSelection ?? 'caller_chunks',
         ...(runId ? { extractionRunId: runId } : {}),
         ...(runLabel ? { extractionRunLabel: runLabel } : {}),
-        ...(options.strategyId && !validStrategyId ? { strategy: options.strategyId } : {}),
+        ...(strategyName ? { strategy: strategyName } : {}),
       },
     },
   )
@@ -480,6 +483,7 @@ export async function proposeEdgesForWorkspace(
     chunks: candidateChunks,
     topKChunks: options.topKChunks,
     strategyId: options.strategyId,
+    strategyName: options.strategyName,
     runId: options.runId,
     runLabel: options.runLabel,
     evidenceSelection,

@@ -463,6 +463,7 @@ export async function ingestSourceToGraphForWorkspace(
     chunks: edgeChunks,
     topKChunks: topK,
     strategyId: options.strategyId ?? null,
+    strategyName: options.strategy ?? 'single_pass',
     runId: options.runId ?? null,
     runLabel: options.runLabel ?? null,
     evidenceSelection,
