@@ -41,7 +41,7 @@ const RunKpiCard: React.FC<{ run: AgentTaskRunSummary }> = ({ run }) => {
             className="truncate font-mono text-[9px] text-[var(--text-dim)]"
             title={run.runId ?? undefined}
           >
-            {attributed ? run.runId : 'rows recorded before run attribution'}
+            {attributed ? run.runId : 'Tasks without a recorded run'}
           </div>
         </div>
         <span
@@ -290,11 +290,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
       {isDatabaseMode && runSummaries.length > 0 && (
         <div className="space-y-2">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <div className="l">Extraction runs</div>
-            <span className="font-mono text-[10px] text-[var(--text-dim)]">
-              {attributedRuns.length} attributed run{attributedRuns.length === 1 ? '' : 's'} ·
-              one card per `input_ref.extractionRunId`
-            </span>
+            <div className="l">Task runs</div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {attributedRuns.map((run) => (

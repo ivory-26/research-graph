@@ -1,6 +1,6 @@
 /**
- * Real-Postgres proof that two extraction attempts are attributed to distinct
- * stable run ids and can be compared from the persisted `agent_tasks`.
+ * Read-path coverage for the workspace graph and strategy dashboard on
+ * disposable Postgres. Authentication is stubbed at the route boundary.
  *
  * The production extractor runs twice against the same chunk set:
  *
@@ -18,27 +18,34 @@
  * `src/server/pipeline-delivery/test-support/pg.ts`.
  */
 import { eq } from 'drizzle-orm'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
-import { agentTasks } from '../../src/db/schema.ts'
-import { extractClaims } from '../../src/server/extract/claims.ts'
-import type { ChunkRef } from '../../src/server/extract/types.ts'
+import { EvidencePanel } from '../components/panels/EvidencePanel.tsx'
+import { StrategyDashboard } from '../components/panels/StrategyDashboard.tsx'
+import type { WorkspaceEdge, WorkspaceNode } from '../data/demoWorkspace.ts'
+import { agentTasks, edges, nodes, runs, sourceChunks, sources } from '../db/schema.ts'
+import { Route as GraphRoute } from '../routes/api/graph.ts'
+import { Route as StrategiesRoute } from '../routes/api/strategies.ts'
+import { extractClaims } from './extract/claims.ts'
+import type { ChunkRef } from './extract/types.ts'
 import {
   createCallModel,
   createDrizzleAgentTaskStore,
   type StructuredGenerator,
-} from '../../src/server/model.ts'
+} from './model.ts'
 import {
   createTestDatabase,
   seedWorkspace,
   type SeededWorkspace,
   type TestDatabase,
-} from '../../src/server/pipeline-delivery/test-support/pg.ts'
-import { mapAgentTaskQueryRows } from '../../src/server/strategies.ts'
+} from './pipeline-delivery/test-support/pg.ts'
 import {
   aggregateAgentTasksByRun,
   summarizeAgentTaskRuns,
-} from '../../src/utils/strategyClient.ts'
+  type AgentTaskRow,
+} from '../utils/strategyClient.ts'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 const describeIntegration = TEST_DATABASE_URL ? describe : describe.skip
@@ -56,6 +63,18 @@ const CHUNKS: ChunkRef[] = [
     text: `${VERBATIM_QUOTE} Variable importance can be biased when predictors differ in scale.`,
   },
 ]
+
+const routeState = vi.hoisted(() => ({ db: undefined as TestDatabase['db'] | undefined }))
+vi.mock('../db/client', () => ({ getDb: () => routeState.db }))
+vi.mock('./auth/workspace.server', () => ({
+  requireWorkspaceAccess: async (_request: Request, workspaceId: string) => ({ workspaceId }),
+}))
+
+function getHandler(route: unknown) {
+  return (route as {
+    options: { server: { handlers: { GET: (ctx: { request: Request }) => Promise<Response> } } }
+  }).options.server.handlers.GET
+}
 
 function extractionOutput(quote: string): Record<string, unknown> {
   return {
@@ -80,19 +99,20 @@ function generatorReturning(quote: string): StructuredGenerator {
   })
 }
 
-describeIntegration('two extraction runs over real agent_tasks', () => {
+describeIntegration('workspace data routes on Postgres', () => {
   let testDb: TestDatabase
   let seed: SeededWorkspace
   let taskStore: ReturnType<typeof createDrizzleAgentTaskStore>
 
   beforeAll(async () => {
     testDb = await createTestDatabase(TEST_DATABASE_URL as string)
+    routeState.db = testDb.db
     seed = await seedWorkspace(testDb.pool)
     taskStore = createDrizzleAgentTaskStore(testDb.db)
   })
 
   afterAll(async () => {
-    await testDb.close()
+    await testDb?.close()
   })
 
   async function runExtraction(
@@ -120,21 +140,13 @@ describeIntegration('two extraction runs over real agent_tasks', () => {
   }
 
   async function readTasks() {
-    const rows = await testDb.db
-      .select({
-        id: agentTasks.id,
-        taskKind: agentTasks.taskKind,
-        strategyId: agentTasks.strategyId,
-        status: agentTasks.status,
-        inputRef: agentTasks.inputRef,
-        latencyMs: agentTasks.latencyMs,
-        costUsd: agentTasks.costUsd,
-        error: agentTasks.error,
-      })
-      .from(agentTasks)
-      .where(eq(agentTasks.workspaceId, seed.workspaceId))
-
-    return mapAgentTaskQueryRows(rows.map((row) => ({ ...row, strategyName: null })))
+    const response = await getHandler(StrategiesRoute)({
+      request: new Request(`http://localhost/api/strategies?workspaceId=${seed.workspaceId}`),
+    })
+    expect(response.status).toBe(200)
+    const payload = await response.json() as { tasks: AgentTaskRow[]; source: string }
+    expect(payload.source).toBe('database')
+    return payload.tasks
   }
 
   it('persists two distinct runs with a visible success/failure difference', async () => {
@@ -214,5 +226,76 @@ describeIntegration('two extraction runs over real agent_tasks', () => {
       null,
     ])
     expect(extractRows.map((row) => row.failures)).toEqual([1, 0, 0])
+
+    const markup = renderToStaticMarkup(createElement(StrategyDashboard, { tasks, source: 'api' }))
+    const tableRows = markup.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/g) ?? []
+    expect(tableRows.find((row) => row.includes('Kursa 2010 · single_pass'))).toContain('>0%</td>')
+    expect(tableRows.find((row) => row.includes('Strobl 2007 · single_pass'))).toContain('>100%</td>')
+  })
+
+  it('renders the cited paper and exact run from persisted graph evidence', async () => {
+    const [source] = await testDb.db.insert(sources).values({
+      workspaceId: seed.workspaceId,
+      kind: 'paper',
+      title: 'Cited paper',
+      sha256: '0'.repeat(64),
+      bytes: VERBATIM_QUOTE.length,
+    }).returning({ id: sources.id })
+    const [chunk] = await testDb.db.insert(sourceChunks).values({
+      sourceId: source!.id,
+      ordinal: 0,
+      text: VERBATIM_QUOTE,
+      page: 4,
+      charStart: 0,
+      charEnd: VERBATIM_QUOTE.length,
+    }).returning({ id: sourceChunks.id })
+    const [run] = await testDb.db.insert(runs).values({
+      experimentId: seed.experimentId,
+      spec: seed.spec,
+      attempt: 2,
+      status: 'succeeded',
+      parameters: {},
+      environment: {
+        imageDigest: 'test', python: '3', packages: {}, datasets: [], seeds: [], startedAt: '2026-01-01',
+      },
+    }).returning({ id: runs.id })
+    const [endpoint] = await testDb.db.insert(nodes).values({
+      workspaceId: seed.workspaceId,
+      type: 'note',
+      title: 'Graph endpoint',
+      data: { type: 'note', body: 'Graph endpoint' },
+    }).returning({ id: nodes.id })
+    const baseEdge = {
+      workspaceId: seed.workspaceId,
+      sourceNodeId: endpoint!.id,
+      targetNodeId: seed.claimNodeId,
+      relation: 'supports',
+      status: 'accepted',
+    } as const
+    await testDb.db.insert(edges).values([
+      { ...baseEdge, evidenceChunkId: chunk!.id },
+      { ...baseEdge, evidenceRunId: run!.id },
+    ])
+
+    const response = await getHandler(GraphRoute)({
+      request: new Request(`http://localhost/api/graph?workspaceId=${seed.workspaceId}`),
+    })
+    expect(response.status).toBe(200)
+    const graph = await response.json() as { edges: WorkspaceEdge[]; nodes: WorkspaceNode[] }
+    const citation = graph.edges.find((edge) => edge.evidenceChunkId === chunk!.id)
+    const runEvidence = graph.edges.find((edge) => edge.evidenceRunId === run!.id)
+    expect(citation).toMatchObject({ evidenceSourceTitle: 'Cited paper', quote: VERBATIM_QUOTE, page: 4 })
+    expect(runEvidence).toMatchObject({ evidenceRun: { id: run!.id, attempt: 2, status: 'succeeded' } })
+
+    const renderEvidence = (edge: WorkspaceEdge) => renderToStaticMarkup(createElement(EvidencePanel, {
+      edge, allNodes: graph.nodes, allEdges: graph.edges,
+    }))
+    const citationMarkup = renderEvidence(citation!)
+    expect(citationMarkup).toContain('Cited paper')
+    expect(citationMarkup).toContain(VERBATIM_QUOTE)
+    expect(citationMarkup).toContain('PAGE 4')
+    const runMarkup = renderEvidence(runEvidence!)
+    expect(runMarkup).toContain('Run-Evidenced Relation')
+    expect(runMarkup).toContain(run!.id)
   })
 })
