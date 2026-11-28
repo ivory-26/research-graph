@@ -50,7 +50,8 @@ interface DisplayChunk {
   id: string;
   sourceId: string;
   sourceTitle: string;
-  page: number;
+  /** Web chunks persist no page, so a missing page must stay missing. */
+  page: number | null;
   charStart: number;
   charEnd: number;
   text: string;
@@ -106,7 +107,7 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
         id: chunk.id,
         sourceId: chunk.sourceId,
         sourceTitle: chunk.sourceTitle,
-        page: chunk.page ?? 1,
+        page: chunk.page,
         charStart: chunk.charStart,
         charEnd: chunk.charEnd,
         text: chunk.text,
@@ -379,7 +380,7 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
                                 : `Chunk ${chunk.id}`}
                             </span>
                             <span className="text-[10px] text-[var(--text-dim)]">
-                              PAGE {chunk.page} · CHARS {chunk.charStart}–{chunk.charEnd}
+                              PAGE {chunk.page ?? '—'} · CHARS {chunk.charStart}–{chunk.charEnd}
                             </span>
                           </div>
                           <button

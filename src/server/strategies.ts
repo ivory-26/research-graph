@@ -11,7 +11,9 @@
  *   3. `null` — a task recorded before either convention existed.
  *
  * A row is never given a synthetic run id. Missing telemetry stays `null` so
- * averages exclude it rather than counting a zero.
+ * averages exclude it rather than counting a zero. `input_ref.extractionRunLabel`
+ * is display text rather than an id, so it is surfaced whenever the row carries
+ * one — including `ui:<kind>` batches, which have a label but no run id.
  */
 import type { AgentTaskStatus, TaskKind } from '../shared/types'
 import type { AgentTaskRow } from '../shared/strategies'
@@ -69,7 +71,7 @@ export function mapAgentTaskQueryRows(rows: AgentTaskQueryRow[]): AgentTaskRow[]
       taskKind: row.taskKind,
       strategyId: row.strategyName ?? recordedName ?? 'unassigned',
       runId: extractionRunId ?? experimentRunId,
-      runLabel: extractionRunId ? extractionRunLabel : null,
+      runLabel: extractionRunLabel,
       model: nonEmptyString(row.model),
       status: row.status,
       latencyMs,

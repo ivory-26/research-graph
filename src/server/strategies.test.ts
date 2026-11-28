@@ -50,6 +50,16 @@ describe('mapAgentTaskQueryRows', () => {
     expect(task!.runLabel).toBeNull()
   })
 
+  it('surfaces a label for a ui batch that has no run id', () => {
+    // The sources page records `ui:<kind>` batches without an extractionRunId;
+    // hiding their label made every live ingestion look unattributed.
+    const [task] = mapAgentTaskQueryRows([
+      row({ inputRef: { extractionRunLabel: 'ui:repo' } }),
+    ])
+    expect(task!.runId).toBeNull()
+    expect(task!.runLabel).toBe('ui:repo')
+  })
+
   it('treats blank or non-string run fields as absent', () => {
     const [task] = mapAgentTaskQueryRows([
       row({ inputRef: { extractionRunId: '   ', extractionRunLabel: 42, runId: '' } }),

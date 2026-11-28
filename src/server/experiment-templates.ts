@@ -12,7 +12,7 @@
  * spec; the planner validates it again before the SSE pipeline opens a gate.
  */
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../fixtures/hero-spec'
-import type { ExperimentSpec, NodeData } from '../shared/types'
+import type { Criteria, ExperimentSpec, NodeData } from '../shared/types'
 import { validateExperimentSpec } from './planner'
 
 export type SupportedExperimentTemplateId = 'rf-variable-importance'
@@ -90,6 +90,36 @@ export function isSupportedExperimentTemplateId(
   )
 }
 
+/** One check's identity, independent of object key order. */
+function criteriaCheckKey(check: Criteria['checks'][number]): string {
+  return JSON.stringify([
+    check.metric,
+    check.op,
+    check.value,
+    check.tolerance ?? null,
+  ])
+}
+
+/**
+ * Structural criteria comparison.
+ *
+ * `experiments.spec` is jsonb, and PostgreSQL returns jsonb object keys in its
+ * own order (for a check: `op`, `value`, `metric`), so stringifying a stored
+ * spec can never equal the fixture's string. Compare the fields instead, and
+ * ignore the order of the checks themselves, which jsonb does preserve but no
+ * rule depends on.
+ */
+function sameCriteria(actual: Criteria, expected: Criteria): boolean {
+  if (actual.mode !== expected.mode) return false
+  if (actual.checks.length !== expected.checks.length) return false
+
+  const expectedKeys = expected.checks.map(criteriaCheckKey).sort()
+  return actual.checks
+    .map(criteriaCheckKey)
+    .sort()
+    .every((key, index) => key === expectedKeys[index])
+}
+
 /**
  * Identifies a stored spec as the one supported template by its fixed parts
  * (image, entrypoint, script, dataset bytes/hash and criteria). The claim and
@@ -103,8 +133,7 @@ export function identifyExperimentTemplate(
   const fixed = HERO_EXPERIMENT_SPEC_RUN_A
   const fixedDataset = fixed.datasets[0]
   const dataset = spec.datasets[0]
-  const sameCriteria =
-    JSON.stringify(spec.criteria) === JSON.stringify(fixed.criteria)
+  const matchingCriteria = sameCriteria(spec.criteria, fixed.criteria)
 
   if (
     spec.image === fixed.image &&
@@ -113,7 +142,7 @@ export function identifyExperimentTemplate(
     dataset?.url === fixedDataset?.url &&
     dataset?.sha256 === fixedDataset?.sha256 &&
     dataset?.bytes === fixedDataset?.bytes &&
-    sameCriteria
+    matchingCriteria
   ) {
     return {
       id: SUPPORTED_EXPERIMENT_TEMPLATE.id,

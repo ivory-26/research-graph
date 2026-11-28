@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../fixtures/hero-spec'
-import type { NodeData } from '../shared/types'
+import type { ExperimentSpec, NodeData } from '../shared/types'
 import {
   assessClaimTemplateCompatibility,
   buildSupportedExperimentSpec,
@@ -205,6 +205,50 @@ describe('identifyExperimentTemplate', () => {
       templateId: SUPPORTED_EXPERIMENT_TEMPLATE.id,
       templateName: SUPPORTED_EXPERIMENT_TEMPLATE.name,
     })
+  })
+
+  it('identifies a persisted spec whose jsonb criteria reorder keys and checks', () => {
+    // `experiments.spec` is jsonb: PostgreSQL returns each check as
+    // `{ op, value, metric }`, so a stored supported spec never stringifies
+    // like the fixture. Reverse the checks too, since order must not matter.
+    const stored: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      criteria: {
+        mode: HERO_EXPERIMENT_SPEC_RUN_A.criteria.mode,
+        checks: [...HERO_EXPERIMENT_SPEC_RUN_A.criteria.checks]
+          .reverse()
+          .map((check) => ({ op: check.op, value: check.value, metric: check.metric })),
+      },
+    }
+
+    expect(JSON.stringify(stored.criteria)).not.toBe(
+      JSON.stringify(HERO_EXPERIMENT_SPEC_RUN_A.criteria),
+    )
+    expect(identifyExperimentTemplate(stored)).toEqual({
+      id: 'rf-variable-importance',
+      name: SUPPORTED_EXPERIMENT_TEMPLATE.name,
+    })
+    expect(experimentTemplateFields(stored)).toEqual({
+      templateId: 'rf-variable-importance',
+      templateName: SUPPORTED_EXPERIMENT_TEMPLATE.name,
+    })
+  })
+
+  it('does not label a spec whose criteria differ from the template', () => {
+    const changedValue: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      criteria: {
+        mode: 'all',
+        checks: [{ metric: 'rank_impurity_noise_20', op: 'lte', value: 4 }],
+      },
+    }
+    expect(identifyExperimentTemplate(changedValue)).toBeNull()
+
+    const changedMode: ExperimentSpec = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      criteria: { ...HERO_EXPERIMENT_SPEC_RUN_A.criteria, mode: 'any' },
+    }
+    expect(identifyExperimentTemplate(changedMode)).toBeNull()
   })
 
   it('does not label a spec whose script differs from the template', () => {

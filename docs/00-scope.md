@@ -62,14 +62,14 @@ The comparison view ships in the UI. The what-if branch that creates Run B (`BRA
 
 | Beat | Backend on `main` | UI on `main` |
 |---|---|---|
-| Collect | PDF reading order, chunking, embeddings and Firecrawl ingestion all work | Chunk viewer renders fixture text; upload is a demo interaction |
-| Organise | Claims and edges are extracted and validated against quotes | Canvas renders the fixture graph |
+| Collect | PDF reading order, chunking, embeddings and Firecrawl ingestion all work | For a database workspace, the sources page ingests PDFs and web/repo URLs through the workspace-scoped path and the chunk viewer renders the persisted chunks; the demo workspace renders fixture text |
+| Organise | Claims and edges are extracted and validated against quotes | Canvas renders the persisted graph for a database workspace and the fixture otherwise |
 | Understand | Retrieval API with verified citations works | Ask page answers from fixture chunks |
-| Experiment | Planner validation, real E2B runner and deterministic verdict work; SSE delivery mounts | Approval and experiment pages render from the hero fixture |
+| Experiment | Planner validation, real E2B runner and deterministic verdict work; SSE delivery mounts | For a database workspace, the experiments page creates the supported plan and the approval modal posts to the live gate; the demo workspace renders the hero fixture |
 | Learn | What-if branch execution and queued Run B adoption work (#62); the seed records per-extraction-run task batches; no automated strategy selection yet | Comparison uses the recorded fixture. The dashboard reads live `agent_tasks` for a database workspace, groups rows per extraction run, and shows the unattributed bucket for older tasks. |
-| Share | Server-side notebook export is built and persisted in `run_artifacts`; no workspace JSON export | Export modal builds both client-side from the fixture; the persisted notebook is not surfaced yet |
+| Share | Server-side notebook export is built and persisted in `run_artifacts`, and `GET /api/runs/:runId/artifacts` serves it under workspace membership; there is no server-side workspace JSON artifact | Export modal downloads a live run's persisted notebook and artifacts, exports the live workspace graph JSON from `/api/graph`, and builds the demo notebook client-side from the fixture |
 
-PR #68 adds the browser connection to the pipeline and workspace APIs. Graph write-back (#7) and deployment (#9) are the remaining work for the recording. The seed script (#8) is built.
+The browser connects to the pipeline and workspace APIs: workspace-scoped ingestion, experiment creation, approval, live graph/experiment/strategy reads, and run artifact downloads. Graph write-back (#7) is landed — `projectRunToGraph` in `src/server/pipeline.ts` is called on every terminal run — and production is live at <https://research-graph-sage.vercel.app> (#9 closed). The seed script (#8) is built. The remaining work for the recording is the recording itself.
 
 ## Not building
 
@@ -90,4 +90,4 @@ In priority order. Stop at the first one that fails.
 4. Every run in the demo declares its mode and its verdict, and no number shown as measured was typed by hand.
 5. The strategy table shows real task counts.
 
-PR #68 adds the browser auth screens (#16), the pipeline SSE and approval client (#20), and guarded `/api/graph`, `/api/workspaces`, and `/api/strategies` reads. The runner and evaluator satisfy criterion 4 with the hero run's `adapted` mode and arithmetic verdict. Criteria 2 and 3 still await graph write-back (#7) and production deployment (#9). The dashboard shows real task counts and per-extraction-run KPIs for a selected database workspace, including failures and an explicit unattributed bucket; the demo workspace still renders fixture rows. Strategy selection remains open.
+The browser carries the auth screens (#16), the pipeline SSE and approval client (#20), and guarded `/api/graph`, `/api/workspaces`, `/api/strategies`, `/api/experiments`, `/api/sources` and run-artifact reads. The runner and evaluator satisfy criterion 4 with the hero run's `adapted` mode and arithmetic verdict. Criteria 2 and 3 are met: graph write-back (#7) writes the run/result nodes and the `produced` edge on every terminal run, and production is live at <https://research-graph-sage.vercel.app> (#9 closed). The deployed database is the live E2E workspace built through the product, not a `pnpm seed` replay; a recording that wants the seeded workspace verbatim must run `pnpm seed` against the database it records. The dashboard shows real task counts and per-extraction-run KPIs for a selected database workspace, including failures and an explicit unattributed bucket; the demo workspace still renders fixture rows. Strategy selection remains open.

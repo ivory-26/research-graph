@@ -79,7 +79,7 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 | Production deploy drift | #9 | #9 is closed and production is live at <https://research-graph-sage.vercel.app> (Vercel project `research-graph`, team `sahil-64d5`); the remaining work is redeploying `main` after the last merge. Configuration and the environment-variable list are in [11-deploy](./11-deploy.md) |
 | Strategy selection | #26 | automated selection remains unbuilt; the repair loop and what-if branch are built as modules, and EXECUTE adoption of Run B is #62 |
 
-On 28 November, `pnpm typecheck`, `pnpm db:check`, `pnpm build` and a `VERCEL=1 pnpm build` passed. The default `pnpm test` run passed 27 transport checks, 572 app tests and 93 seed tests. It skipped 77 opt-in integration tests; with a disposable local Postgres (`TEST_DATABASE_URL`), 68 of those ran and Vitest passed 640 tests, leaving 9 that need a real Neon branch or live Gemini/Meta/E2B credentials.
+On 28 November, `pnpm typecheck`, `pnpm db:check`, `pnpm build` and a `VERCEL=1 pnpm build` passed. The default `pnpm test` run passed 27 transport checks, 575 app tests and 93 seed tests. It skipped 77 opt-in integration tests; with a disposable local Postgres (`TEST_DATABASE_URL`), 68 of those ran and Vitest passed 643 tests, leaving 9 that need a real Neon branch or live Gemini/Meta/E2B credentials.
 
 ## Workstreams
 

@@ -255,10 +255,10 @@ evidence; no further live provider calls were made.
 - **Live verification is opt-in, not CI.** The two runs recorded above passed
   on 2026-11-25 against template build `3060b313`, but the files are skipped
   without credentials and are not part of the main suite. On 28 November
-  `pnpm test` reports 27 `node:test` transport checks, 572 app tests and 93
+  `pnpm test` reports 27 `node:test` transport checks, 575 app tests and 93
   seed tests passed, with 77 opt-in integration tests skipped. Pointing
   `TEST_DATABASE_URL` at a disposable local Postgres runs 68 of those: Vitest
-  then passed 640 and skipped 9 that need a real Neon branch or live
+  then passed 643 and skipped 9 that need a real Neon branch or live
   Gemini/Meta/E2B credentials.
 - **Live browser E2E (28 November 2026).** Against the migrated Neon branch on
   a local dev server, Google sign-in provisioned a first-use workspace;

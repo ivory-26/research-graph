@@ -68,19 +68,19 @@ The demo workspace renders `fixtures/workspace.json`. Database workspaces load t
 
 ## What each stream can pick up now
 
-- **CyberCodezilla** — wire `ingestPdf`/`ingestWebSource` → `extractClaims` → `proposeEdges` into one workspace-scoped call path, and add the `sectioned` and `table_first` strategies behind the existing interface.
-- **frag2win** — wire the remaining canvas panels to the live graph and strategy routes; the approval modal now POSTs to the real gate and the browser reads live data when a database workspace is active. Keep every fixture value labelled as recorded when no database workspace is selected.
-- **yashhh-23** — surface the persisted notebook from `run_artifacts` in the UI.
-- **ivory-26** — #7 graph write-back, #9 deploy; #8 seed and #16 sign-in screens are built.
+- **CyberCodezilla** — the workspace-scoped path (`ingestSourceToGraphForWorkspace`, `POST /api/sources`) and the `sectioned` and `table_first` strategies are built; the sources page still ingests with the default `single_pass`, so accepting a strategy on the route and surfacing the choice is the next piece.
+- **frag2win** — the canvas, overview, experiments and strategy pages read live data when a database workspace is active, and the approval modal POSTs to the real gate. What remains is starting Run B (what-if) from the UI and a live comparison view; the comparison still renders the recorded fixture. Keep every fixture value labelled as recorded when no database workspace is selected.
+- **yashhh-23** — the export modal surfaces the persisted notebook from `run_artifacts`; automated strategy selection (#26) and plan generation are what remains.
+- **ivory-26** — #7 graph write-back and #9 deploy are landed; #8 seed and #16 sign-in screens are built. The remaining step is redeploying `main` after this branch merges.
 
 ## Where each stream stands — 28 November
 
 | Stream | Landed | Open |
 |---|---|---|
-| Foundation & Integration (ivory-26) | scaffold, schema, auth server, transport, pipeline persistence, SSE delivery, CI reviewer, seed (#8), sign-in screens (#16), browser→pipeline bridge (#20), guarded graph and workspace reads (#18), guarded strategy dashboard reads (related to #22) | #7 graph write-back, #9 deploy |
-| Ingestion & Extraction (CyberCodezilla) | PDF reading order, chunking, embeddings, claim extraction, edge proposal, retrieval, Firecrawl | `sectioned` and `table_first` strategies; live end-to-end ingestion from the UI |
-| Canvas & UI (frag2win) | canvas, evidence, approval, fixture run comparison (#21), dashboard, exports, and live graph, strategy and pipeline reads when a database workspace or experiment is active | starting a real run from the UI, writing run results back to the canvas (#7) |
-| Runtime & Evaluation (yashhh-23) | planner validation, E2B runner, pinned-environment verification, hero run, deterministic verdict, what-if branch module and queued-run adoption (#62), repair loop, server-side notebook | strategy selection, plan generation |
+| Foundation & Integration (ivory-26) | scaffold, schema, auth server, transport, pipeline persistence, SSE delivery, CI reviewer, seed (#8), sign-in screens (#16), browser→pipeline bridge (#20), guarded graph and workspace reads (#18), guarded strategy dashboard reads (related to #22), graph write-back (#7), deploy (#9) | redeploying `main` after the merge that carries this branch |
+| Ingestion & Extraction (CyberCodezilla) | PDF reading order, chunking, embeddings, claim extraction, edge proposal, retrieval, Firecrawl, the workspace-scoped ingestion→graph path (`ingestSourceToGraphForWorkspace`, `POST /api/sources`), `sectioned` and `table_first` strategies | surfacing an extraction-strategy choice in the sources page |
+| Canvas & UI (frag2win) | canvas, evidence, approval, fixture run comparison (#21), dashboard, exports, live graph, strategy and pipeline reads, experiment creation and live run approval when a database workspace or experiment is active, run results written back to the canvas (#7) | starting Run B (what-if) from the UI; a live comparison view (the comparison still renders the recorded fixture) |
+| Runtime & Evaluation (yashhh-23) | planner validation, E2B runner, pinned-environment verification, hero run, deterministic verdict, what-if branch module and queued-run adoption (#62), repair loop, server-side notebook, persisted notebook surfaced in the export modal | strategy selection, plan generation |
 
 ## The original day-by-day
 
@@ -101,16 +101,17 @@ Friday is the pivot. If the pipeline is not wired on Friday, Saturday becomes in
 
 ## The integration seam
 
-One function, one owner — **not written yet** (#7):
+One function, one owner — **landed** (#7):
 
 ```ts
 // src/server/pipeline.ts — ivory-26
-async function onRunComplete(run: RunRow): Promise<void> {
-  // writes the result node, the produced edge, and the run node
-}
+export async function projectRunToGraph(
+  db: Database,
+  runId: string,
+): Promise<RunGraphProjection>
 ```
 
-Today a completed run writes `runs` and emits durable events, but no result/run node and no `produced` edge. Three streams will push into this function; it should be written against the frozen types before the UI needs it. If you are working on a stage and need something it does not provide, say so in the issue rather than editing the file.
+The production stage provider calls it on every terminal run; it writes the run and result nodes and the `produced` edge, idempotently per run id. The canvas and the overview/export reads consume what it writes. If you are working on a stage and need something it does not provide, say so in the issue rather than editing the file.
 
 ## Merge rules
 
