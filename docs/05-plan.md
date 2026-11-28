@@ -68,7 +68,9 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 |---|---|---|
 | Sign-in / sign-up screens & route gate | #16 | `src/routes/sign-in.tsx`, `sign-up.tsx`, `index.tsx` `beforeLoad`, `src/utils/authClient.ts` |
 | Browser→pipeline SSE & approval client | #20 | `src/utils/pipelineClient.ts`, `ApprovalModal.tsx`, `src/routes/index.tsx` |
-| Guarded graph, workspace & strategy routes | #18, #21 | `src/routes/api/graph.ts`, `src/routes/api/workspaces.ts`, `src/routes/api/strategies.ts`, `src/utils/graphClient.ts`, `src/utils/strategyClient.ts`. The canvas fits the workspace overview with 8% padding for cards and 12% for memory, within a 0.2×–2.4× zoom range. **Jump to node** focuses a card at 1.35× for reading. |
+| Guarded graph and workspace routes | #18 | `src/routes/api/graph.ts`, `src/routes/api/workspaces.ts`, `src/utils/graphClient.ts`. The canvas fits the workspace overview with 8% padding for cards and 12% for memory, within a 0.2×–2.4× zoom range. **Jump to node** focuses a card at 1.35× for reading. |
+| Fixture run comparison | #21 | `src/components/panels/ComparisonView.tsx` shows the changed importance method and signed rank delta. |
+| Guarded strategy dashboard data | Related to #22 | `src/routes/api/strategies.ts` reads workspace tasks, and `src/utils/strategyClient.ts` aggregates them for the dashboard. |
 
 ### Not on `main` on 27 November
 

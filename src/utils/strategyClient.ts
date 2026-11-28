@@ -1,4 +1,4 @@
-import type { AgentTaskStatus, TaskKind } from '../shared/types';
+import type { TaskKind } from '../shared/types';
 import type { AgentTaskRow } from '../shared/strategies';
 
 export type { AgentTaskRow };
@@ -97,9 +97,10 @@ export function aggregateAgentTasks(
     }),
   );
 
-  // Mark highest-scoring strategy per taskKind as preferred
+  // Mark the highest-scoring assigned strategy per task kind as preferred.
   const bestByKind = new Map<TaskKind, string>();
   for (const stat of stats) {
+    if (stat.strategyId === 'unassigned' || stat.strategyId === 'unattributed') continue;
     const currentBestKey = bestByKind.get(stat.taskKind);
     const currentBest = currentBestKey
       ? stats.find((s) => s.key === currentBestKey)

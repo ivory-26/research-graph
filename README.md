@@ -34,7 +34,7 @@ The graph is the presentation, not the product. The product is the claim:
 - writing a completed run back as result/run nodes and the `produced` edge (#7)
 - the production deploy (#9)
 - strategy selection (the repair loop and what-if branch are built)
-- server-side notebook generation from `run_artifacts` (the UI builds one from the fixture)
+- displaying the persisted run notebook in the UI
 
 **Verified 28 November 2026:** `pnpm typecheck`, `pnpm db:check`, `pnpm test` and `pnpm build` passed after merging `main`. The default suite passed 27 transport checks, 433 app tests and 90 seed tests. It skipped 64 opt-in integration tests. See the [pipeline delivery handoff](./docs/09-pipeline-delivery-handoff.md) for their configuration.
 

@@ -172,7 +172,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
           </div>
           <div className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">
             {isDatabaseMode
-              ? 'Measured task cost'
+              ? 'Estimated task cost (list price × measured tokens)'
               : 'muse-spark-1.3-contributor + Embeddings · seeded recording'}
           </div>
         </div>

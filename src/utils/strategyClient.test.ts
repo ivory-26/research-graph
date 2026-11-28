@@ -39,5 +39,13 @@ describe('strategyClient', () => {
     expect(run2.find((s) => s.strategyId === 'single_pass')?.successes).toBe(0);
     expect(unattributed).toHaveLength(1);
     expect(unattributed[0].strategyId).toBe('unassigned');
+    expect(unattributed[0].preferred).toBe(false);
+    expect(aggregateAgentTasks([
+      { ...SAMPLE_TASKS[0], strategyId: 'unattributed' },
+      SAMPLE_TASKS[1],
+    ]).map(({ strategyId, preferred }) => ({ strategyId, preferred }))).toEqual([
+      { strategyId: 'unattributed', preferred: false },
+      { strategyId: 'single_pass', preferred: true },
+    ]);
   });
 });
