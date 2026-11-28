@@ -2,8 +2,9 @@ import { createFileRoute } from '@tanstack/react-router';
 import { asc, eq } from 'drizzle-orm';
 
 import { getDb } from '../../db/client';
-import { edges, nodes, sourceChunks } from '../../db/schema';
+import { edges, nodes, runs, sourceChunks } from '../../db/schema';
 import { requireWorkspaceAccess } from '../../server/auth/workspace.server';
+import { formatGraphEdges } from '../../server/graph-evidence';
 import { layoutGraphNodes } from '../../server/graph-layout';
 import {
   AuthConfigurationError,
@@ -50,9 +51,12 @@ export const Route = createFileRoute('/api/graph')({
                 chunkOrdinal: sourceChunks.ordinal,
                 chunkCharStart: sourceChunks.charStart,
                 chunkCharEnd: sourceChunks.charEnd,
+                runAttempt: runs.attempt,
+                runStatus: runs.status,
               })
               .from(edges)
               .leftJoin(sourceChunks, eq(edges.evidenceChunkId, sourceChunks.id))
+              .leftJoin(runs, eq(edges.evidenceRunId, runs.id))
               .where(eq(edges.workspaceId, membership.workspaceId))
               .orderBy(asc(edges.createdAt), asc(edges.id)),
           ]);
@@ -78,23 +82,7 @@ export const Route = createFileRoute('/api/graph')({
             };
           });
 
-          const formattedEdges = dbEdgeRows.map((row) => ({
-            id: row.edge.id,
-            source: row.edge.sourceNodeId,
-            target: row.edge.targetNodeId,
-            relation: row.edge.relation,
-            status: row.edge.status,
-            confidence: row.edge.confidence ?? undefined,
-            evidenceChunkId: row.edge.evidenceChunkId ?? undefined,
-            evidenceRunId: row.edge.evidenceRunId ?? undefined,
-            quote: row.chunkText ?? undefined,
-            page: row.chunkPage ?? undefined,
-            chunkNumber: row.chunkOrdinal ?? undefined,
-            charStart: row.chunkCharStart ?? undefined,
-            charEnd: row.chunkCharEnd ?? undefined,
-            sourceTitle: nodeTitleById.get(row.edge.sourceNodeId),
-            targetTitle: nodeTitleById.get(row.edge.targetNodeId),
-          }));
+          const formattedEdges = formatGraphEdges(dbEdgeRows, nodeTitleById);
 
           return Response.json(
             {
