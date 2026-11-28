@@ -5,6 +5,8 @@ import {
   clearPersistedPositions,
   resolveNodePosition,
   fetchWorkspaceGraph,
+  isDatabaseWorkspaceId,
+  selectWorkspaceGraph,
   GRAPH_POSITIONS_STORAGE_KEY,
 } from './graphClient';
 import { DEMO_NODES, DEMO_EDGES } from '../data/demoWorkspace';
@@ -77,6 +79,53 @@ describe('graphClient', () => {
       const loaded = loadPersistedPositions('cards', storageAdapter, 'ws-1');
       expect(resolveNodePosition('node-claim', { x: 10, y: 20 }, loaded)).toEqual({ x: 777, y: 333 });
       expect(resolveNodePosition('node-other', { x: 10, y: 20 }, loaded)).toEqual({ x: 10, y: 20 });
+    });
+  });
+
+  describe('workspace identity', () => {
+    const wsId = '11111111-1111-4111-8111-111111111111';
+
+    it('only treats canonical UUIDs as database workspaces', () => {
+      expect(isDatabaseWorkspaceId(wsId)).toBe(true);
+      expect(isDatabaseWorkspaceId(wsId.toUpperCase())).toBe(true);
+      expect(isDatabaseWorkspaceId('research-graph')).toBe(false);
+      expect(isDatabaseWorkspaceId('11111111-1111-4111-8111')).toBe(false);
+      expect(isDatabaseWorkspaceId('')).toBe(false);
+      expect(isDatabaseWorkspaceId(undefined)).toBe(false);
+    });
+
+    it('never shows another workspace’s rows under a UUID workspace', () => {
+      const fixtureState = {
+        workspaceId: 'research-graph',
+        nodes: DEMO_NODES,
+        edges: DEMO_EDGES,
+        source: 'fixture' as const,
+      };
+
+      const pending = selectWorkspaceGraph(fixtureState, wsId);
+      expect(pending).toEqual({ workspaceId: wsId, nodes: [], edges: [], source: 'loading' });
+
+      const loadedState = {
+        workspaceId: wsId,
+        nodes: [DEMO_NODES[0]],
+        edges: [DEMO_EDGES[0]],
+        source: 'api' as const,
+      };
+      expect(selectWorkspaceGraph(loadedState, wsId)).toBe(loadedState);
+    });
+
+    it('keeps the intentional fixture route synchronous, including SSR', () => {
+      const loadedState = {
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+        nodes: [DEMO_NODES[0]],
+        edges: [DEMO_EDGES[0]],
+        source: 'api' as const,
+      };
+
+      const fixture = selectWorkspaceGraph(loadedState, 'research-graph');
+      expect(fixture.source).toBe('fixture');
+      expect(fixture.nodes).toEqual(DEMO_NODES);
+      expect(fixture.edges).toEqual(DEMO_EDGES);
     });
   });
 

@@ -4,14 +4,14 @@ import {
   aggregateAgentTasks,
   type AgentTaskRow,
 } from '../../utils/strategyClient';
-import { X, AlertTriangle } from 'lucide-react';
+import { X, AlertTriangle, Loader2 } from 'lucide-react';
 
 interface StrategyDashboardProps {
   isModal?: boolean;
   isOpen?: boolean;
   onClose?: () => void;
   tasks?: AgentTaskRow[];
-  source?: 'api' | 'fixture' | 'error';
+  source?: 'api' | 'fixture' | 'error' | 'loading';
 }
 
 export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
@@ -35,6 +35,31 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
   );
 
   if (!isOpen) return null;
+
+  if (source === 'loading') {
+    const loadingContent = (
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex h-full min-h-[240px] w-full items-center justify-center gap-2 p-6 font-mono text-xs text-[var(--text-dim)]"
+      >
+        <Loader2 className="h-4 w-4 animate-spin text-[#f97316]" />
+        <span>Loading agent_tasks for this workspace…</span>
+      </div>
+    );
+
+    if (isModal) {
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md animate-fade-in">
+          <div className="w-full max-w-5xl rounded-none border border-[var(--border-primary)] bg-[var(--bg-primary)] shadow-2xl">
+            {loadingContent}
+          </div>
+        </div>
+      );
+    }
+
+    return <div className="h-full w-full bg-[var(--bg-primary)]">{loadingContent}</div>;
+  }
 
   const rows = isDatabaseMode
     ? liveRows.map((s) => ({

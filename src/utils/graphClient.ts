@@ -8,6 +8,16 @@ export type PositionMap = Record<string, { x: number; y: number }>;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * True when a workspace identifier addresses a database workspace (a UUID).
+ * Anything else is the intentional demo-fixture route.
+ */
+export function isDatabaseWorkspaceId(
+  workspaceId: string | null | undefined,
+): workspaceId is string {
+  return Boolean(workspaceId && UUID_PATTERN.test(workspaceId));
+}
+
 function getStorageKey(viewMode?: CanvasViewMode, workspaceId?: string): string {
   const scope = workspaceId ? `_${workspaceId}` : '';
   return viewMode
@@ -135,6 +145,37 @@ export interface WorkspaceGraphData {
   source: 'api' | 'fixture' | 'error';
 }
 
+export type WorkspaceGraphSource = WorkspaceGraphData['source'] | 'loading';
+
+/** Graph rows tagged with the workspace they were loaded for. */
+export interface WorkspaceGraphView extends Omit<WorkspaceGraphData, 'source'> {
+  workspaceId: string;
+  source: WorkspaceGraphSource;
+}
+
+/**
+ * Returns only the rows that may be shown for the requested workspace.
+ *
+ * Rows tagged for a different workspace are never displayed. A UUID workspace with no rows
+ * yet is a loading state with no fixture; the intentional non-UUID fixture route gets the
+ * demo fixture synchronously, so SSR and the first paint agree with the URL.
+ */
+export function selectWorkspaceGraph(
+  state: WorkspaceGraphView,
+  requestedWorkspaceId: string,
+): WorkspaceGraphView {
+  if (state.workspaceId === requestedWorkspaceId) return state;
+  if (isDatabaseWorkspaceId(requestedWorkspaceId)) {
+    return { workspaceId: requestedWorkspaceId, nodes: [], edges: [], source: 'loading' };
+  }
+  return {
+    workspaceId: requestedWorkspaceId,
+    nodes: DEMO_NODES,
+    edges: DEMO_EDGES,
+    source: 'fixture',
+  };
+}
+
 /**
  * Fetches workspace graph from `/api/graph?workspaceId=...` when a workspace UUID
  * is provided (returning `source: 'error'` if the database fetch fails), or
@@ -144,7 +185,7 @@ export async function fetchWorkspaceGraph(
   workspaceId?: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<WorkspaceGraphData> {
-  if (workspaceId && UUID_PATTERN.test(workspaceId)) {
+  if (isDatabaseWorkspaceId(workspaceId)) {
     try {
       const res = await fetchImpl(`/api/graph?workspaceId=${encodeURIComponent(workspaceId)}`, {
         method: 'GET',

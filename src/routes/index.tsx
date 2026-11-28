@@ -1,5 +1,5 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Sidebar, type PageId } from '../components/layout/Sidebar';
 import { Navbar } from '../components/layout/Navbar';
 import { ResearchCanvas } from '../components/canvas/ResearchCanvas';
@@ -19,12 +19,17 @@ import {
   DEMO_NODES,
   DEMO_EDGES,
 } from '../data/demoWorkspace';
-import type { WorkspaceNode, WorkspaceEdge } from '../data/demoWorkspace';
 import type { ExperimentSpec } from '../shared/types';
 import { getCurrentUser } from '../server/auth';
 import { signOut } from '../utils/authClient';
 import { sendPipelineApproval, subscribeToPipelineStream } from '../utils/pipelineClient';
-import { fetchWorkspaceGraph } from '../utils/graphClient';
+import {
+  fetchWorkspaceGraph,
+  isDatabaseWorkspaceId,
+  selectWorkspaceGraph,
+  type WorkspaceGraphSource,
+  type WorkspaceGraphView,
+} from '../utils/graphClient';
 import type { AgentTaskRow } from '../utils/strategyClient';
 
 const VALID_PAGES: ReadonlySet<PageId> = new Set([
@@ -54,6 +59,15 @@ const WORKSPACES = [
     subtitle: '3 sources · 1 claim · OpenML:52350 (fixture)',
   },
 ];
+
+const FIXTURE_WORKSPACE_ID = WORKSPACES[0].id;
+
+/** Strategy rows tagged with the workspace they were loaded for. */
+interface WorkspaceStrategyState {
+  workspaceId: string;
+  tasks: AgentTaskRow[];
+  source: WorkspaceGraphSource;
+}
 
 export const Route = createFileRoute('/')({
   validateSearch: (search: Record<string, unknown>): WorkspaceSearchParams => {
@@ -88,21 +102,48 @@ function WorkspacePage() {
   const navigate = useNavigate({ from: '/' });
   const search = Route.useSearch();
 
-  const [nodes, setNodes] = useState<WorkspaceNode[]>(DEMO_NODES);
-  const [edges, setEdges] = useState<WorkspaceEdge[]>(DEMO_EDGES);
+  // Graph and strategy rows carry the workspace they belong to, so a workspace switch
+  // never renders the previous workspace's data under the new workspace's header.
+  const [graphState, setGraphState] = useState<WorkspaceGraphView>(() => ({
+    workspaceId: FIXTURE_WORKSPACE_ID,
+    nodes: DEMO_NODES,
+    edges: DEMO_EDGES,
+    source: 'fixture',
+  }));
+  const [strategyState, setStrategyState] = useState<WorkspaceStrategyState>(() => ({
+    workspaceId: FIXTURE_WORKSPACE_ID,
+    tasks: [],
+    source: 'fixture',
+  }));
   const [workspaces, setWorkspaces] = useState(WORKSPACES);
-  const [graphSource, setGraphSource] = useState<'api' | 'fixture' | 'error'>('fixture');
-  const [strategiesSource, setStrategiesSource] = useState<'api' | 'fixture' | 'error'>('fixture');
-  const [agentTasks, setAgentTasks] = useState<AgentTaskRow[] | undefined>(undefined);
 
   // URL-addressable active page and workspace (active id derived directly from search.workspace)
   const currentPage: PageId = search.page ?? 'graph';
-  const activeWorkspaceId = search.workspace ?? WORKSPACES[0].id;
+  const activeWorkspaceId = search.workspace ?? FIXTURE_WORKSPACE_ID;
+  const activeIsDatabaseWorkspace = isDatabaseWorkspaceId(activeWorkspaceId);
   const activeWorkspaceObj = workspaces.find((w) => w.id === activeWorkspaceId) ?? {
     id: activeWorkspaceId,
     name: activeWorkspaceId,
     subtitle: 'Database workspace',
   };
+
+  // Readable for the requested workspace only. A UUID workspace has no fixture fallback:
+  // until its request resolves the canvas gets an explicit loading state and no nodes.
+  // This runs during render (and SSR), so stale rows are never painted under a new header.
+  const graphForWorkspace = useMemo<WorkspaceGraphView>(
+    () => selectWorkspaceGraph(graphState, activeWorkspaceId),
+    [graphState, activeWorkspaceId],
+  );
+
+  const strategiesForWorkspace = useMemo<WorkspaceStrategyState>(() => {
+    if (strategyState.workspaceId === activeWorkspaceId) return strategyState;
+    return activeIsDatabaseWorkspace
+      ? { workspaceId: activeWorkspaceId, tasks: [], source: 'loading' }
+      : { workspaceId: activeWorkspaceId, tasks: [], source: 'fixture' };
+  }, [strategyState, activeWorkspaceId, activeIsDatabaseWorkspace]);
+
+  const { nodes, edges, source: graphSource } = graphForWorkspace;
+  const { tasks: agentTasks, source: strategiesSource } = strategiesForWorkspace;
 
   const setCurrentPage = (page: PageId) => {
     navigate({
@@ -181,62 +222,96 @@ function WorkspacePage() {
     };
   }, []);
 
-  // Load graph and strategy agent_tasks from API if workspace UUID is provided, or reset to fixture
+  // Load graph and strategy agent_tasks for the requested workspace: database rows for a UUID,
+  // the demo fixture for the intentional fixture route. Every write is tagged with the workspace
+  // it belongs to, and every response from a superseded workspace is ignored.
   useEffect(() => {
     let active = true;
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const isDbWorkspace = Boolean(search.workspace && UUID_RE.test(search.workspace));
+    const requestedWorkspaceId = search.workspace ?? FIXTURE_WORKSPACE_ID;
 
-    if (!isDbWorkspace) {
-      setNodes(DEMO_NODES);
-      setEdges(DEMO_EDGES);
-      setAgentTasks(undefined);
-      setGraphSource('fixture');
-      setStrategiesSource('fixture');
+    if (!isDatabaseWorkspaceId(requestedWorkspaceId)) {
+      setGraphState({
+        workspaceId: requestedWorkspaceId,
+        nodes: DEMO_NODES,
+        edges: DEMO_EDGES,
+        source: 'fixture',
+      });
+      setStrategyState({
+        workspaceId: requestedWorkspaceId,
+        tasks: [],
+        source: 'fixture',
+      });
       return () => {
         active = false;
       };
     }
 
-    fetchWorkspaceGraph(search.workspace).then((res) => {
+    setGraphState({
+      workspaceId: requestedWorkspaceId,
+      nodes: [],
+      edges: [],
+      source: 'loading',
+    });
+    setStrategyState({
+      workspaceId: requestedWorkspaceId,
+      tasks: [],
+      source: 'loading',
+    });
+
+    fetchWorkspaceGraph(requestedWorkspaceId).then((res) => {
       if (!active) return;
       if (res.source === 'api') {
-        setNodes(res.nodes);
-        setEdges(res.edges);
-        setGraphSource('api');
+        setGraphState({
+          workspaceId: requestedWorkspaceId,
+          nodes: res.nodes,
+          edges: res.edges,
+          source: 'api',
+        });
         setWorkspaces((prev) =>
           prev.map((w) =>
-            w.id === search.workspace
+            w.id === requestedWorkspaceId
               ? { ...w, subtitle: `${res.nodes.length} nodes · ${res.edges.length} edges (database)` }
               : w,
           ),
         );
       } else {
-        setNodes([]);
-        setEdges([]);
-        setGraphSource('error');
+        setGraphState({
+          workspaceId: requestedWorkspaceId,
+          nodes: [],
+          edges: [],
+          source: 'error',
+        });
         showToast('Failed to load workspace graph from database');
       }
     });
 
-    fetch(`/api/strategies?workspaceId=${encodeURIComponent(search.workspace!)}`, {
+    fetch(`/api/strategies?workspaceId=${encodeURIComponent(requestedWorkspaceId)}`, {
       headers: { Accept: 'application/json' },
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!active) return;
         if (data && Array.isArray(data.tasks)) {
-          setAgentTasks(data.tasks);
-          setStrategiesSource('api');
+          setStrategyState({
+            workspaceId: requestedWorkspaceId,
+            tasks: data.tasks,
+            source: 'api',
+          });
         } else {
-          setAgentTasks([]);
-          setStrategiesSource('error');
+          setStrategyState({
+            workspaceId: requestedWorkspaceId,
+            tasks: [],
+            source: 'error',
+          });
         }
       })
       .catch(() => {
         if (active) {
-          setAgentTasks([]);
-          setStrategiesSource('error');
+          setStrategyState({
+            workspaceId: requestedWorkspaceId,
+            tasks: [],
+            source: 'error',
+          });
         }
       });
 
@@ -264,9 +339,13 @@ function WorkspacePage() {
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
 
   const handleUpdateEdgeStatus = (edgeId: string, status: 'accepted' | 'rejected') => {
-    setEdges((prev) =>
-      prev.map((e) => (e.id === edgeId ? { ...e, status } : e))
-    );
+    setGraphState((prev) => {
+      const base = prev.workspaceId === activeWorkspaceId ? prev : graphForWorkspace;
+      return {
+        ...base,
+        edges: base.edges.map((e) => (e.id === edgeId ? { ...e, status } : e)),
+      };
+    });
     showToast(`Edge marked as ${status.toUpperCase()} in local state`);
   };
 
@@ -484,7 +563,9 @@ function WorkspacePage() {
               ? 'database'
               : graphSource === 'error'
                 ? 'unavailable'
-                : 'demo fixture'
+                : graphSource === 'loading'
+                  ? 'loading database…'
+                  : 'demo fixture'
           }`}
           activeWorkspaceId={activeWorkspaceObj.id}
           workspaces={workspaces}
@@ -507,9 +588,11 @@ function WorkspacePage() {
           {currentPage === 'graph' && (
             <div className="relative flex h-full flex-1 overflow-hidden">
               <ResearchCanvas
+                key={activeWorkspaceId}
                 initialNodes={nodes}
                 initialEdges={edges}
                 workspaceId={activeWorkspaceObj.id}
+                isLoading={graphSource === 'loading'}
                 selectedEdgeId={selectedEdgeId}
                 selectedNodeId={selectedNodeId}
                 onSelectEdge={(id) => {
