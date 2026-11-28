@@ -67,6 +67,9 @@ export const DEMO_EDGES: WorkspaceEdge[] = fixture.edges.map((edge) => ({
   ...edge,
   source: edge.sourceNodeId,
   target: edge.targetNodeId,
+  evidenceSourceTitle: edge.evidenceChunkId
+    ? DEMO_CHUNKS[edge.evidenceChunkId]?.sourceTitle
+    : undefined,
 }));
 
 const demoSourceCount = DEMO_NODES.filter((node) => node.type === 'source').length;

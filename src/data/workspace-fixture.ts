@@ -410,6 +410,7 @@ export interface WorkspaceEdge {
   chunkNumber?: number;
   sourceTitle?: string;
   targetTitle?: string;
+  evidenceSourceTitle?: string;
   rationale?: string;
   sourceNodeId?: string;
   targetNodeId?: string;

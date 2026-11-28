@@ -484,6 +484,11 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
       {/* Source evidence chunk or run evidence */}
       {evidence.kind === 'quote' ? (
         <div className="c p-4 border-l-[3px] !border-l-[#f97316] !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)]">
+          {evidence.sourceTitle && (
+            <div className="text-[11px] font-semibold text-[var(--text-secondary)] mb-2">
+              {evidence.sourceTitle}
+            </div>
+          )}
           <div className="text-[13px] leading-relaxed text-[var(--text-primary)] font-serif italic">
             &ldquo;{evidence.quote}&rdquo;
           </div>

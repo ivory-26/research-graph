@@ -31,6 +31,7 @@ function sourceRow(overrides: Partial<GraphEdgeSourceRow> = {}): GraphEdgeSource
     chunkOrdinal: null,
     chunkCharStart: null,
     chunkCharEnd: null,
+    evidenceSourceTitle: null,
     runAttempt: null,
     runStatus: null,
     ...overrides,
@@ -43,6 +44,7 @@ describe('formatGraphEdge (#19 evidence projection)', () => {
       sourceRow({
         edge: edgeRow({ evidenceChunkId: CHUNK_ID }),
         chunkText: 'A variable with more categories has a higher probability.',
+        evidenceSourceTitle: 'Cited paper',
         chunkPage: 4,
         chunkOrdinal: 1,
         chunkCharStart: 3810,
@@ -62,6 +64,7 @@ describe('formatGraphEdge (#19 evidence projection)', () => {
     expect(formatted.evidenceChunkId).toBe(CHUNK_ID);
     expect(formatted.evidenceRun).toBeUndefined();
     expect(formatted.sourceTitle).toBe('Strobl et al. 2007');
+    expect(formatted.evidenceSourceTitle).toBe('Cited paper');
     expect(formatted.targetTitle).toBe('Claim');
   });
 

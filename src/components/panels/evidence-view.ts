@@ -32,6 +32,7 @@ export type QuoteEvidence = {
   quote: string;
   page: number;
   chunkId: string;
+  sourceTitle: string | null;
   chunkNumber: number | null;
   charStart: number | null;
   charEnd: number | null;
@@ -99,7 +100,7 @@ function findRunNode(
   runId: string,
 ): WorkspaceNode | null {
   const byId = nodes.find(
-    (node) => node.type === 'run' && node.id === runId,
+    (node) => node.type === 'run' && node.id === runId && !node.data?.runId,
   );
   if (byId) return byId;
   return (
@@ -147,6 +148,7 @@ export function resolveEdgeEvidence(
       quote,
       page,
       chunkId,
+      sourceTitle: nonEmptyString(edge.evidenceSourceTitle),
       chunkNumber: nonNegativeInteger(edge.chunkNumber),
       charStart,
       charEnd,

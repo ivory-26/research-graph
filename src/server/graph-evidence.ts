@@ -30,6 +30,7 @@ export type GraphEdgeSourceRow = {
   chunkOrdinal: number | null;
   chunkCharStart: number | null;
   chunkCharEnd: number | null;
+  evidenceSourceTitle: string | null;
   runAttempt: number | null;
   runStatus: RunStatus | null;
 };
@@ -50,6 +51,7 @@ export type FormattedGraphEdge = {
   evidenceChunkId: string | undefined;
   evidenceRunId: string | undefined;
   evidenceRun: GraphEvidenceRun | undefined;
+  evidenceSourceTitle: string | undefined;
   quote: string | undefined;
   page: number | undefined;
   chunkNumber: number | undefined;
@@ -72,6 +74,7 @@ export function formatGraphEdge(
     status: row.edge.status,
     confidence: row.edge.confidence ?? undefined,
     evidenceChunkId: row.edge.evidenceChunkId ?? undefined,
+    evidenceSourceTitle: row.evidenceSourceTitle ?? undefined,
     evidenceRunId,
     evidenceRun: evidenceRunId
       ? {

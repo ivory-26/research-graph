@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { asc, eq } from 'drizzle-orm';
 
 import { getDb } from '../../db/client';
-import { edges, nodes, runs, sourceChunks } from '../../db/schema';
+import { edges, experiments, nodes, runs, sourceChunks, sources } from '../../db/schema';
 import { requireWorkspaceAccess } from '../../server/auth/workspace.server';
 import { formatGraphEdges } from '../../server/graph-evidence';
 import { layoutGraphNodes } from '../../server/graph-layout';
@@ -36,6 +36,26 @@ export const Route = createFileRoute('/api/graph')({
         try {
           const membership = await requireWorkspaceAccess(request, workspaceId);
           const db = getDb();
+          const workspaceChunks = db
+            .select({
+              id: sourceChunks.id,
+              text: sourceChunks.text,
+              page: sourceChunks.page,
+              ordinal: sourceChunks.ordinal,
+              charStart: sourceChunks.charStart,
+              charEnd: sourceChunks.charEnd,
+              sourceTitle: sources.title,
+            })
+            .from(sourceChunks)
+            .innerJoin(sources, eq(sourceChunks.sourceId, sources.id))
+            .where(eq(sources.workspaceId, membership.workspaceId))
+            .as('workspace_chunks');
+          const workspaceRuns = db
+            .select({ id: runs.id, attempt: runs.attempt, status: runs.status })
+            .from(runs)
+            .innerJoin(experiments, eq(runs.experimentId, experiments.id))
+            .where(eq(experiments.workspaceId, membership.workspaceId))
+            .as('workspace_runs');
 
           const [dbNodes, dbEdgeRows] = await Promise.all([
             db
@@ -46,17 +66,18 @@ export const Route = createFileRoute('/api/graph')({
             db
               .select({
                 edge: edges,
-                chunkText: sourceChunks.text,
-                chunkPage: sourceChunks.page,
-                chunkOrdinal: sourceChunks.ordinal,
-                chunkCharStart: sourceChunks.charStart,
-                chunkCharEnd: sourceChunks.charEnd,
-                runAttempt: runs.attempt,
-                runStatus: runs.status,
+                chunkText: workspaceChunks.text,
+                chunkPage: workspaceChunks.page,
+                chunkOrdinal: workspaceChunks.ordinal,
+                chunkCharStart: workspaceChunks.charStart,
+                chunkCharEnd: workspaceChunks.charEnd,
+                evidenceSourceTitle: workspaceChunks.sourceTitle,
+                runAttempt: workspaceRuns.attempt,
+                runStatus: workspaceRuns.status,
               })
               .from(edges)
-              .leftJoin(sourceChunks, eq(edges.evidenceChunkId, sourceChunks.id))
-              .leftJoin(runs, eq(edges.evidenceRunId, runs.id))
+              .leftJoin(workspaceChunks, eq(edges.evidenceChunkId, workspaceChunks.id))
+              .leftJoin(workspaceRuns, eq(edges.evidenceRunId, workspaceRuns.id))
               .where(eq(edges.workspaceId, membership.workspaceId))
               .orderBy(asc(edges.createdAt), asc(edges.id)),
           ]);

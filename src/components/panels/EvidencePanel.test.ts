@@ -51,7 +51,10 @@ function minimalEdge(overrides: Partial<WorkspaceEdge>): WorkspaceEdge {
 
 describe('EvidencePanel presentation (#19)', () => {
   it('renders the verbatim quote, its source edge and page for a text-grounded edge', () => {
-    const edge = edgeById('e-src1-claim');
+    const edge = {
+      ...edgeById('e-src1-claim'),
+      sourceTitle: 'Graph endpoint title',
+    };
     const html = render(edge);
     const quote = edge.quote as string;
 
@@ -61,6 +64,8 @@ describe('EvidencePanel presentation (#19)', () => {
     expect(html).toContain(`EVIDENCE CHUNK · PAGE ${edge.page}`);
     expect(html).toContain(`CHARS ${edge.charStart}–${edge.charEnd}`);
     expect(visibleText(html)).toContain(quote.slice(0, 60));
+    expect(edge.evidenceSourceTitle).toBeTruthy();
+    expect(visibleText(html)).toContain(edge.evidenceSourceTitle);
     expect(html).not.toContain('Run-Evidenced Relation');
     expect(html).not.toContain('Evidence unavailable');
   });
