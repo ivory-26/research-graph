@@ -996,3 +996,84 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
     expect(mixedCapturedPrompt).not.toContain('CHUNK ID: c-2')
   })
 })
+
+describe('extraction run attribution', () => {
+  const chunks: ChunkRef[] = [
+    { id: 'c-attribution-1', ordinal: 0, page: 1, text: 'The first passage states a testable claim.' },
+    { id: 'c-attribution-2', ordinal: 1, page: 2, text: 'The second passage reports a result.' },
+  ]
+
+  function capturingCallModel() {
+    const contexts: Array<Record<string, any>> = []
+    const callModelFn = vi.fn(async (_schema, _prompt, ctx) => {
+      contexts.push(ctx)
+      return {
+        output: { claims: [], datasets: [], methods: [], codeUrls: [] },
+        task: { id: `task-${contexts.length}` },
+        attempts: [],
+      }
+    })
+    return { callModelFn, contexts }
+  }
+
+  it('writes the same stable run id and label on every pass of one batch', async () => {
+    const { callModelFn, contexts } = capturingCallModel()
+
+    await extractClaims({
+      workspaceId: 'ws-attribution',
+      sourceId: 'src-attribution',
+      chunks,
+      strategy: 'sectioned',
+      runId: 'extract:strobl-2007:sectioned',
+      runLabel: 'Strobl 2007 · sectioned',
+      callModelFn: callModelFn as any,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(contexts).toHaveLength(2)
+    for (const ctx of contexts) {
+      expect(ctx.inputRef.extractionRunId).toBe('extract:strobl-2007:sectioned')
+      expect(ctx.inputRef.extractionRunLabel).toBe('Strobl 2007 · sectioned')
+      expect(ctx.inputRef.strategy).toBe('sectioned')
+    }
+    expect(contexts.map((ctx) => ctx.inputRef.pass)).toEqual([
+      'section_part_1',
+      'section_part_2',
+    ])
+  })
+
+  it('omits run fields when the caller has not adopted attribution', async () => {
+    const { callModelFn, contexts } = capturingCallModel()
+
+    await extractClaims({
+      workspaceId: 'ws-legacy',
+      sourceId: 'src-legacy',
+      chunks,
+      strategy: 'single_pass',
+      callModelFn: callModelFn as any,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0]!.inputRef).not.toHaveProperty('extractionRunId')
+    expect(contexts[0]!.inputRef).not.toHaveProperty('extractionRunLabel')
+  })
+
+  it('passes the injected task store through to the call wrapper', async () => {
+    const { callModelFn, contexts } = capturingCallModel()
+    const taskStore = { insert: vi.fn() }
+
+    await extractClaims({
+      workspaceId: 'ws-store',
+      sourceId: 'src-store',
+      chunks,
+      strategy: 'single_pass',
+      runId: 'extract:test:single_pass',
+      callModelFn: callModelFn as any,
+      updateTaskStatusFn: vi.fn(),
+      taskStore: taskStore as any,
+    })
+
+    expect(contexts[0]!.store).toBe(taskStore)
+  })
+})

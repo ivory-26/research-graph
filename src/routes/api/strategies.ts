@@ -10,7 +10,7 @@ import {
   UnauthenticatedError,
   WorkspaceAccessDeniedError,
 } from '../../server/auth.server';
-import type { AgentTaskRow } from '../../shared/strategies';
+import { mapAgentTaskQueryRows } from '../../server/strategies';
 
 /**
  * Auth-guarded, workspace-scoped Strategy Tasks API endpoint.
@@ -40,7 +40,6 @@ export const Route = createFileRoute('/api/strategies')({
               id: agentTasks.id,
               taskKind: agentTasks.taskKind,
               strategyName: agentStrategies.name,
-              strategyId: agentTasks.strategyId,
               status: agentTasks.status,
               inputRef: agentTasks.inputRef,
               latencyMs: agentTasks.latencyMs,
@@ -51,16 +50,7 @@ export const Route = createFileRoute('/api/strategies')({
             .leftJoin(agentStrategies, eq(agentTasks.strategyId, agentStrategies.id))
             .where(eq(agentTasks.workspaceId, membership.workspaceId));
 
-          const tasks: AgentTaskRow[] = rows.map((r) => ({
-            id: r.id,
-            taskKind: r.taskKind,
-            strategyId: r.strategyName ?? r.strategyId ?? 'unassigned',
-            runId: typeof r.inputRef?.runId === 'string' ? r.inputRef.runId : null,
-            status: r.status,
-            latencyMs: r.latencyMs ?? null,
-            costUsd: r.costUsd != null ? Number(r.costUsd) : null,
-            error: r.error,
-          }));
+          const tasks = mapAgentTaskQueryRows(rows);
 
           return Response.json(
             {

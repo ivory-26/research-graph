@@ -1,10 +1,91 @@
 import React, { useMemo } from 'react';
 import { DEMO_STRATEGIES } from '../../data/demoWorkspace';
 import {
-  aggregateAgentTasks,
+  UNATTRIBUTED_RUN_LABEL,
+  aggregateAgentTasksByRun,
+  summarizeAgentTaskRuns,
   type AgentTaskRow,
+  type AgentTaskRunSummary,
 } from '../../utils/strategyClient';
 import { X, AlertTriangle, Loader2 } from 'lucide-react';
+
+function runDisplayName(run: Pick<AgentTaskRunSummary, 'runId' | 'label'>): string {
+  return run.runId === null ? UNATTRIBUTED_RUN_LABEL : run.label;
+}
+
+function formatLatency(latencyMs: number | null): string {
+  return latencyMs !== null ? `${(latencyMs / 1000).toFixed(2)}s` : '—';
+}
+
+function formatCost(costUsd: number | null): string {
+  return costUsd !== null ? `$${costUsd.toFixed(4)}` : '—';
+}
+
+const RunKpiCard: React.FC<{ run: AgentTaskRunSummary }> = ({ run }) => {
+  const attributed = run.runId !== null;
+  return (
+    <div
+      className={`c min-w-0 p-4 bg-[var(--card-bg)] border rounded-none ${
+        attributed ? 'border-[var(--border-primary)]' : 'border-dashed border-[var(--border-secondary)]'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div
+            className="truncate font-mono text-[11px] font-semibold text-[var(--text-primary)]"
+            title={runDisplayName(run)}
+          >
+            {runDisplayName(run)}
+          </div>
+          <div
+            className="truncate font-mono text-[9px] text-[var(--text-dim)]"
+            title={run.runId ?? undefined}
+          >
+            {attributed ? run.runId : 'Tasks without a recorded run'}
+          </div>
+        </div>
+        <span
+          className={`shrink-0 border px-1.5 py-0.5 font-mono text-[9px] ${
+            run.failures > 0
+              ? 'border-red-500/40 bg-red-500/10 text-red-400'
+              : 'border-[var(--border-primary)] text-[var(--text-dim)]'
+          }`}
+        >
+          {run.failures} failed
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 font-mono text-[10px]">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[var(--text-dim)]">Tasks</span>
+          <span className="text-[var(--text-primary)]">{run.attempts}</span>
+        </div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[var(--text-dim)]">Success</span>
+          <span className="text-[var(--text-primary)]">{run.successRate.toFixed(0)}%</span>
+        </div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[var(--text-dim)]">Successes</span>
+          <span className="text-[var(--text-primary)]">{run.successes}</span>
+        </div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[var(--text-dim)]">Avg latency</span>
+          <span className="text-[var(--text-muted)]">{formatLatency(run.avgLatencyMs)}</span>
+        </div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[var(--text-dim)]">Avg cost</span>
+          <span className="text-[var(--text-muted)]">{formatCost(run.avgCostUsd)}</span>
+        </div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[var(--text-dim)]">Total cost</span>
+          <span className="text-[#f97316]">
+            {run.avgCostUsd !== null ? `$${run.totalCostUsd.toFixed(4)}` : '—'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface StrategyDashboardProps {
   isModal?: boolean;
@@ -24,10 +105,22 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
   const isDatabaseMode = source === 'api' || source === 'error';
   const liveTasks = tasks ?? [];
 
+  // One row per (run, task kind, strategy), so two extraction batches are
+  // compared side by side instead of being averaged into one row.
   const liveRows = useMemo(
-    () => (isDatabaseMode ? aggregateAgentTasks(liveTasks) : []),
+    () => (isDatabaseMode ? aggregateAgentTasksByRun(liveTasks) : []),
     [isDatabaseMode, liveTasks],
   );
+
+  // Per-run KPIs read from the same rows. Attributed runs are shown first;
+  // the legacy bucket is rendered separately so it can never be mistaken for
+  // a named extraction batch.
+  const runSummaries = useMemo(
+    () => (isDatabaseMode ? summarizeAgentTaskRuns(liveTasks) : []),
+    [isDatabaseMode, liveTasks],
+  );
+  const attributedRuns = runSummaries.filter((run) => run.runId !== null);
+  const unattributedRun = runSummaries.find((run) => run.runId === null) ?? null;
 
   const failedTasks = useMemo(
     () => liveTasks.filter((t) => t.status === 'failed' || t.status === 'rejected'),
@@ -64,6 +157,8 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
   const rows = isDatabaseMode
     ? liveRows.map((s) => ({
         key: s.key,
+        runId: s.runId,
+        runLabel: s.runLabel,
         taskKind: s.taskKind,
         strategyId: s.strategyId,
         preferred: s.preferred,
@@ -81,6 +176,8 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
         const avgCostUsd = s.attempts > 0 ? s.totalCostUsd / s.attempts : null;
         return {
           key: s.id,
+          runId: null as string | null,
+          runLabel: null as string | null,
           taskKind: s.taskKind,
           strategyId: s.name,
           preferred: Boolean(s.preferred),
@@ -127,8 +224,8 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
           </div>
           <div className="text-[22px] font-bold mt-1 text-[var(--text-primary)] font-mono tracking-tight">
             {isDatabaseMode
-              ? 'Autonomous Strategy Selection · Task Aggregation'
-              : 'Autonomous Strategy Selection · Demo Fixture Preview'}
+              ? 'Extraction Strategy Runs · Task Aggregation'
+              : 'Extraction Strategy Runs · Demo Fixture Preview'}
           </div>
         </div>
 
@@ -160,7 +257,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
             {source === 'error'
               ? 'Database query failed'
               : isDatabaseMode
-                ? 'Grouped from agent_tasks'
+                ? `Grouped from agent_tasks · ${attributedRuns.length} attributed run${attributedRuns.length === 1 ? '' : 's'}`
                 : 'Demo fixture preview (fixtures/workspace.json)'}
           </div>
         </div>
@@ -189,15 +286,33 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
         </div>
       </div>
 
+      {/* Per-run KPI comparison: every card is one persisted run_id. */}
+      {isDatabaseMode && runSummaries.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <div className="l">Extraction batches and experiment runs</div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {attributedRuns.map((run) => (
+              <RunKpiCard key={run.runId} run={run} />
+            ))}
+            {unattributedRun && <RunKpiCard run={unattributedRun} />}
+          </div>
+        </div>
+      )}
+
       {/* Leaderboard Table with Sharp Corners */}
       <div className="c overflow-x-auto bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none">
-        <table className="w-full border-collapse text-[13px] min-w-[820px]">
+        <table className="w-full border-collapse text-[13px] min-w-[1040px]">
           <thead>
             <tr className="l border-b border-[var(--border-primary)] bg-[var(--bg-surface-hover)]">
+              {isDatabaseMode && (
+                <th className="text-left p-3.5 font-semibold text-[var(--text-dim)]">Batch or run</th>
+              )}
               <th className="text-left p-3.5 font-semibold text-[var(--text-dim)]">Task kind</th>
               <th className="text-left p-3.5 font-semibold text-[var(--text-dim)]">Strategy</th>
               <th className="text-right p-3.5 font-semibold text-[var(--text-dim)]">Tries</th>
-              <th className="text-right p-3.5 font-semibold text-[var(--text-dim)]">Wins</th>
+              <th className="text-right p-3.5 font-semibold text-[var(--text-dim)]">Successes</th>
               <th className="text-right p-3.5 font-semibold text-[var(--text-dim)]">Failures</th>
               <th className="text-right p-3.5 font-semibold text-[var(--text-dim)]">Success rate</th>
               <th className="text-right p-3.5 font-semibold text-[var(--text-dim)]">Avg latency</th>
@@ -208,7 +323,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="p-6 text-center font-mono text-xs text-[var(--text-dim)]">
+                <td colSpan={isDatabaseMode ? 10 : 9} className="p-6 text-center font-mono text-xs text-[var(--text-dim)]">
                   {source === 'error'
                     ? 'Failed to load agent_tasks from database.'
                     : 'No agent_tasks recorded for this workspace yet.'}
@@ -218,9 +333,25 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
               rows.map((strat) => {
               const barColor = strat.preferred ? '#f97316' : 'var(--border-secondary)';
               const percent = Math.round(strat.score * 100);
+              const runName = strat.runLabel ?? strat.runId ?? UNATTRIBUTED_RUN_LABEL;
 
               return (
                 <tr key={strat.key} className="border-t border-[var(--border-primary)] hover:bg-[var(--bg-surface-hover)] transition">
+                  {isDatabaseMode && (
+                    <td className="p-3.5 max-w-[220px]">
+                      <div
+                        className={`truncate font-mono text-[12px] ${strat.runId === null ? 'text-[var(--text-dim)]' : 'text-[var(--text-primary)]'}`}
+                        title={runName}
+                      >
+                        {runName}
+                      </div>
+                      {strat.runId !== null && strat.runLabel && (
+                        <div className="truncate font-mono text-[9px] text-[var(--text-dim)]" title={strat.runId}>
+                          {strat.runId}
+                        </div>
+                      )}
+                    </td>
+                  )}
                   <td className="p-3.5 m text-[var(--text-primary)] font-medium">{strat.taskKind}</td>
                   <td className="p-3.5 text-[var(--text-primary)]">
                     <span className="font-mono text-[13px]">{strat.strategyId}</span>
@@ -239,10 +370,10 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
                     {strat.successRate.toFixed(0)}%
                   </td>
                   <td className="p-3.5 text-right m font-mono text-[var(--text-muted)]">
-                    {strat.avgLatencyMs !== null ? `${(strat.avgLatencyMs / 1000).toFixed(2)}s` : '—'}
+                    {formatLatency(strat.avgLatencyMs)}
                   </td>
                   <td className="p-3.5 text-right m font-mono text-[var(--text-muted)]">
-                    {strat.avgCostUsd !== null ? `$${strat.avgCostUsd.toFixed(4)}` : '—'}
+                    {formatCost(strat.avgCostUsd)}
                   </td>
                   <td className="p-3.5 min-w-[160px]">
                     <div className="flex items-center gap-2.5">
@@ -289,7 +420,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
                   <span className="text-[var(--text-dim)]">·</span>
                   <span className="text-[#f97316]">{t.strategyId}</span>
                   <span className="text-[var(--text-dim)]">
-                    ({t.runId ?? 'unattributed'})
+                    ({t.runLabel ?? t.runId ?? UNATTRIBUTED_RUN_LABEL})
                   </span>
                 </div>
                 <div className="text-[var(--text-muted)] truncate max-w-[520px]">
@@ -304,7 +435,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
       {/* Footer Note */}
       <div className="text-[11px] text-[var(--text-dim)] font-mono">
         {isDatabaseMode
-          ? 'Strategy Evaluation: Aggregated by (task_kind, strategy_id) using Laplace-smoothed score (successes + 1) / (attempts + 2).'
+          ? 'Strategy Evaluation: Rows are grouped by (run, task_kind, strategy_id) from persisted agent_tasks; the score is Laplace-smoothed (successes + 1) / (attempts + 2). Rows without a run id are legacy, unattributed tasks.'
           : 'Strategy Evaluation (Demo Fixture): Displays illustrative fixture values from fixtures/workspace.json until a database workspace is active.'}
       </div>
     </div>

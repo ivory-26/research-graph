@@ -76,6 +76,9 @@ _Avoid_: Agent, prompt, model
 One recorded execution of a strategy: its inputs, output, cost, latency and status.
 _Avoid_: Step, call, invocation
 
+**Extraction batch**:
+The extraction tasks recorded under one batch ID, such as claim extraction and edge proposal for a paper. The strategy dashboard groups tasks by either an extraction batch or the experiment run they belong to.
+
 **Pipeline**:
 The fixed sequence of tasks from ingestion to verdict. The model fills in each task; the code decides the order.
 _Avoid_: Agent loop, workflow, orchestration

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { WorkspaceEdge, WorkspaceNode } from '../../data/demoWorkspace';
 import { NODE_CATEGORY_THEMES } from '../canvas/MemoryNode';
+import { resolveEdgeEvidence } from './evidence-view';
 import {
   Check,
   Copy,
@@ -424,13 +425,9 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
 
   // SCENARIO 2: EDGE EVIDENCE INSPECTOR (Original behavior preserved)
   const relation = edge?.relation || 'supports';
-  const status = edge?.status || 'accepted';
+  const status = edge?.status ?? 'unknown';
   const confidence = edge?.confidence ? `conf ${edge.confidence.toFixed(2)}` : null;
-  const quote = edge?.quote;
-  const page = edge?.page;
-  const chunkNumber = edge?.chunkNumber;
-  const charStart = edge?.charStart;
-  const charEnd = edge?.charEnd;
+  const evidence = resolveEdgeEvidence(edge, allNodes);
   const sourceName = edge?.sourceTitle || 'Source';
   const targetName = edge?.targetTitle || 'Target';
   const rationale = edge?.rationale || 'Graph edge relationship.';
@@ -444,7 +441,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
       <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
         <div className="l font-mono text-xs">CITATION & EVIDENCE INSPECTOR</div>
         <div className="flex items-center gap-2">
-          <span className="badge-solid-white rounded-none uppercase">{status || 'STRUCTURAL'}</span>
+          <span className="badge-solid-white rounded-none uppercase">{status}</span>
           {onClose && (
             <button
               onClick={onClose}
@@ -484,25 +481,29 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         <span className="text-[var(--text-primary)] font-semibold">{targetName}</span>
       </div>
 
-        {/* Source evidence chunk or run evidence */}
-      {quote ? (
+      {/* Source evidence chunk or run evidence */}
+      {evidence.kind === 'quote' ? (
         <div className="c p-4 border-l-[3px] !border-l-[#f97316] !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)]">
+          {evidence.sourceTitle && (
+            <div className="text-[11px] font-semibold text-[var(--text-secondary)] mb-2">
+              {evidence.sourceTitle}
+            </div>
+          )}
           <div className="text-[13px] leading-relaxed text-[var(--text-primary)] font-serif italic">
-            &ldquo;{quote}&rdquo;
+            &ldquo;{evidence.quote}&rdquo;
           </div>
           <div className="m text-[10px] text-[var(--text-dim)] mt-3 border-t border-[var(--border-primary)] pt-2 flex items-center justify-between gap-2">
             <span>
-              EVIDENCE CHUNK
-              {page !== undefined && ` · PAGE ${page}`}
-              {chunkNumber !== undefined && ` · #${chunkNumber}`}
-              {charStart !== undefined && charEnd !== undefined && ` · CHARS ${charStart}–${charEnd}`}
+              EVIDENCE CHUNK · PAGE {evidence.page}
+              {evidence.chunkNumber !== null && ` · #${evidence.chunkNumber}`}
+              {evidence.charStart !== null && evidence.charEnd !== null && ` · CHUNK CHARS ${evidence.charStart}–${evidence.charEnd}`}
             </span>
             <button
               type="button"
               onClick={async () => {
                 try {
                   if (!edge || !navigator.clipboard?.writeText) return;
-                  await navigator.clipboard.writeText(quote);
+                  await navigator.clipboard.writeText(evidence.quote);
                   setCopiedQuote({ edgeId: edge.id });
                 } catch {
                   // Ignore clipboard rejection
@@ -516,45 +517,77 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
             </button>
           </div>
         </div>
-      ) : edge?.evidenceRunId ? (
-        (() => {
-          const runNode = allNodes.find(
-            (n) => n.id === edge.evidenceRunId || n.data?.runId === edge.evidenceRunId,
-          );
-          return (
-            <div className="c p-4 border-l-[3px] !border-l-amber-400 !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)] space-y-2 font-mono">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase text-amber-500 flex items-center gap-1.5">
-                  <Play className="h-3 w-3 fill-current" />
-                  <span>Run-Evidenced Relation</span>
-                </span>
-                <span className="text-[10px] px-1.5 py-0.5 border border-amber-500/40 bg-amber-500/10 text-amber-500">
-                  {edge.evidenceRunId}
-                </span>
-              </div>
-              <div className="text-[11px] text-[var(--text-secondary)]">
-                Grounded in execution lineage of{' '}
-                <span className="text-[var(--text-primary)] font-semibold">
-                  {runNode ? runNode.title : edge.evidenceRunId}
-                </span>
-                .
-              </div>
-              {runNode && (
-                <button
-                  type="button"
-                  onClick={() => onSelectNode?.(runNode.id)}
-                  className="text-[10px] text-[#f97316] hover:underline flex items-center gap-1 pt-1"
-                >
-                  <span>Inspect run node</span>
-                  <ArrowRight className="h-3 w-3" />
-                </button>
-              )}
+      ) : evidence.kind === 'run' ? (
+        <div className="c p-4 border-l-[3px] !border-l-amber-400 !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)] space-y-2 font-mono">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase text-amber-500 flex items-center gap-1.5">
+              <Play className="h-3 w-3 fill-current" />
+              <span>Run-Evidenced Relation</span>
+            </span>
+            {evidence.status && (
+              <span className="text-[10px] px-1.5 py-0.5 border border-amber-500/40 bg-amber-500/10 text-amber-500 uppercase">
+                {evidence.status}
+              </span>
+            )}
+          </div>
+          <div className="space-y-0.5">
+            <div className="text-[12px] text-[var(--text-primary)] font-semibold">
+              {evidence.label}
             </div>
-          );
-        })()
+            {evidence.sublabel && (
+              <div className="text-[9px] uppercase tracking-wide text-[var(--text-dim)]">
+                {evidence.sublabel}
+              </div>
+            )}
+          </div>
+          <div className="text-[11px] text-[var(--text-secondary)]">
+            {'This relation rests on run '}
+            <span className="text-[var(--text-primary)] font-semibold">{evidence.runId}</span>
+            {evidence.attempt !== null ? ` (attempt ${evidence.attempt}).` : '.'}
+          </div>
+          {evidence.mode && (
+            <div className="text-[10px] text-[var(--text-dim)]">
+              Mode: <span className="text-[var(--text-primary)] uppercase">{evidence.mode}</span>
+            </div>
+          )}
+          {evidence.nodeId ? (
+            <button
+              type="button"
+              onClick={() => onSelectNode?.(evidence.nodeId as string)}
+              className="text-[10px] text-[#f97316] hover:underline flex items-center gap-1 pt-1"
+            >
+              <span>Inspect run node</span>
+              <ArrowRight className="h-3 w-3" />
+            </button>
+          ) : (
+            <div className="text-[10px] text-[var(--text-dim)]">
+              The run row is evidence, but its node is not in the loaded graph.
+            </div>
+          )}
+        </div>
       ) : (
-        <div className="c p-4 !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)] text-xs text-[var(--text-dim)] font-mono">
-          Structural relation without direct text quotation.
+        <div className="c p-4 !rounded-none bg-red-500/5 border border-red-500/40 text-xs font-mono space-y-1.5">
+          <div className="text-[10px] font-bold uppercase text-red-500 flex items-center gap-1.5">
+            <XIcon className="h-3 w-3" />
+            <span>Evidence unavailable</span>
+          </div>
+          <div className="text-[var(--text-secondary)]">
+            {evidence.reason === 'quote_without_page'
+              ? 'The cited passage has no page number, so it is not presented as verified evidence.'
+              : evidence.reason === 'run_not_in_graph'
+                ? 'The cited run is not in the loaded graph, so its identity cannot be shown.'
+                : 'No quote, page or run is recorded for this edge.'}
+          </div>
+          {evidence.reference && (
+            <div className="text-[10px] text-[var(--text-dim)]">
+              Reference: <span className="text-[var(--text-primary)]">{evidence.reference}</span>
+            </div>
+          )}
+          {isAccepted && (
+            <div className="text-[10px] text-red-500">
+              An accepted edge must open to a quote with a page, or to a named run.
+            </div>
+          )}
         </div>
       )}
 

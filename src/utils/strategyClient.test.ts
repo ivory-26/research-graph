@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { aggregateAgentTasks, type AgentTaskRow } from './strategyClient';
+import {
+  UNATTRIBUTED_RUN_LABEL,
+  aggregateAgentTasks,
+  aggregateAgentTasksByRun,
+  summarizeAgentTaskRuns,
+  type AgentTaskRow,
+} from './strategyClient';
 
 const SAMPLE_TASKS: AgentTaskRow[] = [
   { id: 't1', taskKind: 'extract_claims', strategyId: 'sectioned', runId: 'run-1', status: 'succeeded', latencyMs: 1400, costUsd: 0.008 },
@@ -47,5 +53,118 @@ describe('strategyClient', () => {
       { strategyId: 'unattributed', preferred: false },
       { strategyId: 'single_pass', preferred: true },
     ]);
+  });
+});
+
+describe('per-run strategy comparison', () => {
+  const RUN_ONE = 'extract:strobl-2007:single_pass';
+  const RUN_TWO = 'extract:kursa-2010:single_pass';
+
+  const RUN_TASKS: AgentTaskRow[] = [
+    {
+      id: 'r1-extract', taskKind: 'extract_claims', strategyId: 'single_pass',
+      runId: RUN_ONE, runLabel: 'Strobl 2007 · single_pass',
+      status: 'succeeded', latencyMs: 1200, costUsd: 0.004,
+    },
+    {
+      id: 'r1-edges', taskKind: 'propose_edges', strategyId: 'single_pass',
+      runId: RUN_ONE, runLabel: 'Strobl 2007 · single_pass',
+      status: 'succeeded', latencyMs: 800, costUsd: 0.002,
+    },
+    {
+      id: 'r2-extract', taskKind: 'extract_claims', strategyId: 'single_pass',
+      runId: RUN_TWO, runLabel: 'Kursa 2010 · single_pass',
+      status: 'rejected', latencyMs: 3000, costUsd: 0.009,
+      error: 'All proposed claims were rejected due to unverified verbatim quotes.',
+    },
+    {
+      id: 'r2-edges', taskKind: 'propose_edges', strategyId: 'single_pass',
+      runId: RUN_TWO, runLabel: 'Kursa 2010 · single_pass',
+      status: 'failed', latencyMs: null, costUsd: null, error: 'provider 503',
+    },
+    {
+      id: 'legacy', taskKind: 'extract_claims', strategyId: 'sectioned',
+      runId: null, status: 'succeeded', latencyMs: 400, costUsd: 0.001,
+    },
+  ];
+
+  it('keeps two runs apart instead of merging their rows', () => {
+    const rows = aggregateAgentTasksByRun(RUN_TASKS);
+    const extractRows = rows.filter((row) => row.taskKind === 'extract_claims');
+
+    expect(extractRows.map((row) => row.runId)).toEqual([RUN_TWO, RUN_ONE, null]);
+    expect(extractRows.map((row) => row.attempts)).toEqual([1, 1, 1]);
+    expect(extractRows.map((row) => row.successes)).toEqual([0, 1, 1]);
+    expect(extractRows.map((row) => row.failures)).toEqual([1, 0, 0]);
+    expect(extractRows.map((row) => row.avgLatencyMs)).toEqual([3000, 1200, 400]);
+    expect(extractRows.map((row) => row.runLabel)).toEqual([
+      'Kursa 2010 · single_pass',
+      'Strobl 2007 · single_pass',
+      null,
+    ]);
+  });
+
+  it('supports filtering to one run or the legacy bucket', () => {
+    const runOne = aggregateAgentTasksByRun(RUN_TASKS, RUN_ONE);
+    const legacy = aggregateAgentTasksByRun(RUN_TASKS, 'unattributed');
+
+    expect(runOne).toHaveLength(2);
+    expect(runOne.every((row) => row.runId === RUN_ONE)).toBe(true);
+    expect(legacy).toHaveLength(1);
+    expect(legacy[0].runId).toBeNull();
+  });
+
+  it('summarizes KPIs per run, including failures, without inventing telemetry', () => {
+    const summaries = summarizeAgentTaskRuns(RUN_TASKS);
+    expect(summaries).toHaveLength(3);
+    expect(summaries.map((run) => run.runId)).toEqual([RUN_TWO, RUN_ONE, null]);
+
+    const failed = summaries[0]!;
+    expect(failed.label).toBe('Kursa 2010 · single_pass');
+    expect(failed.attempts).toBe(2);
+    expect(failed.successes).toBe(0);
+    expect(failed.failures).toBe(2);
+    expect(failed.successRate).toBe(0);
+    // The failed edge attempt has no latency/cost; the averages cover the one
+    // measured attempt and are not diluted with zeroes.
+    expect(failed.avgLatencyMs).toBe(3000);
+    expect(failed.avgCostUsd).toBeCloseTo(0.009);
+
+    const succeeded = summaries[1]!;
+    expect(succeeded.label).toBe('Strobl 2007 · single_pass');
+    expect(succeeded.attempts).toBe(2);
+    expect(succeeded.successes).toBe(2);
+    expect(succeeded.failures).toBe(0);
+    expect(succeeded.successRate).toBe(100);
+    expect(succeeded.avgLatencyMs).toBe(1000);
+    expect(succeeded.avgCostUsd).toBeCloseTo(0.003);
+    expect(succeeded.totalCostUsd).toBeCloseTo(0.006);
+    expect(succeeded.taskKinds).toEqual(['extract_claims', 'propose_edges']);
+
+    const legacy = summaries[2]!;
+    expect(legacy.label).toBe(UNATTRIBUTED_RUN_LABEL);
+    expect(legacy.attempts).toBe(1);
+    expect(legacy.runId).toBeNull();
+  });
+
+  it('returns empty summaries for no rows', () => {
+    expect(summarizeAgentTaskRuns([])).toEqual([]);
+    expect(aggregateAgentTasksByRun([])).toEqual([]);
+  });
+
+  it('keeps a run with no telemetry visible without inventing a zero average', () => {
+    const [summary] = summarizeAgentTaskRuns([
+      {
+        id: 'no-telemetry', taskKind: 'propose_edges', strategyId: 'unassigned',
+        runId: 'extract:no-telemetry:single_pass', status: 'failed',
+        latencyMs: null, costUsd: null, error: 'provider error',
+      },
+    ]);
+
+    expect(summary!.attempts).toBe(1);
+    expect(summary!.failures).toBe(1);
+    expect(summary!.avgLatencyMs).toBeNull();
+    expect(summary!.avgCostUsd).toBeNull();
+    expect(summary!.totalCostUsd).toBe(0);
   });
 });

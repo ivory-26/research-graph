@@ -93,6 +93,8 @@ A heartbeat comment is written every 15 seconds so intermediaries do not drop an
 
 The UI is driven by `fixtures/workspace.json` and `fixtures/hero-spec.ts` when no database workspace UUID is active, with `GET /api/graph` reading workspace-scoped graph rows from Postgres, `/sign-in` and `/sign-up` backed by Neon Auth, and `src/utils/pipelineClient.ts` providing the browser SSE/approval client when an `experimentId` is supplied.
 
+The offline fixture parses its nodes and edges against the shared graph contracts before rendering. Its tests verify PDF hashes, byte counts, and verbatim chunk locations against the checked-in papers. In either workspace, the edge inspector shows the cited source and page for text evidence, or identifies the run for run evidence.
+
 ## Deployment
 
 Vercel via Nitro's preset (`nitro()` plugin, `vercel deploy`). TanStack Start has no Vercel-specific preset; the documented path is Nitro's. Node 26 LTS (`26.x`), ESM only — AI SDK 7 requires both. Vercel exposes only major versions, so `engines.node` stays `26.x`; `.nvmrc` and `.node-version` pin the latest 26 patch (26.13.1) for local work.

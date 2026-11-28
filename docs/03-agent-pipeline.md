@@ -159,7 +159,7 @@ The two-attempt ceiling is not a safety measure, it is a demo measure. An unboun
 
 ## Strategy selection
 
-**Status:** `agent_strategies` and `agent_tasks` exist, `callModel` records every attempt, and `extractClaims` accepts an optional `strategyId` for the task row. Automated `pickStrategy` selection is not built; `GET /api/strategies` and `StrategyDashboard` aggregate `agent_tasks` when a database workspace UUID is active and render `DEMO_STRATEGIES` in demo fixture mode.
+**Status:** `agent_strategies` and `agent_tasks` exist, `callModel` records every attempt, and `extractClaims` accepts an optional `strategyId` for the task row. `extractClaims` and `proposeEdges` also accept a stable `runId` / `runLabel` and write them as `input_ref.extractionRunId` / `input_ref.extractionRunLabel`; every pass of one batch shares the id, and a caller that omits it produces legacy unattributed rows rather than an invented id. Automated `pickStrategy` selection is not built; `GET /api/strategies` and `StrategyDashboard` aggregate `agent_tasks` per run when a database workspace UUID is active and render `DEMO_STRATEGIES` in demo fixture mode.
 
 This is the entire "evolving agents" mechanism.
 
@@ -191,7 +191,7 @@ Success is defined per task kind by verified outcomes only:
 
 A strategy that produces a claim with a fabricated quote is not a partial success. It is a failure with a longer explanation.
 
-The dashboard is designed as a `GROUP BY` over `agent_tasks`, with no separate score to keep in sync. `GET /api/strategies` and `StrategyDashboard` now read and aggregate `agent_tasks` rows when a database workspace UUID is active, while automated strategy selection and per-extraction-run `runId` attribution on `extract_claims` / `propose_edges` remain open.
+The dashboard is a `GROUP BY` over `agent_tasks`, with no separate score to keep in sync. `GET /api/strategies` and `StrategyDashboard` read `agent_tasks` rows when a database workspace UUID is active and group them by `(run, task_kind, strategy_id)`. Per-extraction-run attribution is recorded by `extract_claims` and `propose_edges`; rows without a run id, including embeddings and task history written before this convention, remain visible in the unattributed bucket. Automated strategy selection remains open: the seed records three real `single_pass` extraction batches (one per paper), not a second strategy over the same paper.
 
 ## Model discipline
 

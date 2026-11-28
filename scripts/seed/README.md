@@ -105,6 +105,29 @@ existing workspace with the seed slug.
 are database-generated UUIDs and are not stable across seeds; `compare.ts`
 uses logical keys instead.
 
+Extraction batches are attributed with a stable slug derived from the
+checked-in asset key and the strategy, never from ingestion order or a
+database UUID:
+
+| Paper | Run id |
+|---|---|
+| Strobl 2007 | `extract:strobl-2007:single_pass` |
+| Strobl 2008 | `extract:strobl-2008:single_pass` |
+| Kursa 2010 | `extract:kursa-2010:single_pass` |
+
+EXTRACT_CLAIMS rows (and the PROPOSE_EDGES row for the same ingestion) carry
+these as `input_ref.extractionRunId`, with `input_ref.extractionRunLabel`
+holding the paper title and strategy. These are extraction batch ids, not
+`runs.id`; Run A and Run B remain experiment runs and are never relabelled as
+extraction runs. Embedding rows stay unattributed.
+
+After ingestion the seed reads `agent_tasks` back, summarizes the persisted
+extraction/edge rows per run, logs each run's attempts, successes, failures,
+average latency and average cost, and refuses with
+`EXTRACTION_RUN_ATTRIBUTION_MISSING` unless at least two attributed
+`extract_claims` runs exist. It does not write a task row or a metric of its
+own.
+
 ## Execution flow
 
 1. `openSeedDatabase(DATABASE_URL)` selects node-postgres for a loopback host

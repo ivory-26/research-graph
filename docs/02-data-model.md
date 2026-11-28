@@ -111,6 +111,10 @@ export const edges = pgTable('edges', {
 
 The `edges_have_evidence` constraint is the whole point of the graph. It lives in the database so that no future code path — not a migration, not a backfill script, not a model — can create an assertion without a citation.
 
+### Edge inspector acceptance criterion
+
+Every accepted edge in the seeded workspace opens the evidence inspector. For a source-grounded edge, the inspector shows the cited source, a verbatim quote, and its page number. For a run-grounded edge, the inspector shows a distinct run-evidence state that names the run and identifies it by ID. This is the criterion proposed by the repository owner in [issue #19](https://github.com/ivory-26/research-graph/issues/19#issuecomment-7165123016).
+
 ## Runs
 
 ```ts
@@ -196,7 +200,7 @@ export const agentTasks = pgTable('agent_tasks', {
 });
 ```
 
-Every model call writes exactly one `agent_tasks` row per physical attempt, including failures. The scoring dashboard is designed as a `GROUP BY task_kind, strategy_id` over this table and nothing else — there is no separate score table to drift out of sync. `GET /api/strategies` reads `agent_tasks` for an authorized workspace UUID and `StrategyDashboard` aggregates them via `aggregateAgentTasks`, falling back to `DEMO_STRATEGIES` when no database workspace is active.
+Every model call writes exactly one `agent_tasks` row per physical attempt, including failures. The scoring dashboard is a `GROUP BY` over this table and nothing else — there is no separate score table to drift out of sync. Extraction and edge writers record a stable batch id in `input_ref.extractionRunId` (with an optional `input_ref.extractionRunLabel`), so `GET /api/strategies` can compare two actual extraction runs. `StrategyDashboard` aggregates them via `aggregateAgentTasksByRun` and `summarizeAgentTaskRuns`; rows without an `extractionRunId` (including old rows and embeddings) stay in an explicit unattributed bucket, and the fixture rows render only when no database workspace is active.
 
 ## Pipeline foundation
 

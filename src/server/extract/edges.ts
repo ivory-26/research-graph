@@ -9,7 +9,12 @@ import {
 } from '../../db/schema'
 import { embedQuery, type EmbedDeps } from '../ingest/embed'
 import { searchSimilarChunksForWorkspace } from '../ingest/store'
-import { callModel as defaultCallModel, type CallModel, agentTaskStore } from '../model'
+import {
+  callModel as defaultCallModel,
+  type AgentTaskStore,
+  type CallModel,
+  agentTaskStore,
+} from '../model'
 import { MAX_QUOTE_CHARS, normalizeQuote, verifyVerbatimQuote } from './quote'
 import type { UpdateTaskStatusFn } from './claims'
 import {
@@ -196,6 +201,12 @@ export interface ProposeEdgesOptions {
   chunks: ChunkRef[]
   topKChunks?: number
   strategyId?: string | null
+  /** Strategy name for telemetry when no registered strategy name is available. */
+  strategyName?: string
+  /** Stable identifier for the extraction batch that produced these nodes. */
+  runId?: string | null
+  /** Optional human-readable label stored beside `runId`. Never inferred. */
+  runLabel?: string | null
   /** Audit trail indicating how candidate evidence chunks were assembled for this call. */
   evidenceSelection?: 'pair_retrieval' | 'caller_chunks' | 'fallback_slice'
   db?: Database
@@ -206,6 +217,8 @@ export interface ProposeEdgesOptions {
   callModelFn?: CallModel
   /** Injected task updater (defaults to Neon direct update) */
   updateTaskStatusFn?: UpdateTaskStatusFn
+  /** Injected task store (defaults to the production Drizzle store). */
+  taskStore?: AgentTaskStore
 }
 
 export interface RetrieveNodePairChunksOptions {
@@ -361,6 +374,10 @@ export async function proposeEdges(
 
   const validStrategyId =
     options.strategyId && UUID_REGEX.test(options.strategyId) ? options.strategyId : null
+  const runId = options.runId?.trim() || null
+  const runLabel = options.runLabel?.trim() || null
+  const strategyName = options.strategyName || (validStrategyId ? null : options.strategyId)
+  const taskStore = options.taskStore ?? agentTaskStore
 
   const prompt = buildProposeEdgesPrompt(nodes, selectedChunks, { topKChunks: topK })
 
@@ -371,12 +388,14 @@ export async function proposeEdges(
       workspaceId,
       taskKind: 'propose_edges',
       strategyId: validStrategyId,
-      store: agentTaskStore,
+      store: taskStore,
       inputRef: {
         nodeCount: nodes.length,
         chunkCount: selectedChunks.length,
         evidenceSelection: options.evidenceSelection ?? 'caller_chunks',
-        ...(options.strategyId ? { strategy: options.strategyId } : {}),
+        ...(runId ? { extractionRunId: runId } : {}),
+        ...(runLabel ? { extractionRunLabel: runLabel } : {}),
+        ...(strategyName ? { strategy: strategyName } : {}),
       },
     },
   )
@@ -464,12 +483,16 @@ export async function proposeEdgesForWorkspace(
     chunks: candidateChunks,
     topKChunks: options.topKChunks,
     strategyId: options.strategyId,
+    strategyName: options.strategyName,
+    runId: options.runId,
+    runLabel: options.runLabel,
     evidenceSelection,
     db,
     requirePersistence: true,
     storeEdgesFn: options.storeEdgesFn,
     callModelFn: options.callModelFn,
     updateTaskStatusFn: options.updateTaskStatusFn,
+    taskStore: options.taskStore,
   })
 }
 

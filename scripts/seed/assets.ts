@@ -1,9 +1,8 @@
 /**
  * Real-asset loading shared by the seed and the two-database comparison.
  *
- * The sha256 and byte count always come from the checked-in bytes. The UI
- * fixture's `sources[].sha256` / `bytes` values are not used: they describe a
- * different download of the papers and are already known to be wrong.
+ * The seed computes the SHA-256 and byte count from each checked-in PDF.
+ * The offline fixture verifies its recorded metadata against the same files.
  */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'

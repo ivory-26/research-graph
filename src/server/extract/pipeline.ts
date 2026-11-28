@@ -19,7 +19,7 @@ import type { EmbedDeps, embedChunks, embedQuery } from '../ingest/embed'
 import { ingestPdfSource } from '../ingest/pdf'
 import type { searchSimilarChunksForWorkspace } from '../ingest/store'
 import type { ChunkOptions } from '../ingest/types'
-import type { CallModel } from '../model'
+import type { AgentTaskStore, CallModel } from '../model'
 import {
   extractClaims,
   type ExtractionStrategy,
@@ -62,6 +62,15 @@ export interface IngestSourceToGraphOptions {
   source: WorkspaceSourceInput
   strategy?: ExtractionStrategy
   strategyId?: string | null
+  /**
+   * Stable identifier for this ingestion's extraction batch. EXTRACT_CLAIMS
+   * and PROPOSE_EDGES rows carry it; omission leaves them unattributed.
+   */
+  runId?: string | null
+  /** Optional human-readable label stored beside `runId`. Never inferred. */
+  runLabel?: string | null
+  /** Injected task store for tests using a disposable database. */
+  taskStore?: AgentTaskStore
   maxChars?: number
   topKChunks?: number
   /**
@@ -363,9 +372,12 @@ export async function ingestSourceToGraphForWorkspace(
     sourceTitle: sourceRow.title,
     strategy: options.strategy ?? 'single_pass',
     strategyId: options.strategyId ?? null,
+    runId: options.runId ?? null,
+    runLabel: options.runLabel ?? null,
     maxChars: options.maxChars,
     callModelFn: options.callModelFn,
     updateTaskStatusFn: options.updateTaskStatusFn,
+    taskStore: options.taskStore,
   })
 
   // 3. Persist extracted source/claim/method/dataset nodes in one atomic transaction
@@ -451,10 +463,14 @@ export async function ingestSourceToGraphForWorkspace(
     chunks: edgeChunks,
     topKChunks: topK,
     strategyId: options.strategyId ?? null,
+    strategyName: options.strategy ?? 'single_pass',
+    runId: options.runId ?? null,
+    runLabel: options.runLabel ?? null,
     evidenceSelection,
     callModelFn: options.callModelFn,
     updateTaskStatusFn: options.updateTaskStatusFn,
     storeEdgesFn: options.storeEdgesFn,
+    taskStore: options.taskStore,
   })
 
   return {
