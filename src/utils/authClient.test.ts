@@ -4,9 +4,11 @@ import { signIn, signUp, signOut } from './authClient';
 describe('authClient', () => {
   describe('signIn', () => {
     it('validates email and password inputs', async () => {
-      const res1 = await signIn({ email: 'bad-email', password: '123' });
+      const client = { signIn: { email: vi.fn() } } as any;
+      const res1 = await signIn({ email: '@', password: '123' }, client);
       expect(res1.ok).toBe(false);
       expect(res1.error).toContain('valid email');
+      expect(client.signIn.email).not.toHaveBeenCalled();
 
       const res2 = await signIn({ email: 'user@example.com', password: '' });
       expect(res2.ok).toBe(false);
@@ -55,6 +57,12 @@ describe('authClient', () => {
 
   describe('signUp', () => {
     it('requires valid email and minimum password length', async () => {
+      const client = { signUp: { email: vi.fn() } } as any;
+      const invalid = await signUp({ email: 'user@', password: 'password123' }, client);
+      expect(invalid.ok).toBe(false);
+      expect(invalid.error).toContain('valid email');
+      expect(client.signUp.email).not.toHaveBeenCalled();
+
       const res = await signUp({ email: 'user@example.com', password: '123' });
       expect(res.ok).toBe(false);
       expect(res.error).toContain('at least 8 characters');

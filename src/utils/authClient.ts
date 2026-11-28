@@ -26,13 +26,15 @@ export interface SignUpCredentials {
   name?: string;
 }
 
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+$/;
+
 export async function signIn(
   credentials: SignInCredentials,
   client: typeof authClient = authClient,
 ): Promise<AuthResult> {
   const { email, password } = credentials;
 
-  if (!email || !email.includes('@')) {
+  if (!EMAIL_SHAPE.test(email)) {
     return { ok: false, error: 'A valid email address is required' };
   }
   if (!password) {
@@ -62,7 +64,7 @@ export async function signUp(
 ): Promise<AuthResult> {
   const { email, password, name } = credentials;
 
-  if (!email || !email.includes('@')) {
+  if (!EMAIL_SHAPE.test(email)) {
     return { ok: false, error: 'A valid email address is required' };
   }
   if (!password || password.length < 8) {

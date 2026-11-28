@@ -196,7 +196,9 @@ function WorkspacePage() {
   ]);
 
   // Pipeline backend integration state
-  const [experimentId, setExperimentId] = useState<string | null>(search.experimentId ?? null);
+  const [experimentId, setExperimentId] = useState<string | null>(
+    isExperimentId(search.experimentId) ? search.experimentId : null,
+  );
   const [gateSeq, setGateSeq] = useState<number | null>(null);
   const [activeGateSpec, setActiveGateSpec] = useState<ExperimentSpec | null>(null);
   const [approvalError, setApprovalError] = useState<string | null>(null);
