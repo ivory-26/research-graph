@@ -52,7 +52,7 @@ import {
 export type VisualizationMode = 'cards' | 'memory';
 
 // Documented canvas framing (docs/05-plan.md): minZoom 0.2, maxZoom 2.4.
-const FIT_PADDING = { cards: '20%', memory: '38%' } as const;
+const FIT_PADDING = { cards: '8%', memory: '12%' } as const;
 
 interface ResearchCanvasProps {
   initialNodes: WorkspaceNode[];
