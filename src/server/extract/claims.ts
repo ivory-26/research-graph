@@ -1,4 +1,9 @@
-import { callModel as defaultCallModel, type CallModel, agentTaskStore } from '../model'
+import {
+  callModel as defaultCallModel,
+  type AgentTaskStore,
+  type CallModel,
+  agentTaskStore,
+} from '../model'
 import { normalizeQuote, validateClaimQuotes } from './quote'
 import {
   ExtractionResultSchema,
@@ -30,11 +35,22 @@ export interface ExtractClaimsOptions {
   sourceTitle?: string
   strategy?: ExtractionStrategy
   strategyId?: string | null
+  /**
+   * Stable identifier for this extraction batch. Every pass of a sectioned
+   * extraction records the same id, so `agent_tasks` rows can be compared per
+   * run. Omitted by callers that have not adopted run attribution; their rows
+   * stay in the legacy unattributed bucket.
+   */
+  runId?: string | null
+  /** Optional human-readable label stored beside `runId`. Never inferred. */
+  runLabel?: string | null
   maxChars?: number
   /** Injected callModel implementation (defaults to production callModel) */
   callModelFn?: CallModel
   /** Injected status updater (defaults to direct Drizzle DB update) */
   updateTaskStatusFn?: UpdateTaskStatusFn
+  /** Injected task store (defaults to the production Drizzle store). */
+  taskStore?: AgentTaskStore
 }
 
 /**
@@ -320,9 +336,12 @@ async function runExtractionPass(
     sourceTitle?: string
     strategy: ExtractionStrategy
     validStrategyId: string | null
+    runId: string | null
+    runLabel: string | null
     maxChars: number
     callModelFn: CallModel
     updateStatusFn: UpdateTaskStatusFn
+    taskStore: AgentTaskStore
   },
 ): Promise<{
   accepted: ValidatedClaim[]
@@ -349,11 +368,13 @@ async function runExtractionPass(
     workspaceId: params.workspaceId,
     taskKind: 'extract_claims',
     strategyId: params.validStrategyId,
-    store: agentTaskStore,
+    store: params.taskStore,
     inputRef: {
       sourceId: params.sourceId,
       chunkCount: passChunks.length,
       strategy: params.strategy,
+      ...(params.runId ? { extractionRunId: params.runId } : {}),
+      ...(params.runLabel ? { extractionRunLabel: params.runLabel } : {}),
       ...(pass.passName !== 'single_pass' ? { pass: pass.passName } : {}),
       ...(pass.sectionFallback ? { sectionFallback: true } : {}),
     },
@@ -483,6 +504,9 @@ export async function extractClaims(
 
   const validStrategyId =
     options.strategyId && UUID_REGEX.test(options.strategyId) ? options.strategyId : null
+  const runId = options.runId?.trim() || null
+  const runLabel = options.runLabel?.trim() || null
+  const taskStore = options.taskStore ?? agentTaskStore
 
   if (chunks.length === 0) {
     return {
@@ -578,9 +602,12 @@ export async function extractClaims(
       sourceTitle,
       strategy,
       validStrategyId,
+      runId,
+      runLabel,
       maxChars,
       callModelFn,
       updateStatusFn,
+      taskStore,
     })
     passResults.push(passOutcome)
   }

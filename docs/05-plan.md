@@ -70,7 +70,7 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 | Browser→pipeline SSE & approval client | #20 | `src/utils/pipelineClient.ts`, `ApprovalModal.tsx`, `src/routes/index.tsx` |
 | Guarded graph and workspace routes | #18 | `src/routes/api/graph.ts`, `src/routes/api/workspaces.ts`, `src/utils/graphClient.ts`. The canvas fits the workspace overview with 8% padding for cards and 12% for memory, within a 0.2×–2.4× zoom range. **Jump to node** focuses a card at 1.35× for reading. |
 | Fixture run comparison | #21 | `src/components/panels/ComparisonView.tsx` shows the changed importance method and signed rank delta. |
-| Guarded strategy dashboard data | Related to #22 | `src/routes/api/strategies.ts` reads workspace tasks, and `src/utils/strategyClient.ts` aggregates them for the dashboard. |
+| Guarded strategy dashboard data | Related to #22 | `src/routes/api/strategies.ts` reads workspace tasks, and `src/utils/strategyClient.ts` aggregates them per `(run, task_kind, strategy_id)` for the dashboard. Extraction and edge calls write a stable `input_ref.extractionRunId`; rows without one remain in the unattributed bucket. |
 
 ### Not on `main` on 28 November
 

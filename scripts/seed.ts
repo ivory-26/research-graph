@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks'
 import { createInterface } from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
 
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../fixtures/hero-spec.ts'
 import type { Database } from '../src/db/client.ts'
@@ -35,6 +35,8 @@ import {
   SEED_WORKSPACE_NAME,
   SEED_WORKSPACE_SLUG,
   SeedError,
+  extractionRunId,
+  extractionRunLabel,
   resolveSeedActor,
   type SeedActor,
   type SeedEdgeCounts,
@@ -42,6 +44,9 @@ import {
   type SeedNodeCounts,
   type SeedSourceReport,
 } from './seed/contracts.ts'
+import { mapAgentTaskQueryRows } from '../src/server/strategies.ts'
+import type { AgentTaskRunSummary } from '../src/utils/strategyClient.ts'
+import { summarizeAgentTaskRuns } from '../src/utils/strategyClient.ts'
 import { resolveHeroClaim } from './seed/hero-claim.ts'
 import { openSeedDatabase } from './seed/database.ts'
 import { createSeedSession } from './seed/auth.ts'
@@ -243,6 +248,8 @@ async function ingestAssets(
     // size before ingestion; the production `sources` row is the authority
     // after the call returns.
     const expectedBytes = bytes.length
+    const runId = extractionRunId(asset.key, 'single_pass')
+    const runLabel = extractionRunLabel(asset.title, 'single_pass')
     logger.info(`Ingesting ${asset.key} (${expectedBytes} bytes, sha256 ${sha256.slice(0, 12)}…)`)
 
     const outcome = await ingestSourceToGraphForWorkspace({
@@ -259,6 +266,8 @@ async function ingestAssets(
       // Methods/Results and can miss it; `single_pass` is the production
       // strategy that covers the first 30,000 characters.
       strategy: 'single_pass',
+      runId,
+      runLabel,
       embedChunksFn: (chunks, options, deps) => embedChunks(chunks, { ...options, taskStore }, deps),
       embedQueryFn: (query, options, deps) => embedQuery(query, { ...options, taskStore }, deps),
       callModelFn: (schema, prompt, context) => callModelFn(schema, prompt, { ...context, store: taskStore }),
@@ -404,6 +413,40 @@ async function readCounts(
 }
 
 /**
+ * Reads the persisted `extract_claims` / `propose_edges` rows back and
+ * summarizes them per extraction run.
+ *
+ * This is the same projection the strategy dashboard uses, over the same
+ * `input_ref` run attribution the production extractor wrote. The seed does
+ * not add a row, a count or a metric here; it only reads what the real calls
+ * recorded.
+ */
+async function readExtractionRuns(db: Database): Promise<AgentTaskRunSummary[]> {
+  const rows = await db
+    .select({
+      id: agentTasks.id,
+      taskKind: agentTasks.taskKind,
+      strategyId: agentTasks.strategyId,
+      status: agentTasks.status,
+      inputRef: agentTasks.inputRef,
+      latencyMs: agentTasks.latencyMs,
+      costUsd: agentTasks.costUsd,
+      error: agentTasks.error,
+    })
+    .from(agentTasks)
+    .where(
+      and(
+        eq(agentTasks.workspaceId, SEED_WORKSPACE_ID),
+        inArray(agentTasks.taskKind, ['extract_claims', 'propose_edges']),
+      ),
+    )
+
+  return summarizeAgentTaskRuns(
+    mapAgentTaskQueryRows(rows.map((row) => ({ ...row, strategyName: null }))),
+  )
+}
+
+/**
  * Run the graph half of the seed and return the handoff object.
  *
  * The caller owns the database handle.
@@ -451,6 +494,31 @@ export async function seedWorkspaceGraph(
     callModelFn,
   )
   const counts = await readCounts(db, sources)
+  const extractionRuns = await readExtractionRuns(db)
+
+  // The dashboard's two-run comparison is only honest if at least two actual
+  // extraction batches were recorded. Refuse before the run half rather than
+  // letting a workspace with a single unattributed batch claim otherwise.
+  const attributedExtractionRuns = extractionRuns.filter(
+    (run) => run.runId !== null && run.taskKinds.includes('extract_claims'),
+  )
+  if (attributedExtractionRuns.length < 2) {
+    throw new SeedError(
+      'EXTRACTION_RUN_ATTRIBUTION_MISSING',
+      `Expected at least two attributed extract_claims runs; found ${attributedExtractionRuns.length}.`,
+      'The extractor must write input_ref.extractionRunId for every batch. Re-run the seed after fixing attribution; no run id is invented here.',
+    )
+  }
+
+  for (const run of extractionRuns) {
+    logger.info(
+      `  extraction run ${run.runId ?? '(unattributed)'} · ` +
+        `${run.attempts} tasks · ${run.successes} succeeded / ${run.failures} failed · ` +
+        `success ${run.successRate.toFixed(0)}% · ` +
+        `avg latency ${run.avgLatencyMs !== null ? `${Math.round(run.avgLatencyMs)} ms` : '—'} · ` +
+        `avg cost ${run.avgCostUsd !== null ? `$${run.avgCostUsd.toFixed(6)}` : '—'}`,
+    )
+  }
 
   const heroSource = sources.find(
     (source) => source.key === prepared[0]!.asset.key,
@@ -505,6 +573,7 @@ export async function seedWorkspaceGraph(
     actorUserId: actor.userId,
     heroSourceId: heroSource.sourceId,
     sources,
+    extractionRuns,
     heroClaim,
     heroClaimProblem,
     counts,

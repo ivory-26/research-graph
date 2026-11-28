@@ -66,7 +66,7 @@ The comparison view ships in the UI. The what-if branch that creates Run B (`BRA
 | Organise | Claims and edges are extracted and validated against quotes | Canvas renders the fixture graph |
 | Understand | Retrieval API with verified citations works | Ask page answers from fixture chunks |
 | Experiment | Planner validation, real E2B runner and deterministic verdict work; SSE delivery mounts | Approval and experiment pages render from the hero fixture |
-| Learn | What-if branch execution and queued Run B adoption work (#62); no strategy selection yet | Comparison and dashboard use fixture data on `main`. PR #68 adds live `agent_tasks` aggregation to the dashboard for database workspaces. |
+| Learn | What-if branch execution and queued Run B adoption work (#62); the seed records per-extraction-run task batches; no automated strategy selection yet | Comparison uses the recorded fixture. The dashboard reads live `agent_tasks` for a database workspace, groups rows per extraction run, and shows the unattributed bucket for older tasks. |
 | Share | Server-side notebook export is built and persisted in `run_artifacts`; no workspace JSON export | Export modal builds both client-side from the fixture; the persisted notebook is not surfaced yet |
 
 PR #68 adds the browser connection to the pipeline and workspace APIs. Graph write-back (#7) and deployment (#9) are the remaining work for the recording. The seed script (#8) is built.
@@ -90,4 +90,4 @@ In priority order. Stop at the first one that fails.
 4. Every run in the demo declares its mode and its verdict, and no number shown as measured was typed by hand.
 5. The strategy table shows real task counts.
 
-PR #68 adds the browser auth screens (#16), the pipeline SSE and approval client (#20), and guarded `/api/graph`, `/api/workspaces`, and `/api/strategies` reads. The runner and evaluator satisfy criterion 4 with the hero run's `adapted` mode and arithmetic verdict. Criteria 2 and 3 still await graph write-back (#7) and production deployment (#9). The dashboard shows real task counts for a selected database workspace and fixture rows in the demo workspace. Strategy selection remains open.
+PR #68 adds the browser auth screens (#16), the pipeline SSE and approval client (#20), and guarded `/api/graph`, `/api/workspaces`, and `/api/strategies` reads. The runner and evaluator satisfy criterion 4 with the hero run's `adapted` mode and arithmetic verdict. Criteria 2 and 3 still await graph write-back (#7) and production deployment (#9). The dashboard shows real task counts and per-extraction-run KPIs for a selected database workspace, including failures and an explicit unattributed bucket; the demo workspace still renders fixture rows. Strategy selection remains open.

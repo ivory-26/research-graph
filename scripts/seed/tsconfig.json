@@ -12,6 +12,7 @@
     "./compare.test.ts",
     "./contracts.ts",
     "./contracts.test.ts",
+    "./extraction-runs.integration.test.ts",
     "./hero-claim.ts",
     "./hero-claim.test.ts",
     "./model.ts",

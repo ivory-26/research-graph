@@ -196,7 +196,7 @@ export const agentTasks = pgTable('agent_tasks', {
 });
 ```
 
-Every model call writes exactly one `agent_tasks` row per physical attempt, including failures. The scoring dashboard is designed as a `GROUP BY task_kind, strategy_id` over this table and nothing else — there is no separate score table to drift out of sync. `GET /api/strategies` reads `agent_tasks` for an authorized workspace UUID and `StrategyDashboard` aggregates them via `aggregateAgentTasks`, falling back to `DEMO_STRATEGIES` when no database workspace is active.
+Every model call writes exactly one `agent_tasks` row per physical attempt, including failures. The scoring dashboard is a `GROUP BY` over this table and nothing else — there is no separate score table to drift out of sync. Extraction and edge writers record a stable batch id in `input_ref.extractionRunId` (with an optional `input_ref.extractionRunLabel`), so `GET /api/strategies` can compare two actual extraction runs. `StrategyDashboard` aggregates them via `aggregateAgentTasksByRun` and `summarizeAgentTaskRuns`; rows without an `extractionRunId` (including old rows and embeddings) stay in an explicit unattributed bucket, and the fixture rows render only when no database workspace is active.
 
 ## Pipeline foundation
 

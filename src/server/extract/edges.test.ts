@@ -1369,3 +1369,37 @@ describe('Issue #13 contract hardening: RATIONALE_EMPTY reachability, persistenc
     expect(outcome.storedRows).toHaveLength(1)
   })
 })
+
+describe('propose_edges run attribution', () => {
+  it('records the extraction batch run id and label in inputRef', async () => {
+    const nodes: NodeSummary[] = [
+      { id: '11111111-1111-4111-8111-111111111111', type: 'source', title: 'Paper' },
+      { id: '22222222-2222-4222-8222-222222222222', type: 'method', title: 'Random forest' },
+    ]
+    const chunks: ChunkRef[] = [
+      {
+        id: CHUNK_UUID_1,
+        ordinal: 0,
+        page: 1,
+        text: 'Random forests are an ensemble learning method using tree predictors.',
+      },
+    ]
+    let captured: Record<string, any> | null = null
+
+    await proposeEdges({
+      workspaceId: 'ws-edge-run',
+      nodes,
+      chunks,
+      runId: 'extract:strobl-2007:single_pass',
+      runLabel: 'Strobl 2007 · single_pass',
+      callModelFn: (async (_schema: unknown, _prompt: string, ctx: any) => {
+        captured = ctx
+        return { output: { edges: [] }, task: { id: 'task-edge-run' }, attempts: [] }
+      }) as any,
+    })
+
+    expect(captured!.inputRef.extractionRunId).toBe('extract:strobl-2007:single_pass')
+    expect(captured!.inputRef.extractionRunLabel).toBe('Strobl 2007 · single_pass')
+    expect(captured!.inputRef).not.toHaveProperty('runId')
+  })
+})

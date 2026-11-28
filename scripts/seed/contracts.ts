@@ -12,6 +12,7 @@
  * fixture.
  */
 import type { NodeType } from '../../src/shared/types.ts'
+import type { AgentTaskRunSummary } from '../../src/utils/strategyClient.ts'
 
 /**
  * Deterministic workspace identity. A fixed id lets the run orchestrator and
@@ -84,6 +85,33 @@ export const SEED_ASSETS: readonly SeedAsset[] = [
 
 /** The hero source is selected by DOI, not by ingestion order. */
 export const HERO_SOURCE_DOI = '10.1186/1471-2105-8-25'
+
+/** Extraction strategies the seed is allowed to request from the production extractor. */
+export type SeedExtractionStrategy = 'single_pass' | 'sectioned' | 'table_first'
+
+/**
+ * Stable identifier for one extraction batch.
+ *
+ * It is derived from the checked-in asset key and the chosen strategy, never
+ * from ingestion order, database UUIDs or a model output, so two independent
+ * seeds attribute the same paper's extraction to the same run id. The value is
+ * a slug rather than an experiment `runs.id`; extraction batches are not runs
+ * in the `runs` table and must not be confused with Run A / Run B.
+ */
+export function extractionRunId(
+  key: SeedAssetKey,
+  strategy: SeedExtractionStrategy,
+): string {
+  return `extract:${key}:${strategy}`
+}
+
+/** Display label recorded beside a stable extraction run id. */
+export function extractionRunLabel(
+  title: string,
+  strategy: SeedExtractionStrategy,
+): string {
+  return `${title} · ${strategy}`
+}
 
 /**
  * A sentence that exists verbatim in the checked-in Strobl 2007 PDF.
@@ -198,6 +226,8 @@ export interface SeedGraphResult {
   actorUserId: string
   heroSourceId: string
   sources: SeedSourceReport[]
+  /** Per-run KPI rows read back from the persisted `agent_tasks`. */
+  extractionRuns: AgentTaskRunSummary[]
   heroClaim: SeedHeroClaimSelection | null
   heroClaimProblem: SeedHeroClaimProblem | null
   counts: {
@@ -279,6 +309,7 @@ export type SeedErrorCode =
   | 'SOURCE_NEEDS_OCR'
   | 'SOURCE_HAS_NO_CHUNKS'
   | 'SOURCE_NODE_MISSING'
+  | 'EXTRACTION_RUN_ATTRIBUTION_MISSING'
   | 'HERO_SOURCE_HAS_NO_CLAIMS'
   | 'NO_METHOD_NODES'
   | 'NO_ACCEPTED_EDGES'

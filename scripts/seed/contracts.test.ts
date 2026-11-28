@@ -5,6 +5,8 @@ import {
   SEED_WORKSPACE_ID,
   SEED_WORKSPACE_SLUG,
   SeedError,
+  extractionRunId,
+  extractionRunLabel,
   resolveSeedActor,
 } from './contracts.ts'
 
@@ -38,5 +40,27 @@ describe('seed contracts', () => {
   it('keeps the hero anchor a substantial sentence', () => {
     expect(HERO_CLAIM_QUOTE_ANCHOR.length).toBeGreaterThan(200)
     expect(HERO_CLAIM_QUOTE_ANCHOR).toContain('not reliable')
+  })
+
+  it('derives stable extraction run ids from the asset and strategy, not ingestion order', () => {
+    expect(extractionRunId('strobl-2007', 'single_pass')).toBe(
+      'extract:strobl-2007:single_pass',
+    )
+    // Same inputs, same id; a different asset or strategy never collides.
+    expect(extractionRunId('strobl-2007', 'single_pass')).toBe(
+      extractionRunId('strobl-2007', 'single_pass'),
+    )
+    expect(extractionRunId('strobl-2008', 'single_pass')).not.toBe(
+      extractionRunId('strobl-2007', 'single_pass'),
+    )
+    expect(extractionRunId('strobl-2007', 'sectioned')).not.toBe(
+      extractionRunId('strobl-2007', 'single_pass'),
+    )
+  })
+
+  it('builds a readable run label without inventing metrics', () => {
+    const label = extractionRunLabel('Feature Selection with the Boruta Package', 'single_pass')
+    expect(label).toBe('Feature Selection with the Boruta Package · single_pass')
+    expect(label).not.toMatch(/\d+(?:\.\d+)?\s*(?:ms|s|%|\$)/)
   })
 })
