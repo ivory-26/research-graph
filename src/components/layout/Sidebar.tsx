@@ -27,6 +27,7 @@ export type PageId =
 interface SidebarProps {
   currentPage: PageId;
   onNavigate: (page: PageId) => void;
+  showFixtureCounts: boolean;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
 }
@@ -42,16 +43,19 @@ interface NavItem {
 export const Sidebar: React.FC<SidebarProps> = ({
   currentPage,
   onNavigate,
+  showFixtureCounts,
 }) => {
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
 
-  const totalNodesCount = rawWorkspace.nodes.length;
-  const sourceNodesCount = rawWorkspace.nodes.filter((n) => n.type === 'source').length;
+  const totalNodesCount = showFixtureCounts ? String(rawWorkspace.nodes.length) : undefined;
+  const sourceNodesCount = showFixtureCounts
+    ? String(rawWorkspace.nodes.filter((n) => n.type === 'source').length)
+    : undefined;
 
   const navItems: NavItem[] = [
     { id: 'overview', label: 'Overview', icon: LayoutGrid, category: 'workspace' },
-    { id: 'graph', label: 'Research Graph', icon: Network, badge: String(totalNodesCount), category: 'workspace' },
-    { id: 'sources', label: 'Sources', icon: FileText, badge: String(sourceNodesCount), category: 'workspace' },
+    { id: 'graph', label: 'Research Graph', icon: Network, badge: totalNodesCount, category: 'workspace' },
+    { id: 'sources', label: 'Sources', icon: FileText, badge: sourceNodesCount, category: 'workspace' },
     { id: 'ask', label: 'Ask Research', icon: Sparkles, category: 'workspace' },
     { id: 'agents', label: 'Agent Monitor', icon: Cpu, category: 'experiments' },
     { id: 'experiments', label: 'Experiments', icon: FlaskConical, category: 'experiments' },

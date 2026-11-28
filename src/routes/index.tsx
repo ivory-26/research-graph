@@ -694,6 +694,7 @@ function WorkspacePage() {
       {/* Ambient Seamless Left Navigation Rail */}
       <Sidebar
         currentPage={currentPage}
+        showFixtureCounts={graphSource === 'fixture'}
         onNavigate={(page) => {
           setCurrentPage(page);
           if (page === 'graph') setIsInspectorOpen(true);

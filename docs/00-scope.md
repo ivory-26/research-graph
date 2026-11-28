@@ -58,7 +58,7 @@ The comparison view ships in the UI. The what-if branch that creates Run B (`BRA
 | Learn | What-if child run, comparison, and the strategy table showing which extraction strategy won |
 | Share | Notebook export, opened in Colab, plus a workspace JSON export |
 
-### Where the beats stand on 27 November
+### Where the beats stand on 28 November
 
 | Beat | Backend on `main` | UI on `main` |
 |---|---|---|

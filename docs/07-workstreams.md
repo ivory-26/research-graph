@@ -73,7 +73,7 @@ The UI still renders `fixtures/workspace.json`; the runtime is exercised with `H
 - **yashhh-23** — surface the persisted notebook from `run_artifacts` in the UI.
 - **ivory-26** — #7 graph write-back, #9 deploy; #8 seed and #16 sign-in screens are built.
 
-## Where each stream stands — 27 November
+## Where each stream stands — 28 November
 
 | Stream | Landed | Open |
 |---|---|---|
