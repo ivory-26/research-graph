@@ -4,6 +4,7 @@ import { asc, eq } from 'drizzle-orm';
 import { getDb } from '../../db/client';
 import { edges, nodes, sourceChunks } from '../../db/schema';
 import { requireWorkspaceAccess } from '../../server/auth/workspace.server';
+import { layoutGraphNodes } from '../../server/graph-layout';
 import {
   AuthConfigurationError,
   AuthUnavailableError,
@@ -57,59 +58,18 @@ export const Route = createFileRoute('/api/graph')({
 
           const nodeTitleById = new Map(dbNodes.map((n) => [n.id, n.title]));
 
-          const MAX_ROWS_PER_COL = 5;
-          const COL_WIDTH = 260;
-          const ROW_HEIGHT = 170;
-          const GROUP_ORDER = ['source', 'claim', 'method_dataset', 'run', 'result'] as const;
-          const bucketOf = (type: string): (typeof GROUP_ORDER)[number] => {
-            if (type === 'source') return 'source';
-            if (type === 'method' || type === 'dataset') return 'method_dataset';
-            if (type === 'run') return 'run';
-            if (type === 'result') return 'result';
-            return 'claim';
-          };
-
-          const originCounts = new Map<string, number>();
-          let maxStoredX = -Infinity;
-          for (const n of dbNodes) {
-            if (n.positionX === 0 && n.positionY === 0) {
-              const b = bucketOf(n.type);
-              originCounts.set(b, (originCounts.get(b) ?? 0) + 1);
-            } else if (n.positionX > maxStoredX) {
-              maxStoredX = n.positionX;
-            }
-          }
-
-          // Start fallback columns outside the bounding box of any already-positioned nodes
-          // (e.g. run/result nodes written by projectRunToGraph) so cards cannot overlap.
-          const groupStartX = new Map<string, number>();
-          let cursorX = Number.isFinite(maxStoredX) ? maxStoredX + 280 : 40;
-          for (const g of GROUP_ORDER) {
-            groupStartX.set(g, cursorX);
-            const count = originCounts.get(g) ?? 0;
-            const subCols = Math.max(1, Math.ceil(count / MAX_ROWS_PER_COL));
-            cursorX += subCols * COL_WIDTH + 40;
-          }
-
-          const placedInGroup = new Map<string, number>();
+          // Deterministic placement that preserves authored coordinates, splits
+          // coincident run/result projections, and keeps fallback columns clear
+          // of stored cards. See src/server/graph-layout.ts.
+          const layout = layoutGraphNodes(dbNodes);
 
           const formattedNodes = dbNodes.map((n) => {
-            let x = n.positionX;
-            let y = n.positionY;
-            if (x === 0 && y === 0) {
-              const g = bucketOf(n.type);
-              const idx = placedInGroup.get(g) ?? 0;
-              placedInGroup.set(g, idx + 1);
-              const subCol = Math.floor(idx / MAX_ROWS_PER_COL);
-              const rowIdx = idx % MAX_ROWS_PER_COL;
-              x = (groupStartX.get(g) ?? 40) + subCol * COL_WIDTH;
-              y = 80 + rowIdx * ROW_HEIGHT;
-            }
+            const position = layout.get(n.id) ?? { x: n.positionX, y: n.positionY };
             return {
               id: n.id,
               type: n.type,
               title: n.title,
-              position: { x, y },
+              position,
               data: {
                 ...(n.data as Record<string, unknown>),
                 title: n.title,
