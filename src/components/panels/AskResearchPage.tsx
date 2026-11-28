@@ -17,12 +17,6 @@ interface Message {
   }>;
 }
 
-const SAMPLE_QUESTIONS = [
-  'Why does Gini importance favor high-cardinality noise features?',
-  'How does Boruta use randomized shadow attributes?',
-  'When does conditional permutation importance outperform standard permutation?',
-];
-
 function retrieveDemoCitations(query: string) {
   const q = query.toLowerCase();
   const c1 = DEMO_CHUNKS['chunk-1'];
@@ -152,25 +146,6 @@ export const AskResearchPage: React.FC = () => {
             Literature inquiry preview · sample queries over workspace sources
           </div>
         </div>
-        <span className="badge-solid-white !text-[9px] rounded-none">
-          3 DEMO SOURCES AVAILABLE
-        </span>
-      </div>
-
-      {/* Suggested Questions Pill Dock */}
-      <div className="p-2 border-x border-[var(--border-primary)] bg-[var(--bg-surface)] flex items-center gap-2 overflow-x-auto text-[10px]">
-        <span className="text-[var(--text-dim)] uppercase tracking-wider flex-shrink-0">
-          Suggested:
-        </span>
-        {SAMPLE_QUESTIONS.map((sq, i) => (
-          <button
-            key={i}
-            onClick={() => handleSend(sq)}
-            className="px-2 py-1 border border-[var(--border-primary)] bg-[var(--card-bg)] text-[var(--text-secondary)] hover:text-[#f97316] hover:border-[#f97316]/60 transition truncate whitespace-nowrap"
-          >
-            {sq}
-          </button>
-        ))}
       </div>
 
       {/* Chat Messages */}

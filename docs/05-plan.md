@@ -62,18 +62,26 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 
 #33 is transport only and #37 is the persistence layer. #52 mounts them: `GET /api/pipeline/:experimentId`, the route adapters, #4 authorization at the route boundary, the approval write path wired to the verified actor, and the database-backed approval read. What #52 deliberately does not do is #7's graph write-back.
 
-### Not on `main` on 27 November
+### Added after 25 November (PR #68)
+
+| Piece | Owner issue | Notes |
+|---|---|---|
+| Sign-in / sign-up screens & route gate | #16 | `src/routes/sign-in.tsx`, `sign-up.tsx`, `index.tsx` `beforeLoad`, `src/utils/authClient.ts` |
+| Browser→pipeline SSE & approval client | #20 | `src/utils/pipelineClient.ts`, `ApprovalModal.tsx`, `src/routes/index.tsx` |
+| Guarded graph and workspace routes | #18 | `src/routes/api/graph.ts`, `src/routes/api/workspaces.ts`, `src/utils/graphClient.ts`. The canvas fits the workspace overview with 8% padding for cards and 12% for memory, within a 0.2×–2.4× zoom range. **Jump to node** focuses a card at 1.35× for reading. |
+| Fixture run comparison | #21 | `src/components/panels/ComparisonView.tsx` shows the changed importance method and signed rank delta. |
+| Guarded strategy dashboard data | Related to #22 | `src/routes/api/strategies.ts` reads workspace tasks, and `src/utils/strategyClient.ts` aggregates them for the dashboard. |
+
+### Not on `main` on 28 November
 
 | Gap | Owner issue | Blocks |
 |---|---|---|
 | Write a completed run back as result/run nodes and the `produced` edge | #7 | the graph beat showing a real result |
 | Production deploy | #9 | the deployed-link success criterion |
-| Sign-in screens | #16 | a user-facing auth flow |
-| Repair loop and multi-strategy selection | #26 | the repair loop is built; strategy selection remains unbuilt |
-| Server-side notebook export | Built into production run evaluation | a notebook generated from a real run |
-| Browser→pipeline bridge | — | every live UI beat |
+| Strategy selection | #26 | automated selection remains unbuilt; the repair loop and what-if branch are built as modules, and EXECUTE adoption of Run B is #62 |
+| Display the persisted run notebook in the UI | Server-side export landed in #67 | opening the notebook from the workspace |
 
-`pnpm typecheck` and `pnpm db:check` pass. `pnpm test` runs 27 `node:test` transport checks plus the Vitest suites: without `TEST_DATABASE_URL`, 393 app tests and 90 seed tests pass and 64 app tests skip on 27 November. The skipped files are the opt-in Postgres, E2B and Gemini integration suites.
+On 28 November, `pnpm typecheck`, `pnpm db:check` and `pnpm build` passed. The default `pnpm test` run passed 27 transport checks, 433 app tests and 90 seed tests. It skipped 64 opt-in Postgres, E2B and Gemini integration tests.
 
 ## Workstreams
 

@@ -108,6 +108,13 @@ export const DEMO_WORKSPACE = rawWorkspace.workspace;
 export const DEMO_SOURCES: WorkspaceSource[] = rawWorkspace.sources as unknown as WorkspaceSource[];
 export const DEMO_CHUNKS: Record<string, SourceChunk> = rawWorkspace.chunks as unknown as Record<string, SourceChunk>;
 export const DEMO_NODES: WorkspaceNode[] = rawWorkspace.nodes as unknown as WorkspaceNode[];
+const demoSourceCount = DEMO_NODES.filter((node) => node.type === 'source').length;
+const demoClaimCount = DEMO_NODES.filter((node) => node.type === 'claim').length;
+export const DEMO_WORKSPACE_SUBTITLE = [
+  `${demoSourceCount} ${demoSourceCount === 1 ? 'source' : 'sources'}`,
+  `${demoClaimCount} ${demoClaimCount === 1 ? 'claim' : 'claims'}`,
+  `${DEMO_WORKSPACE.dataset} (fixture)`,
+].join(' · ');
 export const DEMO_EDGES: WorkspaceEdge[] = rawWorkspace.edges as unknown as WorkspaceEdge[];
 export const DEMO_STRATEGIES: StrategyStat[] = rawWorkspace.strategies as unknown as StrategyStat[];
 

@@ -212,8 +212,15 @@ export function createPipelineHandlers(
         })
 
         const lastEventIdHeader = request.headers.get('last-event-id')
-        const parsedCursor = parseLastEventId(lastEventIdHeader)
-        if (lastEventIdHeader !== null && parsedCursor === null) {
+        // EventSource cannot send custom headers; the client encodes the cursor
+        // as `?seq=N` on a manual re-open. Treat it as an equivalent of the
+        // Last-Event-ID header when the header itself is absent.
+        const seqParam = lastEventIdHeader === null
+          ? new URL(request.url).searchParams.get('seq')
+          : null
+        const rawCursor = lastEventIdHeader ?? seqParam
+        const parsedCursor = parseLastEventId(rawCursor)
+        if (rawCursor !== null && parsedCursor === null) {
           throw new PipelineHttpError(
             400,
             'INVALID_LAST_EVENT_ID',
@@ -221,6 +228,9 @@ export function createPipelineHandlers(
           )
         }
 
+        // Only an explicit Last-Event-ID header suppresses execution claiming.
+        // The caller-supplied `?seq=N` fallback still sets the replay cursor so
+        // seen events are skipped, while allowing a fresh claim if none exists.
         const isReconnect = lastEventIdHeader !== null
         const cursor = parsedCursor ?? 0
 

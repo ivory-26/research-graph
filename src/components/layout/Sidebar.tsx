@@ -27,6 +27,7 @@ export type PageId =
 interface SidebarProps {
   currentPage: PageId;
   onNavigate: (page: PageId) => void;
+  showFixtureCounts: boolean;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
 }
@@ -42,18 +43,19 @@ interface NavItem {
 export const Sidebar: React.FC<SidebarProps> = ({
   currentPage,
   onNavigate,
+  showFixtureCounts,
 }) => {
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
-  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
 
-  const totalNodesCount = rawWorkspace.nodes.length;
-  const sourceNodesCount = rawWorkspace.nodes.filter((n) => n.type === 'source').length;
-  const claimNodesCount = rawWorkspace.nodes.filter((n) => n.type === 'claim').length;
+  const totalNodesCount = showFixtureCounts ? String(rawWorkspace.nodes.length) : undefined;
+  const sourceNodesCount = showFixtureCounts
+    ? String(rawWorkspace.nodes.filter((n) => n.type === 'source').length)
+    : undefined;
 
   const navItems: NavItem[] = [
     { id: 'overview', label: 'Overview', icon: LayoutGrid, category: 'workspace' },
-    { id: 'graph', label: 'Research Graph', icon: Network, badge: String(totalNodesCount), category: 'workspace' },
-    { id: 'sources', label: 'Sources', icon: FileText, badge: String(sourceNodesCount), category: 'workspace' },
+    { id: 'graph', label: 'Research Graph', icon: Network, badge: totalNodesCount, category: 'workspace' },
+    { id: 'sources', label: 'Sources', icon: FileText, badge: sourceNodesCount, category: 'workspace' },
     { id: 'ask', label: 'Ask Research', icon: Sparkles, category: 'workspace' },
     { id: 'agents', label: 'Agent Monitor', icon: Cpu, category: 'experiments' },
     { id: 'experiments', label: 'Experiments', icon: FlaskConical, category: 'experiments' },
@@ -82,50 +84,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="absolute left-14 top-1 z-50 pointer-events-none whitespace-nowrap animate-fade-in">
             <div className="px-2.5 py-1 text-[11px] font-mono bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] text-[var(--text-primary)] shadow-2xl backdrop-blur-xl">
               <span className="text-[#f97316] font-bold">ResearchGraph</span> · Digital Twin
-            </div>
-          </div>
-        )}
-
-        {/* Subtle Workspace Dot Trigger */}
-        <button
-          onClick={() => setIsWorkspaceMenuOpen(!isWorkspaceMenuOpen)}
-          onMouseEnter={() => setHoveredItem('workspace')}
-          onMouseLeave={() => setHoveredItem(null)}
-          className="w-5 h-5 rounded-full flex items-center justify-center text-[var(--text-dim)] hover:text-[#f97316] hover:bg-[var(--bg-surface-hover)] transition"
-          title="Switch Workspace"
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-[#f97316]/70 hover:bg-[#f97316]" />
-        </button>
-
-        {hoveredItem === 'workspace' && (
-          <div className="absolute left-14 top-10 z-50 pointer-events-none whitespace-nowrap animate-fade-in">
-            <div className="px-2.5 py-1 text-[10px] font-mono bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] text-[var(--text-secondary)] shadow-2xl backdrop-blur-xl">
-              Workspace: <strong className="text-[var(--text-primary)]">Random Forest Study</strong>
-            </div>
-          </div>
-        )}
-
-        {/* Workspace Switcher Menu Popover */}
-        {isWorkspaceMenuOpen && (
-          <div className="absolute left-14 top-8 z-50 w-64 bg-[var(--bg-surface-elevated)] border border-[var(--border-primary)] p-2 shadow-2xl backdrop-blur-2xl animate-fade-in text-xs font-mono space-y-1">
-            <div className="px-2 py-1 text-[9px] uppercase tracking-wider text-[var(--text-dim)] border-b border-[var(--border-primary)] flex justify-between items-center">
-              <span>Workspaces</span>
-              <span className="text-emerald-400">Online</span>
-            </div>
-            <div className="p-2 bg-[var(--bg-surface-hover)] text-[var(--text-primary)] border border-[#f97316]/40 flex items-center justify-between">
-              <div>
-                <div className="font-bold flex items-center gap-1.5 text-xs">
-                  <span className="w-2 h-2 rounded-full bg-[#f97316]" />
-                  <span>Random Forest Study</span>
-                </div>
-                <div className="text-[10px] text-[var(--text-dim)] mt-0.5">
-                  {sourceNodesCount} sources · {claimNodesCount} claim · Active
-                </div>
-              </div>
-              <span className="text-[9px] text-[#f97316] uppercase font-bold">Current</span>
-            </div>
-            <div className="w-full text-left p-2 text-[var(--text-dim)] flex items-center justify-between text-[10px]">
-              <span>Demo Workspace · read-only</span>
             </div>
           </div>
         )}

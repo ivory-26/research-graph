@@ -26,6 +26,13 @@ import { MemoryNode } from './MemoryNode';
 import { MemoryGraphToolbar, type MemoryGraphSettings } from './MemoryGraphToolbar';
 import { CustomEvidenceEdge } from './CustomEdges';
 import { computeForceLayout } from '../../utils/forceSimulation';
+import {
+  clearPersistedPositions,
+  loadPersistedPositions,
+  resolveNodePosition,
+  savePersistedPositions,
+  type PositionMap,
+} from '../../utils/graphClient';
 import type { WorkspaceNode, WorkspaceEdge } from '../../data/demoWorkspace';
 import { useTheme } from '../../context/ThemeContext';
 import {
@@ -39,13 +46,19 @@ import {
   X,
   LayoutGrid,
   Share2,
+  Loader2,
 } from 'lucide-react';
 
 export type VisualizationMode = 'cards' | 'memory';
 
+// Documented canvas framing (docs/05-plan.md): minZoom 0.2, maxZoom 2.4.
+const FIT_PADDING = { cards: '8%', memory: '12%' } as const;
+
 interface ResearchCanvasProps {
   initialNodes: WorkspaceNode[];
   initialEdges: WorkspaceEdge[];
+  workspaceId?: string;
+  isLoading?: boolean;
   selectedEdgeId: string | null;
   selectedNodeId: string | null;
   onSelectEdge: (edgeId: string) => void;
@@ -55,6 +68,8 @@ interface ResearchCanvasProps {
 function CanvasInner({
   initialNodes,
   initialEdges,
+  workspaceId,
+  isLoading = false,
   selectedEdgeId,
   selectedNodeId,
   onSelectEdge,
@@ -106,7 +121,7 @@ function CanvasInner({
       localStorage.setItem('rg_node_shape', mode === 'memory' ? 'circles' : 'cards');
     }
     setTimeout(() => {
-      fitView({ padding: mode === 'memory' ? 0.25 : 0.18, duration: 500 });
+      fitView({ padding: FIT_PADDING[mode], duration: 500 });
     }, 60);
   };
 
@@ -151,6 +166,41 @@ function CanvasInner({
   // References for tracking layout inputs, rendered positions, and manual user drags
   const userDraggedNodeIdsRef = useRef<Set<string>>(new Set());
   const nodesRef = useRef<Node[]>([]);
+  const [persistedPositions, setPersistedPositions] = useState<PositionMap>({});
+
+  // Load persisted node coordinates on the client after mount / viewMode / workspace switch (SSR-safe).
+  // Keep userDraggedNodeIdsRef clear here so the synchronizer applies the restored coordinates
+  // from `persistedPositions` instead of holding onto pre-load computed positions.
+  useEffect(() => {
+    const loaded = loadPersistedPositions(viewMode, undefined, workspaceId);
+    userDraggedNodeIdsRef.current.clear();
+    setPersistedPositions(loaded);
+  }, [viewMode, workspaceId]);
+
+  // React Flow's `fitView` prop only frames the first mount, and a database graph mounts empty
+  // while its request is pending. Re-frame once when a workspace's graph first arrives, using the
+  // documented padding. Keyed by workspace + node count so filters, selection, drags and same-shape
+  // refetches never move the camera. The padding is read through a ref so a view-mode change during
+  // the settle delay cannot cancel a scheduled fit.
+  const viewModeRef = useRef(viewMode);
+  useEffect(() => {
+    viewModeRef.current = viewMode;
+  }, [viewMode]);
+
+  const fittedGraphKeyRef = useRef<string | null>(
+    initialNodes.length > 0 ? `${workspaceId ?? 'fixture'}:${initialNodes.length}` : null,
+  );
+
+  useEffect(() => {
+    if (initialNodes.length === 0) return;
+    const graphKey = `${workspaceId ?? 'fixture'}:${initialNodes.length}`;
+    if (fittedGraphKeyRef.current === graphKey) return;
+    fittedGraphKeyRef.current = graphKey;
+    const timer = setTimeout(() => {
+      fitView({ padding: FIT_PADDING[viewModeRef.current], duration: 0 });
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [initialNodes.length, workspaceId, fitView]);
 
   // Double-click focus on node and immediate neighborhood (centred on actually rendered position)
   const handleNodeDoubleClick = useCallback(
@@ -172,16 +222,20 @@ function CanvasInner({
 
   const handleResetLayout = useCallback(() => {
     userDraggedNodeIdsRef.current.clear();
+    clearPersistedPositions(viewMode, undefined, workspaceId);
+    setPersistedPositions({});
     setSimulationSeed((s) => s + 1);
     setTimeout(() => {
-      fitView({ padding: 0.25, duration: 600 });
+      fitView({ padding: FIT_PADDING[viewMode], duration: 600 });
     }, 100);
-  }, [fitView]);
+  }, [fitView, viewMode, workspaceId]);
 
   const handleAnimateLayout = useCallback(() => {
     userDraggedNodeIdsRef.current.clear();
+    clearPersistedPositions(viewMode, undefined, workspaceId);
+    setPersistedPositions({});
     setSimulationSeed((s) => s + 1);
-  }, []);
+  }, [viewMode, workspaceId]);
 
   const nodeTypes = useMemo(
     () => ({
@@ -292,11 +346,12 @@ function CanvasInner({
       const isDimmed = isCategoryDimmed || (hasLineage && !isLineageNode);
       const isHighlighted = hasLineage ? isLineageNode : false;
 
-      // Position: organic force-directed position or cards pipeline position
-      const position =
+      // Position: persisted user drag coordinates (per viewMode & workspace), organic force-directed position, or cards pipeline position
+      const fallbackPosition =
         viewMode === 'memory'
           ? forceLayout.positions[n.id] || { x: n.position.x - 450, y: n.position.y - 200 }
           : n.position;
+      const position = resolveNodePosition(n.id, fallbackPosition, persistedPositions);
 
       return {
         id: n.id,
@@ -305,6 +360,7 @@ function CanvasInner({
         selected: n.id === selectedNodeId,
         data: {
           ...n.data,
+          title: (n.data as any)?.title || n.title,
           nodeShape: viewMode === 'memory' ? 'circles' : 'cards',
           isDimmed,
           isHighlighted,
@@ -331,6 +387,7 @@ function CanvasInner({
     selectedNodeId,
     viewMode,
     forceLayout,
+    persistedPositions,
     settings,
     handleNodeDoubleClick,
   ]);
@@ -500,6 +557,12 @@ function CanvasInner({
         onEdgesChange={onEdgesChange}
         onNodeDragStop={(_, node) => {
           userDraggedNodeIdsRef.current.add(node.id);
+          const next = {
+            ...persistedPositions,
+            [node.id]: { x: Math.round(node.position.x), y: Math.round(node.position.y) },
+          };
+          savePersistedPositions(next, viewMode, undefined, workspaceId);
+          setPersistedPositions(next);
         }}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
@@ -509,12 +572,26 @@ function CanvasInner({
         panOnDrag={!isLocked}
         zoomOnScroll={!isLocked}
         fitView
-        fitViewOptions={{ padding: viewMode === 'memory' ? 0.25 : 0.18 }}
+        fitViewOptions={{ padding: FIT_PADDING[viewMode] }}
         minZoom={0.2}
         maxZoom={2.4}
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={gridVariant} gap={22} size={1} color={gridDotColor} />
+
+        {/* Explicit pending state: a UUID workspace never paints the fixture while loading */}
+        {isLoading && (
+          <Panel position="top-center" className="pointer-events-none m-3">
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-2 border border-[var(--border-primary)] bg-[var(--bg-surface)] px-3 py-2 font-mono text-[11px] text-[var(--text-secondary)] shadow-xl backdrop-blur-md"
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#f97316]" />
+              <span>Loading workspace graph from database…</span>
+            </div>
+          </Panel>
+        )}
 
         {/* UNIFIED RESPONSIVE TOP BAR: SEARCH, FOCUS & TOOLBAR (Non-colliding layout) */}
         <Panel position="top-left" className="m-3 flex items-center justify-between w-[calc(100%-24px)] pointer-events-none gap-2">
@@ -625,7 +702,7 @@ function CanvasInner({
                 settings={settings}
                 onSettingsChange={setSettings}
                 onResetLayout={handleResetLayout}
-                onFitView={() => fitView({ padding: 0.25, duration: 500 })}
+                onFitView={() => fitView({ padding: FIT_PADDING.memory, duration: 500 })}
                 isLocked={isLocked}
                 onToggleLock={() => setIsLocked(!isLocked)}
                 onAnimateLayout={handleAnimateLayout}
@@ -720,7 +797,7 @@ function CanvasInner({
         </Panel>
 
         {/* BOTTOM-LEFT: MEMORY GRAPH CONSTELLATION OVERLAY (Obsidian / Kinetic AI Style) */}
-        {viewMode === 'memory' && (
+        {viewMode === 'memory' && !isLoading && (
           <Panel
             position="bottom-left"
             className="m-3 ml-14 mb-3 select-none pointer-events-none animate-fade-in"
@@ -754,7 +831,7 @@ function CanvasInner({
             )}
           </ControlButton>
           <ControlButton
-            onClick={() => fitView({ padding: viewMode === 'memory' ? 0.25 : 0.18, duration: 500 })}
+            onClick={() => fitView({ padding: FIT_PADDING[viewMode], duration: 500 })}
             title="Reset View"
           >
             <Sparkles className="h-3.5 w-3.5 text-[#f97316]" />

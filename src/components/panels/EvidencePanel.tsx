@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import type { WorkspaceEdge, WorkspaceNode } from '../../data/demoWorkspace';
 import { NODE_CATEGORY_THEMES } from '../canvas/MemoryNode';
 import {
   Check,
+  Copy,
   X as XIcon,
   ArrowRight,
   ArrowLeft,
@@ -38,7 +39,14 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
   onUpdateStatus,
   onClose,
 }) => {
+  const [copiedQuote, setCopiedQuote] = useState<{ edgeId: string } | null>(null);
   const datasetNode = allNodes.find((n) => n.type === 'dataset');
+
+  useEffect(() => {
+    if (!copiedQuote) return;
+    const timer = setTimeout(() => setCopiedQuote(null), 1800);
+    return () => clearTimeout(timer);
+  }, [copiedQuote]);
 
   // If neither node nor edge is provided, render the Workspace & Variables Inspector
   if (!node && !edge) {
@@ -60,70 +68,31 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           )}
         </div>
 
-        {/* Workspace State Badges */}
-        <div className="flex items-center gap-2">
-          <span className="badge-orange-outline text-[10px]">MODE: ADAPTED</span>
-          <span className="b border-[var(--border-primary)] bg-[var(--bg-surface-hover)] text-[var(--text-muted)] text-[10px]">
-            DATA: OPENML:52350
-          </span>
-        </div>
-
-        {/* Active Research Variables Summary */}
-        <div className="c p-3 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none space-y-2.5 font-mono">
-          <div className="text-[10px] uppercase font-bold text-[var(--text-primary)] tracking-wider border-b border-[var(--border-primary)] pb-1">
-            Active Dataset & Variables
-          </div>
-
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-[var(--text-dim)]">Dataset:</span>
-            <span className="text-[var(--text-primary)] font-bold">{datasetNode?.data?.name || datasetNode?.title || 'breast-w'}</span>
-          </div>
-
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-[var(--text-dim)]">OpenML ID:</span>
-            <span className="text-sky-600 dark:text-sky-400 font-bold">{(datasetNode?.data?.openmlId as string) || '52350'}</span>
-          </div>
-
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-[var(--text-dim)]">Dimensions:</span>
-            <span className="text-[var(--text-primary)]">
-              {datasetNode?.data?.rows ? `${datasetNode.data.rows} rows × ${datasetNode.data.features || 9} features` : '569 rows × 9 features'}
-            </span>
-          </div>
-
-          <div className="border-t border-[var(--border-primary)] pt-2 space-y-1.5">
-            <div className="text-[10px] text-[#f97316] uppercase font-bold">
-              Injected Noise Variables:
-            </div>
-            <div className="grid grid-cols-1 gap-1 text-[10px] text-[var(--text-muted)]">
-              <div className="flex justify-between bg-[var(--bg-surface-hover)] p-1 border border-[var(--border-primary)]">
-                <code className="text-pink-600 dark:text-pink-400 font-bold">noise_2</code>
-                <span>2 levels (binary)</span>
-              </div>
-              <div className="flex justify-between bg-[var(--bg-surface-hover)] p-1 border border-[var(--border-primary)]">
-                <code className="text-pink-600 dark:text-pink-400 font-bold">noise_5</code>
-                <span>5 levels (moderate)</span>
-              </div>
-              <div className="flex justify-between bg-[var(--bg-surface-hover)] p-1 border border-[var(--border-primary)]">
-                <code className="text-pink-600 dark:text-pink-400 font-bold">noise_20</code>
-                <span className="text-amber-600 dark:text-amber-400 font-bold">20 levels (high bias)</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t border-[var(--border-primary)] pt-2 space-y-1">
-            <div className="text-[10px] text-[var(--text-dim)] uppercase">Tested Importance Methods:</div>
-            <div className="flex items-center gap-1.5 text-[10px]">
-              <span className="px-1.5 py-0.5 border border-violet-500/40 text-violet-600 dark:text-violet-400 font-bold bg-violet-500/10">
-                Gini (MDI)
-              </span>
-              <span className="text-[var(--text-dim)]">vs</span>
-              <span className="px-1.5 py-0.5 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-500/10">
-                Permutation
+        {datasetNode && (
+          <div className="c p-3 bg-[var(--card-bg)] border border-[var(--border-primary)] rounded-none space-y-2.5 font-mono text-[11px]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[var(--text-dim)]">Dataset:</span>
+              <span className="text-right text-[var(--text-primary)] font-bold">
+                {datasetNode.data.name || datasetNode.title}
               </span>
             </div>
+            {datasetNode.data.rows != null && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[var(--text-dim)]">Dimensions:</span>
+                <span className="text-[var(--text-primary)]">
+                  {datasetNode.data.rows} rows
+                  {datasetNode.data.features != null && ` × ${datasetNode.data.features} features`}
+                </span>
+              </div>
+            )}
+            {datasetNode.data.noiseColumns && (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[var(--text-dim)]">Noise variables:</span>
+                <span className="text-right text-[var(--text-primary)]">{datasetNode.data.noiseColumns}</span>
+              </div>
+            )}
           </div>
-        </div>
+        )}
 
         {/* Quick Entity Navigation */}
         {allNodes.length > 0 && (
@@ -296,7 +265,10 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-[var(--text-dim)]">Dimensions:</span>
-                <span className="text-pink-600 dark:text-pink-400 font-bold">{node.data.rows} rows × {node.data.features || 9} features</span>
+                <span className="text-pink-600 dark:text-pink-400 font-bold">
+                  {node.data.rows} rows
+                  {node.data.features != null && ` × ${node.data.features} features`}
+                </span>
               </div>
               {node.data.noiseColumns && (
                 <div className="flex justify-between">
@@ -512,18 +484,74 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         <span className="text-[var(--text-primary)] font-semibold">{targetName}</span>
       </div>
 
-      {/* Verbatim Cited Quote Card with Sharp Corners */}
+        {/* Source evidence chunk or run evidence */}
       {quote ? (
         <div className="c p-4 border-l-[3px] !border-l-[#f97316] !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)]">
           <div className="text-[13px] leading-relaxed text-[var(--text-primary)] font-serif italic">
             &ldquo;{quote}&rdquo;
           </div>
-          {page !== undefined && (
-            <div className="m text-[10px] text-[var(--text-dim)] mt-3 border-t border-[var(--border-primary)] pt-2">
-              PAGE {page}{chunkNumber !== undefined ? ` · CHUNK #${chunkNumber}` : ''}{charStart !== undefined ? ` · CHARS ${charStart}–${charEnd}` : ''}
-            </div>
-          )}
+          <div className="m text-[10px] text-[var(--text-dim)] mt-3 border-t border-[var(--border-primary)] pt-2 flex items-center justify-between gap-2">
+            <span>
+              EVIDENCE CHUNK
+              {page !== undefined && ` · PAGE ${page}`}
+              {chunkNumber !== undefined && ` · #${chunkNumber}`}
+              {charStart !== undefined && charEnd !== undefined && ` · CHARS ${charStart}–${charEnd}`}
+            </span>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  if (!edge || !navigator.clipboard?.writeText) return;
+                  await navigator.clipboard.writeText(quote);
+                  setCopiedQuote({ edgeId: edge.id });
+                } catch {
+                  // Ignore clipboard rejection
+                }
+              }}
+              className="flex items-center gap-1 px-1.5 py-0.5 border border-[var(--border-primary)] bg-[var(--bg-surface)] hover:border-[#f97316] hover:text-[#f97316] transition text-[9px] font-mono uppercase cursor-pointer"
+              title="Copy evidence text to clipboard"
+            >
+              <Copy className="h-2.5 w-2.5" />
+              <span>{copiedQuote?.edgeId === edge?.id ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
         </div>
+      ) : edge?.evidenceRunId ? (
+        (() => {
+          const runNode = allNodes.find(
+            (n) => n.id === edge.evidenceRunId || n.data?.runId === edge.evidenceRunId,
+          );
+          return (
+            <div className="c p-4 border-l-[3px] !border-l-amber-400 !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)] space-y-2 font-mono">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase text-amber-500 flex items-center gap-1.5">
+                  <Play className="h-3 w-3 fill-current" />
+                  <span>Run-Evidenced Relation</span>
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 border border-amber-500/40 bg-amber-500/10 text-amber-500">
+                  {edge.evidenceRunId}
+                </span>
+              </div>
+              <div className="text-[11px] text-[var(--text-secondary)]">
+                Grounded in execution lineage of{' '}
+                <span className="text-[var(--text-primary)] font-semibold">
+                  {runNode ? runNode.title : edge.evidenceRunId}
+                </span>
+                .
+              </div>
+              {runNode && (
+                <button
+                  type="button"
+                  onClick={() => onSelectNode?.(runNode.id)}
+                  className="text-[10px] text-[#f97316] hover:underline flex items-center gap-1 pt-1"
+                >
+                  <span>Inspect run node</span>
+                  <ArrowRight className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          );
+        })()
       ) : (
         <div className="c p-4 !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)] text-xs text-[var(--text-dim)] font-mono">
           Structural relation without direct text quotation.

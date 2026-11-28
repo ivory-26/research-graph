@@ -10,8 +10,8 @@ Neon Auth (managed Better Auth) owns identities and sessions. The application's 
 | Same-origin `/api/auth/$` proxy | Built |
 | Workspace membership guard (`requireWorkspaceAccess`, `enforceWorkspaceMembership`) | Built; the approval POST uses `enforceWorkspaceMembership` |
 | Local and production-build harness (`scripts/auth-harness.mjs`) | Built |
-| Sign-in / sign-up screens, route protection, sign-out UI | **Not built** (#16) |
-| User-facing session state | Not built; the UI runs without an authenticated identity |
+| Sign-in / sign-up screens, route protection, sign-out UI | Built (`src/routes/sign-in.tsx`, `src/routes/sign-up.tsx`, `src/routes/index.tsx` `beforeLoad`, `Navbar` Sign Out) (#16) |
+| User-facing session state | Built via `getCurrentUser()` in `beforeLoad` and `src/utils/authClient.ts` against the `/api/auth/*` proxy |
 
 ## Setup
 
@@ -29,7 +29,7 @@ Allow the application's deployed origin in Neon Auth before using it there. The 
 
 The TanStack route at `src/routes/api/auth/$.ts` forwards same-origin auth requests through the official `@neon/auth/server` proxy. The route mount and generated route entry are the only changes under the routing boundary; later changes there stay with the route owner.
 
-When the #16 sign-in screens land, they should use the Neon React adapter against the same-origin route. Nothing in `src/routes` or `src/components` imports this client today.
+Use `authClient` in `src/utils/authClient.ts` against the same-origin route (`src/routes/sign-in.tsx` and `src/routes/sign-up.tsx`).
 
 ```ts
 import { createAuthClient } from '@neon/auth'
@@ -40,7 +40,7 @@ export const authClient = createAuthClient('', {
 })
 ```
 
-Use `signIn.email`, `signUp.email` and `signOut` from that client. Route loaders can call `getCurrentUser()` from `src/server/auth.ts`. It returns `{ id, email, name }` for a verified session and `null` for an anonymous request. The server verifies the session directly with Neon and forwards any refreshed cookies. `requireUser` middleware supplies the same identity as `context.user` for server functions that only require sign-in.
+`src/utils/authClient.ts` configures this client and exports `signIn`, `signUp`, and `signOut` for `src/routes/sign-in.tsx`, `src/routes/sign-up.tsx`, and `Navbar`. Route loaders call `getCurrentUser()` from `src/server/auth.ts`. It returns `{ id, email, name }` for a verified session and `null` for an anonymous request. The server verifies the session directly with Neon and forwards any refreshed cookies. `requireUser` middleware supplies the same identity as `context.user` for server functions that only require sign-in.
 
 ## Workspace authorization
 
@@ -65,4 +65,4 @@ For a live identity check set `NEON_AUTH_BASE_URL`, `AUTH_HARNESS_EMAIL`, and `A
 
 The #4 live membership check used the #3 migration on an expiring Neon branch. It verified that a signed-in user is denied before assignment, gets access as the same actor after an explicit row is inserted, is denied for another workspace, and loses access when the row is removed. An anonymous request received 401.
 
-On 25 November, `pnpm typecheck` and `pnpm test` pass with the auth unit tests included. The harness and the live membership check are opt-in; they are not part of CI because they need Neon credentials. The approval POST is the one production path that exercises the guard today; no page is protected because no page signs a user in.
+`pnpm typecheck` and `pnpm test` verify the auth types and unit tests. The harness and the live membership check require Neon credentials and run separately from CI. The approval POST, `GET /api/graph`, and the `/` route `beforeLoad` gate use the auth guards.

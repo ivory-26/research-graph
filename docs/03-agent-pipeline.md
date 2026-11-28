@@ -20,7 +20,7 @@ INGEST_SOURCE → EXTRACT_CLAIMS → PROPOSE_EDGES → PLAN_EXPERIMENT
 | `AWAIT_APPROVAL` | `src/server/pipeline-delivery/`, `src/db/pipeline-*` | Built: durable gate, same-origin POST, verified actor |
 | `EXECUTE` | `src/server/runner.ts` | Built: real E2B runner with pinned-package verification |
 | `EVALUATE` | `src/server/evaluate.ts`, `evaluate-verdict.ts` | Built: deterministic verdict, then `explain_gap` |
-| `BRANCH_WHAT_IF` | `src/server/branch.ts` | Built as a module; EXECUTE adoption of the queued Run B is #62 |
+| `BRANCH_WHAT_IF` | `src/server/branch.ts` | Built; EXECUTE adopts the queued Run B (#62) |
 | repair loop (`REPAIR_SCRIPT`) | `src/server/branch.ts` | Built; wired into EXECUTE after a failed run |
 | strategy selection | — | Not built; `agent_strategies` exists but nothing picks a strategy |
 
@@ -135,7 +135,7 @@ This is worth restating because it is the cheapest possible defence against the 
 
 ### BRANCH_WHAT_IF
 
-**Status on `main`: built as a module.** `src/server/branch.ts` clones the frozen spec, enforces the one-parameter diff and persists the branched experiment plus a queued Run B with `parentRunId`. EXECUTE does not yet adopt that queued row, so the comparison view still renders the recorded fixture; adoption is tracked in #62.
+**Status on `main`: built.** `src/server/branch.ts` clones the frozen spec, enforces the one-parameter diff and persists the branched experiment plus a queued Run B with `parentRunId`. EXECUTE adopts that queued attempt-1 row under the experiment row lock (#62) instead of inserting an unlinked run, freezes the approved spec and refuses a duplicate. The comparison view itself still renders the recorded fixture.
 
 Input: a completed run and a parameter name. The branch copies the frozen `spec`, applies exactly one change, re-runs `PLAN_EXPERIMENT`'s validation (not its generation), and creates a new `experiment` with `parentRunId` pointing at the ancestor. The parent row is never touched.
 
@@ -159,7 +159,7 @@ The two-attempt ceiling is not a safety measure, it is a demo measure. An unboun
 
 ## Strategy selection
 
-**Status on `main`: not built.** `agent_strategies` and `agent_tasks` exist, `callModel` records every attempt, and `extractClaims` accepts an optional `strategyId` for the task row. Nothing implements `pickStrategy`, success scoring or the exploration floor. The dashboard renders recorded fixture rows, not a live `GROUP BY`.
+**Status:** `agent_strategies` and `agent_tasks` exist, `callModel` records every attempt, and `extractClaims` accepts an optional `strategyId` for the task row. Automated `pickStrategy` selection is not built; `GET /api/strategies` and `StrategyDashboard` aggregate `agent_tasks` when a database workspace UUID is active and render `DEMO_STRATEGIES` in demo fixture mode.
 
 This is the entire "evolving agents" mechanism.
 
@@ -191,7 +191,7 @@ Success is defined per task kind by verified outcomes only:
 
 A strategy that produces a claim with a fabricated quote is not a partial success. It is a failure with a longer explanation.
 
-The dashboard is designed as a `GROUP BY` over `agent_tasks`, with no separate score to keep in sync. The intended visible adaptation is one line in that table changing order between two extraction runs. Neither the query nor the selection is on `main`.
+The dashboard is designed as a `GROUP BY` over `agent_tasks`, with no separate score to keep in sync. `GET /api/strategies` and `StrategyDashboard` now read and aggregate `agent_tasks` rows when a database workspace UUID is active, while automated strategy selection and per-extraction-run `runId` attribution on `extract_claims` / `propose_edges` remain open.
 
 ## Model discipline
 
