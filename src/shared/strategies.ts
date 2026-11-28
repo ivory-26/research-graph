@@ -12,8 +12,20 @@ export interface AgentTaskRow {
   runId: string | null;
   /** Optional human-readable label recorded beside the run id by the writer. */
   runLabel?: string | null;
+  /**
+   * The model that produced this attempt, as recorded on `agent_tasks.model`.
+   * Makes the optional Meta provider observable in the actual workflow instead
+   * of an environment variable nobody can see from the UI.
+   */
+  model?: string | null;
   status: AgentTaskStatus;
   latencyMs: number | null;
   costUsd: number | null;
   error?: string | null;
+  /**
+   * When the attempt was recorded (`agent_tasks.created_at`, ISO 8601).
+   * Optional so callers that never needed ordering are unchanged; `null`
+   * means the row predates the field being exposed, not a missing attempt.
+   */
+  createdAt?: string | null;
 }

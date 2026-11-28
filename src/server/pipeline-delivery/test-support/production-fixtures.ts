@@ -60,6 +60,7 @@ export function measuredResult(
 ): ExperimentResult {
   return {
     exitCode: 0,
+    sandboxId: 'sandbox-test-1',
     stdout: 'computed metrics\n',
     stderr: '',
     metrics: { score: 0.9 },

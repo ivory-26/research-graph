@@ -2,7 +2,7 @@
 
 Neon Auth (managed Better Auth) owns identities and sessions. The application's `workspace_members` table grants workspace access through explicit rows keyed by Neon Auth user ID and workspace ID. See [ADR 0008](./adr/0008-neon-auth.md).
 
-## What exists on `main`
+## App authentication flows
 
 | Piece | State |
 |---|---|
@@ -12,6 +12,8 @@ Neon Auth (managed Better Auth) owns identities and sessions. The application's 
 | Local and production-build harness (`scripts/auth-harness.mjs`) | Built |
 | Sign-in / sign-up screens, route protection, sign-out UI | Built (`src/routes/sign-in.tsx`, `src/routes/sign-up.tsx`, `src/routes/index.tsx` `beforeLoad`, `Navbar` Sign Out) (#16) |
 | User-facing session state | Built via `getCurrentUser()` in `beforeLoad` and `src/utils/authClient.ts` against the `/api/auth/*` proxy |
+| Google OAuth | Sign-in and sign-up start the Neon Google flow. Request middleware completes the verifier exchange before the route guard reads the session. |
+| First-use workspace | The authenticated workspace list creates a personal workspace and owner membership together if the user has no memberships. |
 
 ## Setup
 
@@ -23,11 +25,11 @@ Set the server environment variables listed in `.env.example`.
 | `NEON_AUTH_COOKIE_SECRET` | A persistent random secret of at least 32 characters. Generate one with `openssl rand -base64 32`. |
 | `DATABASE_URL` | The application Postgres connection string for the branch with the committed migrations applied |
 
-Allow the application's deployed origin in Neon Auth before using it there. The local smoke test uses Neon's existing localhost allowance.
+Enable the Google provider in Neon Auth and allow the application origin as a trusted domain. Configure the exact local or deployed origin used for the sign-in test.
 
 ## Sign-in and session
 
-The TanStack route at `src/routes/api/auth/$.ts` forwards same-origin auth requests through the official `@neon/auth/server` proxy. The route mount and generated route entry are the only changes under the routing boundary; later changes there stay with the route owner.
+The TanStack route at `src/routes/api/auth/$.ts` forwards same-origin auth requests through the official `@neon/auth/server` proxy. When Google sign-in returns a Neon session verifier, the request middleware in `src/start.ts` exchanges it for session cookies before the route guard runs. It redirects to the callback URL with the verifier removed.
 
 Use `authClient` in `src/utils/authClient.ts` against the same-origin route (`src/routes/sign-in.tsx` and `src/routes/sign-up.tsx`).
 
@@ -43,6 +45,8 @@ export const authClient = createAuthClient('', {
 `src/utils/authClient.ts` configures this client and exports `signIn`, `signUp`, and `signOut` for `src/routes/sign-in.tsx`, `src/routes/sign-up.tsx`, and `Navbar`. Route loaders call `getCurrentUser()` from `src/server/auth.ts`. It returns `{ id, email, name }` for a verified session and `null` for an anonymous request. The server verifies the session directly with Neon and forwards any refreshed cookies. `requireUser` middleware supplies the same identity as `context.user` for server functions that only require sign-in.
 
 ## Workspace authorization
+
+On first use, `GET /api/workspaces` provisions a personal workspace and its `owner` membership in one transaction using the verified Neon user ID. Concurrent requests converge on the same workspace and membership. Users with existing memberships keep their assigned workspace roles.
 
 ```ts
 import { requireWorkspaceAccess } from '../server/auth/workspace.server'

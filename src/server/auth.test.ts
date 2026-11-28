@@ -11,6 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import {
   AuthConfigurationError,
+  completeOAuthCallback,
   enforceWorkspaceMembership,
   handleAuthRequest,
   normalizeAuthPath,
@@ -26,6 +27,7 @@ import {
 
 const SESSION_TOKEN_COOKIE = '__Secure-neon-auth.session_token'
 const SESSION_DATA_COOKIE = '__Secure-neon-auth.local.session_data'
+const SESSION_CHALLENGE_COOKIE = '__Secure-neon-auth.session_challenge'
 const TEST_COOKIE_SECRET = 'test-only-cookie-secret-0123456789abcdef'
 const APP_ORIGIN = 'http://localhost:3000'
 
@@ -93,7 +95,27 @@ beforeAll(async () => {
     })
 
     if (request.method === 'GET' && request.url?.startsWith('/get-session')) {
-      if ((request.headers.cookie ?? '').includes(`${SESSION_TOKEN_COOKIE}=session-token`)) {
+      const cookie = request.headers.cookie ?? ''
+      const verifier = new URL(request.url, 'http://127.0.0.1').searchParams.get(
+        'neon_auth_session_verifier',
+      )
+
+      // A real OAuth return carries a single-use verifier plus the challenge
+      // cookie. A `bad` verifier simulates a failed exchange.
+      if (verifier && cookie.includes(SESSION_CHALLENGE_COOKIE)) {
+        if (verifier === 'bad') {
+          json(response, 500, { error: 'verification failed' })
+        } else {
+          json(response, 200, sessionPayload(), {
+            'set-cookie': [
+              `${SESSION_TOKEN_COOKIE}=session-token; Path=/; HttpOnly; Secure; SameSite=None`,
+            ],
+          })
+        }
+        return
+      }
+
+      if (cookie.includes(`${SESSION_TOKEN_COOKIE}=session-token`)) {
         json(response, 200, sessionPayload())
       } else {
         json(response, 200, null)
@@ -439,6 +461,77 @@ describe('handleAuthRequest', () => {
       process.env.NEON_AUTH_BASE_URL = baseUrl
       process.env.NEON_AUTH_COOKIE_SECRET = secret
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// OAuth callback: exchange the verifier before the guard sees the request
+// ---------------------------------------------------------------------------
+
+describe('completeOAuthCallback', () => {
+  const challenge = `${SESSION_CHALLENGE_COOKIE}=challenge-abc`
+
+  it('ignores requests without a verifier', async () => {
+    const response = await completeOAuthCallback(
+      new Request(`${APP_ORIGIN}/`, { headers: { cookie: challenge } }),
+    )
+
+    expect(response).toBeNull()
+    expect(captured).toHaveLength(0)
+  })
+
+  it('exchanges the verifier, clears it from the URL and returns the session', async () => {
+    const response = await completeOAuthCallback(
+      new Request(
+        `${APP_ORIGIN}/?neon_auth_session_verifier=verifier-123&page=graph`,
+        { headers: { cookie: challenge } },
+      ),
+    )
+
+    expect(response).not.toBeNull()
+    expect(response?.status).toBe(302)
+    expect(response?.headers.get('location')).toBe(`${APP_ORIGIN}/?page=graph`)
+    expect(response?.headers.get('cache-control')).toBe('no-store')
+
+    const setCookies = response?.headers.getSetCookie() ?? []
+    expect(
+      setCookies.some((entry) => entry.startsWith(`${SESSION_TOKEN_COOKIE}=`)),
+    ).toBe(true)
+
+    // The verifier reached the upstream session endpoint exactly once.
+    const exchange = captured.find(
+      (request) =>
+        request.method === 'GET' &&
+        request.url?.startsWith('/get-session') &&
+        request.url.includes('neon_auth_session_verifier=verifier-123'),
+    )
+    expect(exchange).toBeDefined()
+  })
+
+  it('never intercepts the same-origin auth proxy', async () => {
+    const response = await completeOAuthCallback(
+      new Request(
+        `${APP_ORIGIN}/api/auth/get-session?neon_auth_session_verifier=verifier-123`,
+        { headers: { cookie: challenge } },
+      ),
+    )
+
+    expect(response).toBeNull()
+    expect(captured).toHaveLength(0)
+  })
+
+  it('falls back to sign-in when the verifier cannot be exchanged', async () => {
+    const response = await completeOAuthCallback(
+      new Request(`${APP_ORIGIN}/?neon_auth_session_verifier=bad`, {
+        headers: { cookie: challenge },
+      }),
+    )
+
+    expect(response?.status).toBe(302)
+    const location = new URL(response?.headers.get('location') ?? '')
+    expect(location.pathname).toBe('/sign-in')
+    expect(location.searchParams.get('redirect')).toBe('/')
+    expect(location.searchParams.has('neon_auth_session_verifier')).toBe(false)
   })
 })
 

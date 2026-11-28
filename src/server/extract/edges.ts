@@ -6,6 +6,7 @@ import {
   sourceChunks as sourceChunksTable,
   sources as sourcesTable,
   type EdgeRow,
+  type NewEdge,
 } from '../../db/schema'
 import { embedQuery, type EmbedDeps } from '../ingest/embed'
 import { searchSimilarChunksForWorkspace } from '../ingest/store'
@@ -209,6 +210,13 @@ export interface ProposeEdgesOptions {
   runLabel?: string | null
   /** Audit trail indicating how candidate evidence chunks were assembled for this call. */
   evidenceSelection?: 'pair_retrieval' | 'caller_chunks' | 'fallback_slice'
+  /**
+   * Edges already present in the graph (for example the structural
+   * source→claim edges written during extraction). An accepted proposal with
+   * the same (sourceNodeId, targetNodeId, relation) triple is dropped before
+   * persistence so the graph keeps one row per fact.
+   */
+  existingEdges?: ReadonlyArray<Pick<NewEdge, 'sourceNodeId' | 'targetNodeId' | 'relation'>>
   db?: Database
   /** Fail fast if no database handle was supplied rather than returning unpersisted edges. */
   requirePersistence?: boolean
@@ -429,16 +437,32 @@ export async function proposeEdges(
     await updateStatus(result.task.id, 'rejected', rejectReason)
   }
 
+  // The structural source→claim edge is written before PROPOSE_EDGES runs, so
+  // a model that proposes that same triple again would otherwise persist a
+  // second parallel row. Drop exact duplicates of edges already in the graph.
+  const existingKeys = new Set(
+    (options.existingEdges ?? []).map(
+      (edge) => `${edge.sourceNodeId}:${edge.targetNodeId}:${edge.relation}`,
+    ),
+  )
+  const newAccepted =
+    existingKeys.size === 0
+      ? accepted
+      : accepted.filter(
+          (edge) =>
+            !existingKeys.has(`${edge.fromNodeId}:${edge.toNodeId}:${edge.relation}`),
+        )
+
   let storedRows: EdgeRow[] | undefined
   let persisted = false
   const storeFn = options.storeEdgesFn ?? storeEdges
-  if (options.db && accepted.length > 0) {
-    storedRows = await storeFn(options.db, workspaceId, accepted)
+  if (options.db && newAccepted.length > 0) {
+    storedRows = await storeFn(options.db, workspaceId, newAccepted)
     persisted = true
   }
 
   return {
-    acceptedEdges: accepted,
+    acceptedEdges: newAccepted,
     rejectedEdges: rejected,
     storedRows,
     persisted,
@@ -487,6 +511,7 @@ export async function proposeEdgesForWorkspace(
     runId: options.runId,
     runLabel: options.runLabel,
     evidenceSelection,
+    existingEdges: options.existingEdges,
     db,
     requirePersistence: true,
     storeEdgesFn: options.storeEdgesFn,

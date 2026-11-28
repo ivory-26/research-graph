@@ -1,5 +1,67 @@
 import { describe, it, expect, vi } from 'vitest';
-import { signIn, signUp, signOut } from './authClient';
+import {
+  sameOriginPath,
+  signIn,
+  signInWithGoogle,
+  signUp,
+  signOut,
+} from './authClient';
+
+describe('sameOriginPath', () => {
+  it('keeps only same-origin paths', () => {
+    expect(sameOriginPath('/?page=graph', 'http://localhost:3000')).toBe('/?page=graph');
+    expect(sameOriginPath('http://localhost:3000/x?y=1', 'http://localhost:3000')).toBe(
+      '/x?y=1',
+    );
+  });
+
+  it('rejects other origins and protocol-relative URLs', () => {
+    expect(sameOriginPath('https://evil.example/steal', 'http://localhost:3000')).toBe('/');
+    expect(sameOriginPath('//evil.example/steal', 'http://localhost:3000')).toBe('/');
+    expect(sameOriginPath(undefined, 'http://localhost:3000')).toBe('/');
+  });
+});
+
+describe('signInWithGoogle', () => {
+  it('asks for the provider URL with a same-origin callback and no auto redirect', async () => {
+    const client = {
+      signIn: {
+        social: vi.fn().mockResolvedValue({
+          data: { url: 'https://accounts.google.com/o/oauth2/auth?x=1', redirect: false },
+          error: null,
+        }),
+      },
+    } as any;
+
+    const res = await signInWithGoogle('https://evil.example/steal', client);
+
+    expect(res.ok).toBe(true);
+    expect(res.data?.url).toBe('https://accounts.google.com/o/oauth2/auth?x=1');
+    expect(client.signIn.social).toHaveBeenCalledWith({
+      provider: 'google',
+      callbackURL: '/',
+      disableRedirect: true,
+    });
+  });
+
+  it('surfaces a provider error and a missing redirect URL', async () => {
+    const errored = {
+      signIn: {
+        social: vi.fn().mockResolvedValue({ data: null, error: { message: 'Provider disabled' } }),
+      },
+    } as any;
+    const res1 = await signInWithGoogle('/', errored);
+    expect(res1.ok).toBe(false);
+    expect(res1.error).toBe('Provider disabled');
+
+    const empty = {
+      signIn: { social: vi.fn().mockResolvedValue({ data: {}, error: null }) },
+    } as any;
+    const res2 = await signInWithGoogle('/', empty);
+    expect(res2.ok).toBe(false);
+    expect(res2.error).toContain('redirect URL');
+  });
+});
 
 describe('authClient', () => {
   describe('signIn', () => {

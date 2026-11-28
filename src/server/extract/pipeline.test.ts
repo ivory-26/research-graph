@@ -229,6 +229,188 @@ describe('Workspace-scoped ingest -> extractClaims -> proposeEdges pipeline (doc
     expect(res.edges.acceptedEdges[0]?.status).toBe('accepted')
   })
 
+  it('persists an evidence-backed source→claim edge even when the model proposes none', async () => {
+    const db = createInMemoryWorkspaceDb()
+    const workspaceId = crypto.randomUUID()
+
+    const res = await ingestSourceToGraphForWorkspace({
+      db,
+      workspaceId,
+      source: {
+        kind: 'web',
+        url: 'https://example.com/rf',
+        scrapeOptions: {
+          preFetchedTitle: 'RF note',
+          preFetchedMarkdown:
+            'Impurity importance is biased toward high-cardinality predictors.',
+        },
+      },
+      embedChunksFn: (async (items: any[]) =>
+        items.map(() => new Array(768).fill(0.05))) as any,
+      embedQueryFn: (async () => new Array(768).fill(0.05)) as any,
+      searchSimilarChunksFn: (async () =>
+        db.chunkRows.map((chunk) => ({ chunk, similarity: 0.9 }))) as any,
+      callModelFn: (async (_schema: any, prompt: string, ctx: any) => {
+        if (ctx.taskKind === 'extract_claims') {
+          const chunkId = prompt.match(/--- CHUNK ID: ([0-9a-f-]+) /i)?.[1] ?? ''
+          return {
+            output: {
+              claims: [
+                {
+                  text: 'Impurity importance is biased toward high-cardinality predictors',
+                  quote: 'Impurity importance is biased toward high-cardinality predictors.',
+                  chunkId,
+                },
+              ],
+              datasets: [],
+              methods: [],
+              codeUrls: [],
+            },
+            task: { id: crypto.randomUUID(), status: 'succeeded' },
+            attempts: [],
+          }
+        }
+
+        // The model finds no relationship at all. The source→claim edge must
+        // still exist because the claim was read out of the source's chunk.
+        return {
+          output: { edges: [] },
+          task: { id: crypto.randomUUID(), status: 'succeeded' },
+          attempts: [],
+        }
+      }) as any,
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    expect(res.extraction.acceptedClaims).toHaveLength(1)
+    expect(res.edges.acceptedEdges).toHaveLength(0)
+
+    const sourceNode = res.createdNodes.find((node) => node.type === 'source')
+    const claimNode = res.createdNodes.find((node) => node.type === 'claim')
+    expect(sourceNode).toBeDefined()
+    expect(claimNode).toBeDefined()
+    expect(db.chunkRows).toHaveLength(1)
+
+    expect(db.edgeRows).toHaveLength(1)
+    const edge = db.edgeRows[0]!
+    expect(edge.workspaceId).toBe(workspaceId)
+    expect(edge.sourceNodeId).toBe(sourceNode!.id)
+    expect(edge.targetNodeId).toBe(claimNode!.id)
+    expect(edge.relation).toBe('supports')
+    expect(edge.status).toBe('accepted')
+    expect(edge.evidenceChunkId).toBe(db.chunkRows[0]!.id)
+  })
+
+  it('drops a model-proposed duplicate of the structural source→claim edge but keeps a new triple', async () => {
+    const db = createInMemoryWorkspaceDb()
+    const workspaceId = crypto.randomUUID()
+    const storedEdgeBatches: ValidatedEdge[][] = []
+
+    const res = await ingestSourceToGraphForWorkspace({
+      db,
+      workspaceId,
+      source: {
+        kind: 'web',
+        url: 'https://example.com/structural-duplicate',
+        scrapeOptions: {
+          preFetchedTitle: 'Structural duplicate note',
+          preFetchedMarkdown:
+            'Permutation importance remains unbiased across predictor scales.',
+        },
+      },
+      embedChunksFn: (async (items: any[]) =>
+        items.map(() => new Array(768).fill(0.03))) as any,
+      embedQueryFn: (async () => new Array(768).fill(0.03)) as any,
+      searchSimilarChunksFn: (async () =>
+        db.chunkRows.map((chunk) => ({ chunk, similarity: 0.9 }))) as any,
+      callModelFn: (async (_schema: any, prompt: string, ctx: any) => {
+        if (ctx.taskKind === 'extract_claims') {
+          const chunkId = prompt.match(/--- CHUNK ID: ([0-9a-f-]+) /i)?.[1] ?? ''
+          return {
+            output: {
+              claims: [
+                {
+                  text: 'Permutation importance remains unbiased',
+                  quote: 'Permutation importance remains unbiased across predictor scales.',
+                  chunkId,
+                },
+              ],
+              datasets: [],
+              methods: [],
+              codeUrls: [],
+            },
+            task: { id: crypto.randomUUID(), status: 'succeeded' },
+            attempts: [],
+          }
+        }
+
+        const nodeIds = [...prompt.matchAll(/\[ID: ([0-9a-f-]+)\]/gi)].map((m) => m[1]!)
+        const chunkId = prompt.match(/--- CHUNK ID: ([0-9a-f-]+) /i)?.[1] ?? ''
+        return {
+          output: {
+            edges: [
+              {
+                // Exactly the triple the structural write already recorded.
+                fromNodeId: nodeIds[0]!,
+                toNodeId: nodeIds[1]!,
+                relation: 'supports',
+                confidence: 0.9,
+                evidenceChunkId: chunkId,
+                quote: 'Permutation importance remains unbiased across predictor scales.',
+                rationale: 'Direct support from the source passage',
+              },
+              {
+                fromNodeId: nodeIds[1]!,
+                toNodeId: nodeIds[0]!,
+                relation: 'cites',
+                confidence: 0.85,
+                evidenceChunkId: chunkId,
+                quote: 'Permutation importance remains unbiased across predictor scales.',
+                rationale: 'Claim cites the source paper',
+              },
+            ],
+          },
+          task: { id: crypto.randomUUID(), status: 'succeeded' },
+          attempts: [],
+        }
+      }) as any,
+      storeEdgesFn: async (_d, wsId, edgesToStore) => {
+        storedEdgeBatches.push(edgesToStore)
+        return (await db
+          .insert({} as any)
+          .values(
+            edgesToStore.map((e) => ({
+              workspaceId: wsId,
+              sourceNodeId: e.fromNodeId,
+              targetNodeId: e.toNodeId,
+              relation: e.relation,
+              confidence: e.confidence,
+              status: e.status,
+              evidenceChunkId: e.evidenceChunkId,
+            })),
+          )
+          .returning()) as EdgeRow[]
+      },
+      updateTaskStatusFn: vi.fn(),
+    })
+
+    // Only the non-duplicate proposal survives to persistence and reporting.
+    expect(res.edges.acceptedEdges).toHaveLength(1)
+    expect(res.edges.acceptedEdges[0]?.relation).toBe('cites')
+    expect(storedEdgeBatches).toHaveLength(1)
+    expect(storedEdgeBatches[0]).toHaveLength(1)
+    expect(storedEdgeBatches[0]![0]!.relation).toBe('cites')
+
+    // The only source→claim 'supports' row is the structural edge, not a twin.
+    const sourceNode = res.createdNodes.find((node) => node.type === 'source')
+    const claimNode = res.createdNodes.find((node) => node.type === 'claim')
+    const supportRows = db.edgeRows.filter((edge) => edge.relation === 'supports')
+    expect(supportRows).toHaveLength(1)
+    expect(supportRows[0]!.sourceNodeId).toBe(sourceNode!.id)
+    expect(supportRows[0]!.targetNodeId).toBe(claimNode!.id)
+    expect(db.edgeRows).toHaveLength(2)
+  })
+
   it('short-circuits scanned needsOcr PDFs cleanly and keeps needsOcr=false for empty non-PDF scrapes', async () => {
     const db = createInMemoryWorkspaceDb()
     const embedSpy = vi.fn()

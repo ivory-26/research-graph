@@ -105,6 +105,8 @@ export type ApprovalGateView = {
   gateSeq: number
   status: ApprovalGateStatus
   offeredSpec: ExperimentSpec
+  /** Set for a repair gate: the failed run the candidate was chained from. */
+  repairParentRunId?: string | null
   decidedBy: string | null
   decidedAt: Date | null
   /** The seq of the persisted `approval.resolved` event, when decided. */

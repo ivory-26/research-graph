@@ -39,7 +39,7 @@ Generated Python never runs in the application process, never receives the datab
 
 Dataset bytes are fetched by the **application**, hashed, then uploaded into the sandbox. This is why execution can be network-free without losing the ability to download data — and it means the hash recorded in the run environment is the hash of the bytes that were actually used.
 
-The diagram is the target shape. The routes under `src/routes/api` are the two pipeline endpoints, the auth proxy, and guarded `/api/graph`, `/api/workspaces` and `/api/strategies` reads; the browser opens the pipeline stream and posts gate decisions when an experiment ID is active, and reads the graph and strategy routes for a database workspace. There are still no CRUD server functions for sources, nodes, edges or runs.
+The diagram is the target shape. The routes under `src/routes/api` are the two pipeline endpoints, the auth proxy, guarded `/api/graph`, `/api/workspaces`, `/api/strategies` and run-artifact reads, and the workspace experiment/source reads added for live creation; the browser opens the pipeline stream and posts gate decisions when an experiment ID is active, reads the graph and strategy routes for a database workspace, and downloads a terminal run's persisted notebook and artifacts through `/api/runs/:runId/artifacts`. There are still no general CRUD server functions for nodes, edges or runs.
 
 ## Request lifecycle
 
@@ -65,7 +65,7 @@ The delivery layer is in `src/server/pipeline-delivery/`. It owns the stream, th
 | `EXECUTE` | Writes the `runs` row with the approved, frozen spec, then calls the real `E2BRunner`. The measured result updates the row and becomes `run.succeeded` / `run.failed`. |
 | `EVALUATE` | `evaluateExperiment` computes the verdict first; `explain_gap` on `gemini-4-hydrogen` only writes the explanation. The verdict and checks are persisted and emitted as `verdict.computed`. |
 
-It deliberately does **not** run `INGEST_SOURCE`, `EXTRACT_CLAIMS` or `PROPOSE_EDGES` in this request, and it does **not** write result/run graph nodes or the `produced` edge. Those graph writes are `src/server/pipeline.ts` (#7), which has not landed. The durable run row and event log are the record this layer owns.
+It deliberately does **not** run `INGEST_SOURCE`, `EXTRACT_CLAIMS` or `PROPOSE_EDGES` in this request; those stages produced the graph and the experiment row before it. The graph write-back **is** landed: `projectRunToGraph` in `src/server/pipeline.ts` (#7) is called on every terminal run and writes the run/result nodes and their `produced` edge. The durable run row and event log are the record this layer owns.
 
 A reconnect, a concurrent GET, or a GET after the budget sees the existing `execution_claims` row and becomes a follower; only the claim owner appends a terminal event. Terminal events close the claim. If the terminal append itself fails, the claim expires on its lease and ADR 0003 applies: the run is lost.
 
@@ -88,7 +88,7 @@ A heartbeat comment is written every 15 seconds so intermediaries do not drop an
 | approve | `src/server/pipeline-delivery/`, `src/db/pipeline-*.ts` | durable gate, same-origin POST, verified actor, one decision | be skippable by the pipeline |
 | runner | `src/server/runner.ts` | `run(spec) → result` against E2B, pinned-package verification, dataset hashing | expose host credentials to the sandbox |
 | evaluate | `src/server/evaluate.ts`, `evaluate-verdict.ts` | deterministic predicate evaluation; model writes only the explanation | let the model decide the verdict |
-| branch | — not built | clone a spec, change one parameter, link lineage | mutate the parent run |
+| branch | `src/server/branch.ts` | clone a spec, change one parameter, link lineage; the same module owns the bounded repair chain | mutate the parent run |
 | UI | `src/routes/index.tsx`, `src/components/` | canvas, evidence, approval, comparison, dashboard | be mistaken for a live database client |
 
 The UI is driven by `fixtures/workspace.json` and `fixtures/hero-spec.ts` when no database workspace UUID is active, with `GET /api/graph` reading workspace-scoped graph rows from Postgres, `/sign-in` and `/sign-up` backed by Neon Auth, and `src/utils/pipelineClient.ts` providing the browser SSE/approval client when an `experimentId` is supplied.
@@ -99,7 +99,7 @@ The offline fixture parses its nodes and edges against the shared graph contract
 
 Vercel via Nitro's preset (`nitro()` plugin, `vercel deploy`). TanStack Start has no Vercel-specific preset; the documented path is Nitro's. Node 26 LTS (`26.x`), ESM only — AI SDK 7 requires both. Vercel exposes only major versions, so `engines.node` stays `26.x`; `.nvmrc` and `.node-version` pin the latest 26 patch (26.13.1) for local work.
 
-`vercel.json` is committed (`buildCommand: pnpm build`, `installCommand: pnpm install`), but **no production deploy exists yet** (#9). Until it does, the recorded workspace is a local fixture and the deployed-link success criterion in [the scope](./00-scope.md) is unmet.
+`vercel.json` is committed (`buildCommand: pnpm build`, `installCommand: pnpm install`). Nitro's Vercel config sets a 300 s function duration, which is the Hobby ceiling and leaves room under the 240 s SSE budget for the terminal append. Environment variables, the seed/migration sequence and the remaining deploy prerequisites are in [11-deploy](./11-deploy.md). Production is live at <https://research-graph-sage.vercel.app> (Vercel project `research-graph`, team `sahil-64d5`; #9 closed), which meets the deployed-link success criterion in [the scope](./00-scope.md). The recorded workspace for the demo path remains the local fixture; the deployed database is the live E2E workspace, not a `pnpm seed` replay.
 
 Pin `@tanstack/react-start` at **≥ 1.168.60**; `main` is on 1.169.7. Anything from 1.143.12 to 1.168.59 carries CVE-2026-102989, a critical reflected XSS in server-function response handling. Never scaffold from an older lockfile.
 
@@ -115,4 +115,4 @@ Fork PRs are reviewed from a checkout of the trusted base branch; the fork's cod
 - **Gemini 429** on a burst. Mitigation: sequential calls with backoff; the pipeline is deliberately not parallel. Provider *capacity* errors (`high demand`) are not retried, only rate limits.
 - **unpdf column order** on the hero PDF. Mitigation: the coordinate reader and de-hyphenation are covered by tests; the two-column case is asserted.
 - **The 300-second ceiling** if a retry cascade stretches. Mitigation: budget counter in the pipeline, not in the UI.
-- **The browser-to-pipeline bridge.** The single largest unbuilt piece: the UI still renders fixtures while the endpoint works in isolation. It is the first thing to wire.
+- **The browser-to-pipeline bridge.** Built: `src/utils/pipelineClient.ts`, `ApprovalModal.tsx` and the workspace page open the SSE stream and post gate decisions for an active experiment. A live run still needs an experiment UUID created in the workspace (`/api/experiments`) or seeded (#8).

@@ -22,7 +22,11 @@ import {
 } from 'vitest'
 
 import { createCallModel } from '../model'
-import { SandboxTimeoutError } from '../runner'
+import {
+  MetricsExtractionError,
+  PackageVerificationError,
+  SandboxTimeoutError,
+} from '../runner'
 import type { PipelineEvent } from '../../shared/events'
 import type { ExperimentSpec } from '../../shared/types'
 import type { PipelineTimings } from './timings'
@@ -161,10 +165,11 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       parent_run_id: string | null
       attempt: number
       started_at: Date | null
+      sandbox_id: string | null
     }>(
       `SELECT id, status, spec, metrics, environment, stderr, verdict,
               verdict_detail, experiment_id, parent_run_id, attempt,
-              started_at
+              started_at, sandbox_id
          FROM runs
         WHERE experiment_id = $1
         ORDER BY created_at`,
@@ -399,7 +404,12 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       ))
       const rows = await runRows()
       const [parent, child] = rows
-      expect(parent).toMatchObject({ attempt: 1, status: 'failed', verdict: 'failed' })
+      expect(parent).toMatchObject({
+        attempt: 1,
+        status: 'failed',
+        verdict: 'failed',
+        sandbox_id: 'sandbox-test-1',
+      })
       expect(parent!.spec.files['main.py']).toBe(brokenScript)
       const task = await testDb.pool.query<{ input_ref: unknown }>(
         "SELECT input_ref FROM agent_tasks WHERE task_kind = 'repair_script'",
@@ -415,7 +425,12 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       }
       expect(rows).toHaveLength(2)
       expect(child).toMatchObject({
-        attempt: 2, parent_run_id: parent!.id, status: 'succeeded', verdict: 'match',
+        attempt: 2,
+        parent_run_id: parent!.id,
+        status: 'succeeded',
+        verdict: 'match',
+        // The repaired run's own sandbox, persisted by the repair store.
+        sandbox_id: 'sandbox-test-1',
       })
       expect(child!.spec.files['main.py']).toBe(candidate)
       expect(sse.events.at(-1)).toMatchObject({ type: 'pipeline.completed', runId: child!.id })
@@ -432,7 +447,15 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       async run() {
         this.runCalls++
         if (this.runCalls === 1) {
-          throw new SandboxTimeoutError('Execution timed out after 30 seconds', 30)
+          throw new SandboxTimeoutError(
+            'Execution timed out after 30 seconds',
+            30,
+            '',
+            '',
+            0,
+            undefined,
+            'sandbox-timeout-1',
+          )
         }
         return measuredResult({ metrics: { score: 0.9 } })
       },
@@ -455,13 +478,149 @@ describeIntegration('production pipeline stages over real Postgres', () => {
 
     const rows = await runRows()
     expect(rows).toHaveLength(2)
-    expect(rows[0]).toMatchObject({ attempt: 1, status: 'timeout' })
+    expect(rows[0]).toMatchObject({
+      attempt: 1,
+      status: 'timeout',
+      // A typed timeout still reports the sandbox that ran.
+      sandbox_id: 'sandbox-timeout-1',
+    })
     expect(rows[1]).toMatchObject({
       attempt: 2,
       parent_run_id: rows[0]!.id,
       status: 'succeeded',
+      sandbox_id: 'sandbox-test-1',
     })
     expect(runner.runCalls).toBe(2)
+  })
+
+  it('repairs a run that exited 0 without valid metrics and persists the repaired notebook', async () => {
+    const originalScript = seed.spec.files['main.py']!
+    // A substantive change (not imports/columns/paths), so it re-opens the gate.
+    const candidate = originalScript.replace('0.9', '0.8')
+    const runner: StubRunner = {
+      ...createStubRunner('succeed'),
+      async run() {
+        this.runCalls++
+        if (this.runCalls === 1) {
+          // The script exited successfully but never wrote /output/metrics.json.
+          throw new MetricsExtractionError(
+            'Execution completed (exit code 0), but /output/metrics.json was not created.',
+            0,
+            'computed ranks\n',
+            '',
+            0,
+            undefined,
+            'sandbox-metrics-1',
+          )
+        }
+        return measuredResult({ metrics: { score: 0.8 } })
+      },
+    }
+    const callModel = createCallModel({
+      generate: async ({ prompt }) => ({
+        output: prompt.includes('metrics.json was not created')
+          ? { script: candidate, summary: 'Write the metrics file' }
+          : { explanation: 'The repaired run produced the expected score.' },
+        inputTokens: 15,
+        outputTokens: 10,
+      }),
+    })
+    const handlers = handlersFor(runner, FAST_TIMINGS, callModel)
+    const sse = consume(await handlers.stream(streamRequest(seed.experimentId), {
+      experimentId: seed.experimentId,
+    }))
+
+    const initial = await approveRequested(handlers, sse)
+    const repairGate = (await sse.waitFor(
+      (event) => event.type === 'approval.requested' && event.seq > initial.seq,
+    )) as Extract<PipelineEvent, { type: 'approval.requested' }>
+    expect(runner.runCalls).toBe(1)
+    // A metrics-extraction failure is a script bug, not infrastructure: the
+    // repair loop opened a gate instead of ending the pipeline.
+    expect(repairGate.repair?.parentRunId).toBeTruthy()
+    expect(repairGate.repair?.attempt).toBe(2)
+
+    const response = await handlers.approve(
+      approveRequest(seed.experimentId, repairGate.seq, 'approved'),
+      { experimentId: seed.experimentId },
+    )
+    expect(response.status).toBe(200)
+    await sse.waitFor((event) => event.type === 'pipeline.completed')
+
+    const rows = await runRows()
+    expect(rows).toHaveLength(2)
+    const [parent, child] = rows
+    expect(parent).toMatchObject({
+      attempt: 1,
+      status: 'failed',
+      // A typed metrics failure still reports the sandbox that ran.
+      sandbox_id: 'sandbox-metrics-1',
+    })
+    expect(child).toMatchObject({
+      attempt: 2,
+      parent_run_id: parent!.id,
+      status: 'succeeded',
+      verdict: 'match',
+      sandbox_id: 'sandbox-test-1',
+    })
+    expect(child!.spec.files['main.py']).toBe(candidate)
+
+    const notebooks = await testDb.pool.query<{ content: string }>(
+      "SELECT content FROM run_artifacts WHERE run_id = $1 AND kind = 'notebook'",
+      [child!.id],
+    )
+    expect(notebooks.rows).toHaveLength(1)
+    const notebook = JSON.parse(notebooks.rows[0]!.content)
+    expect(notebook).toMatchObject({ nbformat: 4, nbformat_minor: 5 })
+    expect(notebook.cells[0].source.join('')).toContain('Reproducibility Record')
+
+    // One REPAIR_SCRIPT model call, one task row, scoped to the failed parent
+    // run: a metrics failure opens the repair path without duplicating either.
+    const repairTasks = await testDb.pool.query<{ input_ref: unknown }>(
+      "SELECT input_ref FROM agent_tasks WHERE task_kind = 'repair_script'",
+    )
+    expect(repairTasks.rows).toEqual([
+      { input_ref: { experimentId: seed.experimentId, runId: parent!.id } },
+    ])
+  })
+
+  it('does not enter the repair loop for a pinned-package mismatch', async () => {
+    const runner: StubRunner = {
+      ...createStubRunner('succeed'),
+      async run() {
+        this.runCalls++
+        throw new PackageVerificationError(
+          'Sandbox environment failed package verification: numpy',
+          0,
+          'computed\n',
+          '',
+          0,
+          undefined,
+          {},
+          'sandbox-packages-1',
+        )
+      },
+    }
+    const handlers = handlersFor(runner)
+    const sse = consume(await handlers.stream(streamRequest(seed.experimentId), {
+      experimentId: seed.experimentId,
+    }))
+    await approveRequested(handlers, sse)
+    await sse.waitFor((event) => event.type === 'pipeline.completed')
+
+    expect(runner.runCalls).toBe(1)
+    const rows = await runRows()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      attempt: 1,
+      status: 'failed',
+      // A typed package failure still reports the sandbox that ran.
+      sandbox_id: 'sandbox-packages-1',
+    })
+    const tasks = await testDb.pool.query(
+      "SELECT id FROM agent_tasks WHERE task_kind = 'repair_script'",
+    )
+    expect(tasks.rows).toHaveLength(0)
   })
 
   it('offers the persisted plan at the gate after real planner validation', async () => {
@@ -539,6 +698,9 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       metrics: { score: 0.9 },
       verdict: 'match',
       started_at: expect.any(Date),
+      // The runner reports its sandbox id and the measured-result update
+      // persists it; the earlier `run.started` event could not (no sandbox yet).
+      sandbox_id: 'sandbox-test-1',
     })
     // The run keeps the exact plan that was approved, not a pointer.
     expect(rows[0]?.spec).toEqual(seed.spec)
@@ -583,6 +745,9 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     const metadata = notebook.cells[0].source.join('')
     expect(metadata).toContain('noise can outrank informative features')
     expect(metadata).toContain(rows[0]!.verdict_detail!.explanation)
+    // The synthetic spec is not the supported template, so the notebook must
+    // not claim the fixed breast-w protocol.
+    expect(metadata).not.toContain('fixed adapted breast-w protocol')
 
     const tasks = await testDb.pool.query<{
       task_kind: string
@@ -936,6 +1101,77 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     ])
   })
 
+  it('emits run.failed for a non-zero exit that still produced valid metrics', async () => {
+    const originalScript = seed.spec.files['main.py']!
+    // A substantive change, so the repaired candidate re-opens the gate.
+    const candidate = originalScript.replace('0.9', '0.8')
+    const runner: StubRunner = {
+      ...createStubRunner('succeed'),
+      async run() {
+        this.runCalls++
+        if (this.runCalls === 1) {
+          // The script wrote valid metrics but exited non-zero: the row is
+          // `failed`, so the event must be `run.failed`, not `run.succeeded`.
+          return measuredResult({
+            exitCode: 1,
+            stderr: 'AssertionError: score too low',
+            metrics: { score: 0.4 },
+          })
+        }
+        return measuredResult({ metrics: { score: 0.8 } })
+      },
+    }
+    const callModel = createCallModel({
+      generate: async ({ prompt }) => ({
+        output: prompt.includes('score too low')
+          ? { script: candidate, summary: 'Relaxed the failing threshold' }
+          : { explanation: 'The verdict was computed from the run.' },
+        inputTokens: 15,
+        outputTokens: 10,
+      }),
+    })
+    const handlers = handlersFor(runner, FAST_TIMINGS, callModel)
+    const sse = consume(await handlers.stream(streamRequest(seed.experimentId), {
+      experimentId: seed.experimentId,
+    }))
+    const initial = await approveRequested(handlers, sse)
+
+    const runFailed = (await sse.waitFor(
+      (event) => event.type === 'run.failed',
+    )) as Extract<PipelineEvent, { type: 'run.failed' }>
+    expect(runFailed.error).toBe('The experiment script did not exit successfully')
+
+    const failedRows = await runRows()
+    expect(failedRows).toHaveLength(1)
+    expect(failedRows[0]).toMatchObject({
+      id: runFailed.runId,
+      status: 'failed',
+      metrics: { score: 0.4 },
+    })
+
+    // A non-zero exit with valid metrics is still repairable, so the repair
+    // gate must appear after the failed event.
+    const repairGate = await sse.waitFor(
+      (event) => event.type === 'approval.requested' && event.seq > initial.seq,
+    )
+    expect(runner.runCalls).toBe(1)
+
+    const response = await handlers.approve(
+      approveRequest(seed.experimentId, repairGate.seq, 'approved'),
+      { experimentId: seed.experimentId },
+    )
+    expect(response.status).toBe(200)
+    await sse.waitFor((event) => event.type === 'pipeline.completed')
+
+    const rows = await runRows()
+    expect(rows).toHaveLength(2)
+    expect(rows[1]).toMatchObject({
+      attempt: 2,
+      parent_run_id: rows[0]!.id,
+      status: 'succeeded',
+    })
+  })
+
   it('fails the pipeline rather than reporting completion without the graph', async () => {
     const runner = createStubRunner('succeed')
     const handlers = handlersFor(runner)
@@ -1025,6 +1261,80 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     expect(graph.edges).toHaveLength(0)
   })
 
+  /**
+   * Simulates the creation race: when the budget aborts, the runner holds no
+   * sandbox yet (as during `Sandbox.create`); it registers one only after the
+   * abort has fired, then settles.
+   */
+  function createLateSandboxRunner(delayMs: number): StubRunner {
+    const active = new Map<string, unknown>()
+    const cancelCalls: string[] = []
+    let runCalls = 0
+    return {
+      get runCalls() {
+        return runCalls
+      },
+      cancelCalls,
+      getActiveSandboxes: () => active,
+      async run() {
+        runCalls += 1
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+        active.set('sandbox-late', {})
+        return measuredResult({ sandboxId: 'sandbox-late' })
+      },
+      async cancel(sandboxId) {
+        cancelCalls.push(sandboxId)
+        active.delete(sandboxId)
+      },
+    }
+  }
+
+  it('disposes a sandbox that was still being created when the budget aborted', async () => {
+    const runner = createLateSandboxRunner(1_200)
+    const handlers = handlersFor(runner, {
+      budgetMs: 900,
+      heartbeatIntervalMs: 90,
+      approvalPollIntervalMs: 20,
+      eventPollIntervalMs: 20,
+      claimTtlMs: 5_000,
+    })
+
+    const sse = consume(
+      await handlers.stream(streamRequest(seed.experimentId), {
+        experimentId: seed.experimentId,
+      }),
+    )
+    await approveRequested(handlers, sse)
+
+    await sse.waitFor((event) => event.type === 'run.started')
+    await sse.waitFor((event) => event.type === 'run.timeout', 5_000)
+    await sse.waitForClose(5_000)
+
+    // The abort listener swept while the map was empty; the sweep after the
+    // runner settled is what disposes the late sandbox instead of leaving it
+    // to E2B's timeout. The stage settles after the stream's terminal, so poll.
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (runner.cancelCalls.includes('sandbox-late')) break
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    expect(runner.cancelCalls).toEqual(['sandbox-late'])
+    expect(runner.getActiveSandboxes().size).toBe(0)
+
+    // The aborted run is still marked durable and terminal.
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const rows = await runRows()
+      if (rows[0]?.status === 'timeout') break
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    const rows = await runRows()
+    expect(rows[0]).toMatchObject({
+      status: 'timeout',
+      verdict: null,
+      // The sandbox created after the abort still lands on the run row.
+      sandbox_id: 'sandbox-late',
+    })
+  })
+
   it('cancels the live sandbox and marks the run timed out when the budget expires', async () => {
     const runner = createStubRunner('hangUntilCancel')
     const handlers = handlersFor(runner, {
@@ -1067,7 +1377,11 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
     const rows = await runRows()
-    expect(rows[0]).toMatchObject({ status: 'timeout', verdict: null })
+    expect(rows[0]).toMatchObject({
+      status: 'timeout',
+      verdict: null,
+      sandbox_id: 'sandbox-test-1',
+    })
 
     // The abort path still owes the graph once the row is terminal.
     const graph = await waitForRunNode()

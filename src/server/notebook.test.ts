@@ -70,6 +70,35 @@ const NbformatV45Schema = z.object({
 })
 
 describe('buildNotebookDocument (Issue #28)', () => {
+  it('names the supported template so the record does not claim a dataset reproduction', () => {
+    const label =
+      'Random forest variable importance — fixed adapted breast-w protocol (not the claim\'s original dataset)'
+    const nb = buildNotebookDocument({
+      spec: HERO_EXPERIMENT_SPEC_RUN_A,
+      environment: HERO_RECORDED_RUN_RESULT.environment,
+      claim: HERO_CLAIM,
+      verdict: 'match',
+      templateLabel: label,
+    })
+
+    const metadata = nb.cells[0]!.source.join('')
+    expect(metadata).toContain(`- **Experiment:** ${label}`)
+    expect(metadata.indexOf('- **Mode:**')).toBeLessThan(
+      metadata.indexOf('- **Experiment:**'),
+    )
+    expect(metadata.indexOf('- **Experiment:**')).toBeLessThan(
+      metadata.indexOf('- **Verdict:**'),
+    )
+
+    // Absent the label, the line is omitted rather than rendered empty.
+    const withoutLabel = buildNotebookDocument({
+      spec: HERO_EXPERIMENT_SPEC_RUN_A,
+      claim: HERO_CLAIM,
+      verdict: 'match',
+    })
+    expect(withoutLabel.cells[0]!.source.join('')).not.toContain('- **Experiment:**')
+  })
+
   it('produces a valid nbformat v4.5 document with all 7 required cells for the hero spec', () => {
     const nb = buildNotebookDocument({
       spec: HERO_EXPERIMENT_SPEC_RUN_A,

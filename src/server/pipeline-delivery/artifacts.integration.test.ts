@@ -24,6 +24,7 @@ import {
 
 import { runArtifacts, runs } from '../../db/schema'
 import type { RunStatus } from '../../shared/types'
+import { loadRunArtifactManifest, readRunArtifact } from '../run-artifacts'
 import {
   MAX_INLINE_ARTIFACT_BYTES,
   RunArtifactError,
@@ -287,6 +288,54 @@ describeIntegration('run artifact persistence over real Postgres', () => {
     const rows = await rowsFor(runId)
     expect(rows.map((row) => row.path)).toEqual(['/output/z-conflict.csv'])
     expect(rows[0]?.sha256).toBe(sha256(kept))
+  })
+
+  it('reads a manifest and both content encodings back from real rows', async () => {
+    const runId = await insertRun()
+    const csv = Buffer.from('rank,importance\n1,0.4\n')
+    const [savedCsv] = (await saveRunArtifacts(testDb.db, runId, [
+      runnerArtifact('/output/ranks.csv', csv),
+    ])).artifacts
+
+    const notebookText = JSON.stringify({
+      nbformat: 4,
+      nbformat_minor: 5,
+      cells: [],
+    })
+    const notebookBytes = Buffer.from(notebookText, 'utf8')
+    await testDb.db.insert(runArtifacts).values({
+      runId,
+      kind: 'notebook',
+      path: 'reproducibility-record.ipynb',
+      sha256: sha256(notebookBytes),
+      bytes: notebookBytes.byteLength,
+      content: notebookText,
+    })
+
+    const manifest = await loadRunArtifactManifest(testDb.db, runId)
+    expect(manifest).not.toBeNull()
+    expect(manifest!.attempt).toBe(1)
+    expect(manifest!.status).toBe('succeeded')
+    expect(
+      manifest!.artifacts.map((artifact) => artifact.path).sort(),
+    ).toEqual(['/output/ranks.csv', 'reproducibility-record.ipynb'])
+    expect(manifest!.artifacts.every((artifact) => artifact.hasContent)).toBe(true)
+
+    const csvRead = await readRunArtifact(testDb.db, runId, savedCsv!.id)
+    expect(csvRead?.bytes.equals(csv)).toBe(true)
+
+    const notebookRead = await readRunArtifact(testDb.db, runId, 'notebook')
+    expect(notebookRead?.artifact.path).toBe('reproducibility-record.ipynb')
+    expect(notebookRead?.bytes.equals(notebookBytes)).toBe(true)
+
+    // Another run's artifact id is not visible through this run.
+    const otherRunId = await insertRun()
+    const [other] = (await saveRunArtifacts(testDb.db, otherRunId, [
+      runnerArtifact('/output/other.csv', Buffer.from('other\n')),
+    ])).artifacts
+    expect(other?.id).toBeTruthy()
+    expect(other?.id).not.toBe(savedCsv!.id)
+    expect(await readRunArtifact(testDb.db, runId, other!.id)).toBeNull()
   })
 
   it('refuses a missing run and a run that is not terminal', async () => {

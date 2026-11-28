@@ -45,6 +45,8 @@ import type {
   ExperimentResult,
   ExperimentSpec,
   RunEnvironment,
+  Verdict,
+  VerdictDetail,
 } from '../../shared/types'
 import {
   MAX_REPAIR_ATTEMPTS,
@@ -53,8 +55,13 @@ import {
   repairAndRetryRun,
   type RepairPipelineEvent,
   type RepairRunRecord,
+  type RepairRunTerminalHook,
 } from '../branch'
 import { evaluateAndExplainExperiment } from '../evaluate'
+import {
+  identifyExperimentTemplate,
+  SUPPORTED_EXPERIMENT_TEMPLATE_LABEL,
+} from '../experiment-templates'
 import {
   callModel as productionCallModel,
   createDrizzleAgentTaskStore,
@@ -72,6 +79,12 @@ import {
   runnerErrorToFailedResult,
   type ExperimentRunner,
 } from '../runner'
+import {
+  classifyRunnerFailure,
+  isRepairableRunnerFailure,
+  safeRunnerFailureMessage,
+  type RunnerFailureKind,
+} from '../runner-failure'
 import { saveRunArtifacts } from './artifacts'
 import {
   PipelineStageError,
@@ -105,6 +118,63 @@ export type ProductionPipelineStages = PipelineStages & {
 /** A runner that can report its live sandboxes, as the E2B one does. */
 type CancellableRunner = ExperimentRunner & {
   getActiveSandboxes?: () => ReadonlyMap<string, unknown>
+}
+
+/**
+ * Wraps a runner so aborting the stage signal cancels every sandbox it has
+ * live. The sweep is deliberately not a single listener: the sandbox is
+ * created *inside* `runner.run`, so an abort that lands while `Sandbox.create`
+ * is still in flight finds an empty map and does nothing. The `finally` runs
+ * the sweep again once the run settles, which is what keeps disposal
+ * deterministic instead of leaving the sandbox to E2B's `timeoutMs` backstop.
+ *
+ * Both sweeps are best-effort (`void`), matching the listener: the abort
+ * reason is the error the pipeline must surface, never a cancellation failure.
+ */
+export function createSandboxCancellingRunner(
+  runner: ExperimentRunner,
+  signal: AbortSignal,
+): ExperimentRunner {
+  const cancellable = runner as CancellableRunner
+
+  return {
+    async run(spec, onStdout) {
+      signal.throwIfAborted()
+
+      /**
+       * Stops remote work when the client disconnects or the budget expires.
+       * Each sandbox id is cancelled at most once per run: the abort sweep and
+       * the settle sweep can both see a runner that still reports an id whose
+       * cancel is in flight, and re-issuing it adds nothing.
+       */
+      const swept = new Set<string>()
+      const cancelActiveSandboxes = (): void => {
+        const active = cancellable.getActiveSandboxes?.()
+        if (!active) return
+        for (const sandboxId of active.keys()) {
+          if (swept.has(sandboxId)) continue
+          swept.add(sandboxId)
+          void runner.cancel(sandboxId).catch((error: unknown) => {
+            console.error(
+              '[pipeline-delivery] could not cancel a sandbox after abort',
+              error,
+            )
+          })
+        }
+      }
+
+      signal.addEventListener('abort', cancelActiveSandboxes, { once: true })
+      try {
+        return await runner.run(spec, onStdout)
+      } finally {
+        signal.removeEventListener('abort', cancelActiveSandboxes)
+        // The listener may have fired before the runner had a sandbox to
+        // report. Sweep again now that the run has settled.
+        if (signal.aborted) cancelActiveSandboxes()
+      }
+    },
+    cancel: (sandboxId) => runner.cancel(sandboxId),
+  }
 }
 
 /** The placeholder environment a `running` row starts with. */
@@ -188,6 +258,83 @@ async function projectRunToGraphSafely(
       '[pipeline-delivery] could not project the terminal run onto the graph',
       error,
     )
+  }
+}
+
+type EvaluatedRun = {
+  verdict: Verdict
+  detail: VerdictDetail
+}
+
+/**
+ * Persists the reproducibility notebook for one successful run.
+ *
+ * The notebook is built from the run's own frozen spec and measured
+ * environment (never from a model call), which is what makes "open this in
+ * Colab and it runs" honest. Both the initial EXECUTE path and a successful
+ * repair candidate call this: a repaired run is still a real run and deserves
+ * its own record.
+ *
+ * Failure is logged and swallowed by the caller's run path: a notebook that
+ * could not be written must not turn a measured success into a failed run. The
+ * `runs` row remains the authoritative result either way.
+ */
+async function saveRunNotebookSafe(
+  db: Database,
+  workspaceId: string,
+  runId: string,
+  spec: ExperimentSpec,
+  environment: RunEnvironment,
+  evaluated: EvaluatedRun,
+): Promise<void> {
+  try {
+    const [claim] = await db
+      .select({
+        data: nodes.data,
+        paperTitle: sources.title,
+        doi: sources.doi,
+      })
+      .from(nodes)
+      .leftJoin(
+        sources,
+        and(
+          eq(sources.id, nodes.sourceId),
+          eq(sources.workspaceId, nodes.workspaceId),
+        ),
+      )
+      .where(
+        and(
+          eq(nodes.id, spec.claimNodeId),
+          eq(nodes.workspaceId, workspaceId),
+          eq(nodes.type, 'claim'),
+        ),
+      )
+
+    if (claim?.data.type !== 'claim') {
+      throw new Error('the run claim could not be loaded')
+    }
+
+    await saveNotebookArtifact(db, runId, {
+      spec,
+      environment,
+      paperTitle: claim.paperTitle,
+      doi: claim.doi,
+      claim: {
+        text: claim.data.text,
+        quote: claim.data.locator.quote,
+        page: claim.data.locator.page,
+        reported: claim.data.reported,
+      },
+      // The verdict tests the supported adapted template, not the claim's
+      // original dataset; a custom spec must not carry that label.
+      templateLabel: identifyExperimentTemplate(spec)
+        ? SUPPORTED_EXPERIMENT_TEMPLATE_LABEL
+        : null,
+      verdict: evaluated.verdict,
+      verdictExplanation: evaluated.detail.explanation,
+    })
+  } catch (error) {
+    console.error('[pipeline-delivery] could not save the run notebook', error)
   }
 }
 
@@ -358,7 +505,29 @@ export function createProductionPipelineStages(
       const { at: _at, experimentId: _experimentId, ...input } = event
       await context.emit(input)
     }
+    const onRunTerminal: RepairRunTerminalHook = async (run, result, evaluated) => {
+      if (run.status !== 'succeeded') return
+      if (result.artifacts.length > 0) {
+        try {
+          await saveRunArtifacts(db, run.id, result.artifacts)
+        } catch (error) {
+          console.error('[pipeline-delivery] could not persist repaired run artifacts', {
+            runId: run.id,
+            name: error instanceof Error ? error.name : 'UnknownError',
+          })
+        }
+      }
+      await saveRunNotebookSafe(
+        db,
+        context.workspaceId,
+        run.id,
+        run.spec,
+        result.environment,
+        evaluated,
+      )
+    }
     const repairOptions = {
+      onRunTerminal,
       runStore: {
         ...repairStore,
         async updateRun(...args: Parameters<typeof repairStore.updateRun>) {
@@ -449,7 +618,6 @@ export function createProductionPipelineStages(
 
     async execute(context, spec) {
       const startedAt = now().toISOString()
-      const cancellable = runner as CancellableRunner
 
       await context.emit({ type: 'stage.started', stage: 'EXECUTE' })
 
@@ -469,47 +637,28 @@ export function createProductionPipelineStages(
         type: 'run.started',
         runId,
         attempt,
-        // E2BRunner does not expose the sandbox id to this layer; the run row
-        // is the durable place for it once the runtime workstream provides it.
+        // The sandbox does not exist yet; `runs.sandbox_id` is written with
+        // the measured result once the runner reports it.
         sandboxId: null,
       })
 
-      /** Stops remote work when the client disconnects or the budget expires. */
-      const cancelActiveSandboxes = (): void => {
-        const active = cancellable.getActiveSandboxes?.()
-        if (!active) return
-        for (const sandboxId of active.keys()) {
-          void runner.cancel(sandboxId).catch((error: unknown) => {
-            console.error(
-              '[pipeline-delivery] could not cancel a sandbox after abort',
-              error,
-            )
-          })
-        }
-      }
-      const executionRunner: ExperimentRunner = {
-        async run(spec, onStdout) {
-          context.signal.throwIfAborted()
-          context.signal.addEventListener('abort', cancelActiveSandboxes, { once: true })
-          try {
-            return await runner.run(spec, onStdout)
-          } finally {
-            context.signal.removeEventListener('abort', cancelActiveSandboxes)
-          }
-        },
-        cancel: (sandboxId) => runner.cancel(sandboxId),
-      }
+      const executionRunner = createSandboxCancellingRunner(
+        runner,
+        context.signal,
+      )
 
       let result: ExperimentResult
       let runnerThrew = false
       let runnerTimedOut = false
+      let runnerFailureKind: RunnerFailureKind | null = null
       try {
         result = await executionRunner.run(spec, () => {
           // Durable stdout lives in `runs.stdout`; see the module header.
         })
       } catch (error) {
         runnerThrew = true
-        runnerTimedOut = error instanceof SandboxTimeoutError
+        runnerFailureKind = classifyRunnerFailure(error)
+        runnerTimedOut = runnerFailureKind === 'timeout'
         result = failedResultFromRunnerError(error, spec, startedAt)
       }
 
@@ -526,6 +675,9 @@ export function createProductionPipelineStages(
             .update(runs)
             .set({
               status,
+              // A run killed mid-EXECUTE records the sandbox it reached; a
+              // failure before `Sandbox.create` leaves the column null.
+              sandboxId: result.sandboxId ?? null,
               // Whatever the runner captured before the abort is still the
               // run's output. Metrics are deliberately not written: a result
               // obtained after cancellation is not trusted as a measurement.
@@ -561,6 +713,9 @@ export function createProductionPipelineStages(
         .update(runs)
         .set({
           status: runStatus,
+          // The sandbox id is part of the run's audit trail; a runner that
+          // cannot report one leaves the column null.
+          sandboxId: result.sandboxId ?? null,
           metrics: result.metrics,
           environment: result.environment,
           stdout: result.stdout,
@@ -589,11 +744,20 @@ export function createProductionPipelineStages(
           }
         }
 
-        if (runnerThrew) {
+        const runnerFailureMessage = runnerTimedOut
+          ? safeRunnerFailureMessage('timeout')
+          : runnerFailureKind
+            ? safeRunnerFailureMessage(runnerFailureKind)
+            : 'The experiment script did not exit successfully'
+
+        // The event must agree with the row: any non-zero exit is `failed`
+        // (or `timeout`), whether the runner threw or returned a measured
+        // result with valid metrics.
+        if (runnerThrew || result.exitCode !== 0) {
           await context.emit({
             type: 'run.failed',
             runId,
-            error: 'The experiment runner did not complete',
+            error: runnerFailureMessage,
           })
         } else {
           await context.emit({ type: 'run.succeeded', runId, result })
@@ -605,12 +769,7 @@ export function createProductionPipelineStages(
           // StageStatus has no `timeout`; the run row keeps that distinction.
           status: runStatus === 'succeeded' ? 'succeeded' : 'failed',
           taskId: null,
-          error:
-            runStatus === 'succeeded'
-              ? null
-              : runnerThrew
-                ? 'The experiment runner did not complete'
-                : 'The experiment script did not exit successfully',
+          error: runStatus === 'succeeded' ? null : runnerFailureMessage,
         })
 
         await context.emit({ type: 'stage.started', stage: 'EVALUATE' })
@@ -657,50 +816,14 @@ export function createProductionPipelineStages(
         if (!terminalRun) throw new Error('the terminal run could not be read back')
 
         if (runStatus === 'succeeded') {
-          try {
-            const [claim] = await db
-              .select({
-                data: nodes.data,
-                paperTitle: sources.title,
-                doi: sources.doi,
-              })
-              .from(nodes)
-              .leftJoin(
-                sources,
-                and(
-                  eq(sources.id, nodes.sourceId),
-                  eq(sources.workspaceId, nodes.workspaceId),
-                ),
-              )
-              .where(
-                and(
-                  eq(nodes.id, spec.claimNodeId),
-                  eq(nodes.workspaceId, context.workspaceId),
-                  eq(nodes.type, 'claim'),
-                ),
-              )
-
-            if (claim?.data.type !== 'claim') {
-              throw new Error('the run claim could not be loaded')
-            }
-
-            await saveNotebookArtifact(db, runId, {
-              spec,
-              environment: result.environment,
-              paperTitle: claim.paperTitle,
-              doi: claim.doi,
-              claim: {
-                text: claim.data.text,
-                quote: claim.data.locator.quote,
-                page: claim.data.locator.page,
-                reported: claim.data.reported,
-              },
-              verdict: evaluated.verdict,
-              verdictExplanation: evaluated.detail.explanation,
-            })
-          } catch (error) {
-            console.error('[pipeline-delivery] could not save the run notebook', error)
-          }
+          await saveRunNotebookSafe(
+            db,
+            context.workspaceId,
+            runId,
+            spec,
+            result.environment,
+            evaluated,
+          )
         }
 
         if (context.signal.aborted) {
@@ -762,7 +885,17 @@ export function createProductionPipelineStages(
           )
         }
 
-        if (runStatus === 'timeout' || (runStatus === 'failed' && !runnerThrew)) {
+        // A script that crashed or wrote missing/invalid metrics is repairable.
+        // A pinned-package mismatch or an untagged provider/SDK failure is not:
+        // rewriting the script cannot fix either, and the two attempts are a
+        // demo budget, not a retry loop for infrastructure.
+        const repairableRunnerFailure =
+          runnerFailureKind !== null && isRepairableRunnerFailure(runnerFailureKind)
+        const shouldRepair =
+          runStatus === 'timeout' ||
+          (runStatus === 'failed' && (!runnerThrew || repairableRunnerFailure))
+
+        if (shouldRepair) {
           return await repair(context, terminalRun, executionRunner)
         }
         return { runId }

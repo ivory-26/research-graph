@@ -185,6 +185,12 @@ export type Criteria = {
 
 export type ExperimentResult = {
   exitCode: number
+  /**
+   * Provider sandbox id when the runner can report it. Persisted on
+   * `runs.sandbox_id`; the pre-run `run.started` event cannot carry it because
+   * the sandbox does not exist yet.
+   */
+  sandboxId?: string | null
   stdout: string
   stderr: string
   metrics: Record<string, number>

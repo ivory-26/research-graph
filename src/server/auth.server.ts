@@ -13,8 +13,10 @@ import '@tanstack/react-start/server-only'
 
 import {
   createAuthServer,
+  DEFAULT_AUTH_SKIP_ROUTES,
   extractNeonAuthCookies,
   handleAuthProxyRequest,
+  processAuthMiddleware,
   type NeonAuthServer,
   type RequestContext,
   type RequestContextFactory,
@@ -373,6 +375,89 @@ export async function handleAuthRequest(
   })
 
   return withPrivateCacheHeaders(response)
+}
+
+// ---------------------------------------------------------------------------
+// OAuth callback completion
+// ---------------------------------------------------------------------------
+
+/** Query parameter Neon Auth appends to the callback URL after social sign-in. */
+const OAUTH_VERIFIER_PARAM = 'neon_auth_session_verifier'
+
+/** The same-origin proxy owns its own verifier exchange; never intercept it. */
+const AUTH_PROXY_PREFIX = '/api/'
+
+/**
+ * Exchanges a social sign-in callback for a session before any route guard runs.
+ *
+ * Neon Auth returns from Google to the callback URL with
+ * `?neon_auth_session_verifier=...` and a `session_challenge` cookie. The
+ * verifier is single-use: the browser client can exchange it, but a route's
+ * `beforeLoad` guard on SSR reads the session first and would redirect a
+ * freshly signed-in user back to `/sign-in` before the client ever runs.
+ *
+ * This runs as global request middleware. When the request carries a verifier,
+ * the SDK's own middleware exchanges it, returns the session cookies, and
+ * redirects to the same URL with the verifier removed — so the next request
+ * sees a real session and the guard admits the user. Every other request, and
+ * the `/api/auth/*` proxy, is left untouched (`null`).
+ *
+ * @param request The incoming document request.
+ * @returns A redirect carrying the session cookies, or `null` to continue.
+ */
+export async function completeOAuthCallback(
+  request: Request,
+): Promise<Response | null> {
+  if (request.method !== 'GET') return null
+
+  const url = new URL(request.url)
+  if (!url.searchParams.has(OAUTH_VERIFIER_PARAM)) return null
+  if (url.pathname === '/api' || url.pathname.startsWith(AUTH_PROXY_PREFIX)) {
+    return null
+  }
+
+  const config = readAuthConfig()
+  const result = await processAuthMiddleware({
+    request,
+    pathname: url.pathname,
+    skipRoutes: DEFAULT_AUTH_SKIP_ROUTES,
+    loginUrl: '/sign-in',
+    baseUrl: config.baseUrl,
+    cookieSecret: config.cookieSecret,
+    // Same as the proxy: `lax` keeps the session cookie on the top-level
+    // OAuth return, where `strict` would drop it.
+    sameSite: 'lax',
+  })
+
+  // `allow` means the route guard can already see a session; refreshed cookies
+  // it needs are re-minted by that guard's own session read.
+  if (result.action === 'allow') return null
+
+  let location = result.redirectUrl.toString()
+
+  // The exchange failed (for example a stale verifier). Mirror the route
+  // guard's contract: send the user to sign-in with the post-callback URL as
+  // `redirect`, never with the single-use verifier.
+  if (result.action === 'redirect_login') {
+    const target = new URL(request.url)
+    target.searchParams.delete(OAUTH_VERIFIER_PARAM)
+    const login = new URL('/sign-in', target)
+    login.searchParams.set(
+      'redirect',
+      `${target.pathname}${target.search}` || '/',
+    )
+    location = login.toString()
+  }
+
+  const headers = new Headers({
+    Location: location,
+    'Cache-Control': 'no-store',
+  })
+  for (const cookie of result.cookies ?? []) {
+    headers.append('Set-Cookie', cookie)
+  }
+
+  return new Response(null, { status: 302, headers })
 }
 
 // ---------------------------------------------------------------------------

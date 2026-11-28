@@ -50,6 +50,16 @@ describe('mapAgentTaskQueryRows', () => {
     expect(task!.runLabel).toBeNull()
   })
 
+  it('surfaces a label for a ui batch that has no run id', () => {
+    // The sources page records `ui:<kind>` batches without an extractionRunId;
+    // hiding their label made every live ingestion look unattributed.
+    const [task] = mapAgentTaskQueryRows([
+      row({ inputRef: { extractionRunLabel: 'ui:repo' } }),
+    ])
+    expect(task!.runId).toBeNull()
+    expect(task!.runLabel).toBe('ui:repo')
+  })
+
   it('treats blank or non-string run fields as absent', () => {
     const [task] = mapAgentTaskQueryRows([
       row({ inputRef: { extractionRunId: '   ', extractionRunLabel: 42, runId: '' } }),
@@ -70,6 +80,16 @@ describe('mapAgentTaskQueryRows', () => {
     ])
     expect(measured!.costUsd).toBeCloseTo(0.0015)
     expect(measured!.latencyMs).toBe(250)
+  })
+
+  it('surfaces the recorded model so the optional Meta provider is observable', () => {
+    const [meta] = mapAgentTaskQueryRows([
+      row({ model: 'muse-spark-1.3-contributor' }),
+    ])
+    expect(meta!.model).toBe('muse-spark-1.3-contributor')
+
+    const [unrecorded] = mapAgentTaskQueryRows([row({ model: '   ' })])
+    expect(unrecorded!.model).toBeNull()
   })
 
   it('uses strategy names and leaves tasks without a name unassigned', () => {

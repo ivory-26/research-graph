@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { eq } from 'drizzle-orm';
+import { asc, desc, eq } from 'drizzle-orm';
 
 import { getDb } from '../../db/client';
 import { agentStrategies, agentTasks } from '../../db/schema';
@@ -40,15 +40,18 @@ export const Route = createFileRoute('/api/strategies')({
               id: agentTasks.id,
               taskKind: agentTasks.taskKind,
               strategyName: agentStrategies.name,
+              model: agentTasks.model,
               status: agentTasks.status,
               inputRef: agentTasks.inputRef,
               latencyMs: agentTasks.latencyMs,
               costUsd: agentTasks.costUsd,
               error: agentTasks.error,
+              createdAt: agentTasks.createdAt,
             })
             .from(agentTasks)
             .leftJoin(agentStrategies, eq(agentTasks.strategyId, agentStrategies.id))
-            .where(eq(agentTasks.workspaceId, membership.workspaceId));
+            .where(eq(agentTasks.workspaceId, membership.workspaceId))
+            .orderBy(desc(agentTasks.createdAt), asc(agentTasks.id));
 
           const tasks = mapAgentTaskQueryRows(rows);
 

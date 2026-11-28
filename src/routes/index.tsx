@@ -13,7 +13,7 @@ import { ComparisonView } from '../components/panels/ComparisonView';
 import { StrategyDashboard } from '../components/panels/StrategyDashboard';
 import { SettingsPage } from '../components/panels/SettingsPage';
 import { ApprovalModal } from '../components/panels/ApprovalModal';
-import { ExportModal } from '../components/panels/ExportModal';
+import { ExportModal, type ExportRunContext } from '../components/panels/ExportModal';
 import { ConsoleDrawer } from '../components/panels/ConsoleDrawer';
 import {
   DEMO_NODES,
@@ -112,6 +112,7 @@ export const Route = createFileRoute('/')({
 function WorkspacePage() {
   const navigate = useNavigate({ from: '/' });
   const search = Route.useSearch();
+  const { isPreview } = Route.useRouteContext();
 
   // Graph and strategy rows carry the workspace they belong to, so a workspace switch
   // never renders the previous workspace's data under the new workspace's header.
@@ -127,10 +128,14 @@ function WorkspacePage() {
     source: 'fixture',
   }));
   const [workspaces, setWorkspaces] = useState(WORKSPACES);
+  const [workspaceRevision, setWorkspaceRevision] = useState(0);
 
   // URL-addressable active page and workspace (active id derived directly from search.workspace)
   const currentPage: PageId = search.page ?? 'graph';
-  const activeWorkspaceId = search.workspace ?? FIXTURE_WORKSPACE_ID;
+  const activeWorkspaceId =
+    search.workspace ??
+    workspaces.find((workspace) => isDatabaseWorkspaceId(workspace.id))?.id ??
+    FIXTURE_WORKSPACE_ID;
   const activeIsDatabaseWorkspace = isDatabaseWorkspaceId(activeWorkspaceId);
   const activeWorkspaceObj = workspaces.find((w) => w.id === activeWorkspaceId) ?? {
     id: activeWorkspaceId,
@@ -166,7 +171,7 @@ function WorkspacePage() {
     const target = workspaces.find((w) => w.id === workspaceId);
     if (!target) return;
     navigate({
-      search: (prev) => ({ ...prev, workspace: target.id }),
+      search: (prev) => ({ ...prev, workspace: target.id, experimentId: undefined }),
     });
     showToast(`Switched workspace to ${target.name}`);
   };
@@ -176,6 +181,7 @@ function WorkspacePage() {
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [exportRun, setExportRun] = useState<(ExportRunContext & { workspaceId: string }) | null>(null);
 
   // Selection states
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>('e-src1-claim');
@@ -202,6 +208,7 @@ function WorkspacePage() {
   );
   const [gateSeq, setGateSeq] = useState<number | null>(null);
   const [activeGateSpec, setActiveGateSpec] = useState<ExperimentSpec | null>(null);
+  const [gateRepair, setGateRepair] = useState<{ parentRunId: string; attempt?: number | null } | null>(null);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -227,10 +234,12 @@ function WorkspacePage() {
     activeGateRef.current = null;
     setGateSeq(null);
     setActiveGateSpec(null);
+    setGateRepair(null);
   };
 
   // Load live user workspaces (with UUIDs) on mount, preserving the demo fixture entry
   useEffect(() => {
+    if (isPreview) return;
     let active = true;
     fetch('/api/workspaces', { headers: { Accept: 'application/json' } })
       .then((res) => {
@@ -253,14 +262,24 @@ function WorkspacePage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [isPreview]);
+
+  useEffect(() => {
+    const onWorkspaceUpdated = (event: Event) => {
+      if ((event as CustomEvent<{ workspaceId: string }>).detail?.workspaceId === activeWorkspaceId) {
+        setWorkspaceRevision((revision) => revision + 1);
+      }
+    };
+    window.addEventListener('rg:workspace-updated', onWorkspaceUpdated);
+    return () => window.removeEventListener('rg:workspace-updated', onWorkspaceUpdated);
+  }, [activeWorkspaceId]);
 
   // Load graph and strategy agent_tasks for the requested workspace: database rows for a UUID,
   // the demo fixture for the intentional fixture route. Every write is tagged with the workspace
   // it belongs to, and every response from a superseded workspace is ignored.
   useEffect(() => {
     let active = true;
-    const requestedWorkspaceId = search.workspace ?? FIXTURE_WORKSPACE_ID;
+    const requestedWorkspaceId = activeWorkspaceId;
 
     if (!isDatabaseWorkspaceId(requestedWorkspaceId)) {
       setGraphState({
@@ -351,7 +370,7 @@ function WorkspacePage() {
     return () => {
       active = false;
     };
-  }, [search.workspace]);
+  }, [activeWorkspaceId, workspaceRevision]);
 
   useEffect(() => {
     return () => {
@@ -490,6 +509,7 @@ function WorkspacePage() {
           onApprovalRequested: (event) => {
             setExperimentId(event.experimentId);
             openGate(event.experimentId, event.seq, event.spec);
+            setGateRepair(event.repair ?? null);
             setApprovalError(null);
             approvalOpenedByStreamRef.current = true;
             setIsApprovalOpen(true);
@@ -529,6 +549,7 @@ function WorkspacePage() {
             }
           },
           onComplete: () => {
+            setWorkspaceRevision((revision) => revision + 1);
             delete lastSeqRef.current[expId];
             streamCleanupRef.current = null;
             setIsStreaming(false);
@@ -737,7 +758,11 @@ function WorkspacePage() {
         {/* Page Views Container */}
         <div className="flex-1 overflow-auto relative">
           {currentPage === 'overview' && (
-            <OverviewPage onOpenGraph={() => setCurrentPage('graph')} />
+            <OverviewPage
+              workspaceId={activeWorkspaceId}
+              isLive={activeIsDatabaseWorkspace}
+              onOpenGraph={() => setCurrentPage('graph')}
+            />
           )}
 
           {currentPage === 'graph' && (
@@ -783,7 +808,7 @@ function WorkspacePage() {
           )}
 
           {currentPage === 'sources' && (
-            <SourcesPage onShowToast={showToast} onIngestSource={handleIngestSource} />
+            <SourcesPage workspaceId={activeWorkspaceId} onShowToast={showToast} onIngestSource={handleIngestSource} />
           )}
 
           {currentPage === 'ask' && (
@@ -791,11 +816,20 @@ function WorkspacePage() {
           )}
 
           {currentPage === 'agents' && (
-            <AgentMonitorPage />
+            <AgentMonitorPage
+              workspaceId={activeWorkspaceId}
+              isLive={activeIsDatabaseWorkspace}
+            />
           )}
 
           {currentPage === 'experiments' && (
             <ExperimentsPage
+              workspaceId={activeWorkspaceId}
+              onShowToast={showToast}
+              onOpenRunExport={(run) => {
+                setExportRun({ ...run, workspaceId: activeWorkspaceId });
+                setIsExportOpen(true);
+              }}
               onOpenApproval={() => handleOpenPipelineRun()}
               onOpenCompare={() => setCurrentPage('compare')}
             />
@@ -835,6 +869,7 @@ function WorkspacePage() {
         experimentId={experimentId}
         gateSeq={gateSeq}
         spec={activeGateSpec}
+        repair={gateRepair}
         errorMessage={approvalError}
         isSubmitting={isSubmittingApproval}
         isStreaming={isStreaming}
@@ -844,6 +879,8 @@ function WorkspacePage() {
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
         onShowToast={showToast}
+        workspaceId={activeIsDatabaseWorkspace ? activeWorkspaceId : null}
+        activeRun={exportRun?.workspaceId === activeWorkspaceId ? exportRun : null}
       />
 
       {/* Toast Notification */}

@@ -30,6 +30,7 @@ import { Route as GraphRoute } from '../routes/api/graph.ts'
 import { Route as StrategiesRoute } from '../routes/api/strategies.ts'
 import { extractClaims } from './extract/claims.ts'
 import type { ChunkRef } from './extract/types.ts'
+import { ingestSourceToGraphForWorkspace } from './extract/pipeline.ts'
 import {
   createCallModel,
   createDrizzleAgentTaskStore,
@@ -231,6 +232,63 @@ describeIntegration('workspace data routes on Postgres', () => {
     const tableRows = markup.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/g) ?? []
     expect(tableRows.find((row) => row.includes('Kursa 2010 · single_pass'))).toContain('>0%</td>')
     expect(tableRows.find((row) => row.includes('Strobl 2007 · single_pass'))).toContain('>100%</td>')
+  })
+
+  it('leaves UI ingestion task rows unattributed instead of inventing a run id', async () => {
+    await ingestSourceToGraphForWorkspace({
+      db: testDb.db,
+      workspaceId: seed.workspaceId,
+      source: {
+        kind: 'web',
+        url: 'https://github.com/imbs-hl/ranger',
+        title: 'ranger project page',
+        firecrawlDeps: {
+          scraper: async (url) => ({
+            url,
+            title: 'imbs-hl/ranger',
+            markdown: VERBATIM_QUOTE,
+            description: null,
+            statusCode: 200,
+            metadata: { statusCode: 200 },
+          }),
+        },
+      },
+      // Mirrors the route: a label but no run id, because this request has no
+      // `runs` row to point at.
+      runLabel: 'ui:repo',
+      embedChunksFn: (async (items: unknown[]) =>
+        items.map(() => new Array(768).fill(0.05))) as never,
+      embedQueryFn: (async () => new Array(768).fill(0.05)) as never,
+      searchSimilarChunksFn: (async () => []) as never,
+      callModelFn: createCallModel({
+        generate: async ({ prompt }) => ({
+          // PROPOSE_EDGES runs after the rejected claim because the seeded
+          // workspace already has nodes; it may propose nothing.
+          output: prompt.includes('WORKSPACE NODES:')
+            ? { edges: [] }
+            : extractionOutput(ABSENT_QUOTE),
+          inputTokens: 120,
+          outputTokens: 80,
+        }),
+      }),
+      taskStore,
+    })
+
+    const rows = await testDb.db
+      .select({ inputRef: agentTasks.inputRef })
+      .from(agentTasks)
+      .where(eq(agentTasks.workspaceId, seed.workspaceId))
+    const uiRows = rows.filter(
+      (row) => (row.inputRef as Record<string, unknown>).extractionRunLabel === 'ui:repo',
+    )
+
+    expect(uiRows.length).toBeGreaterThan(0)
+    for (const row of uiRows) {
+      expect(row.inputRef).not.toHaveProperty('extractionRunId')
+    }
+    expect(uiRows[0]?.inputRef).toMatchObject({
+      extractionRunLabel: 'ui:repo',
+    })
   })
 
   it('renders the cited paper and exact run from persisted graph evidence', async () => {

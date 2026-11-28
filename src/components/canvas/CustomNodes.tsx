@@ -51,6 +51,11 @@ export const SourceNode: React.FC<NodeProps> = ({ data, selected }) => {
         </NodeToolbar>
 
         <Handle
+          type="target"
+          position={Position.Left}
+          className="!bg-[var(--accent-orange)] !w-2 !h-2 !-left-1 !rounded-full"
+        />
+        <Handle
           type="source"
           position={Position.Right}
           className="!bg-[var(--accent-orange)] !w-2 !h-2 !-right-1 !rounded-full"
@@ -111,6 +116,11 @@ export const SourceNode: React.FC<NodeProps> = ({ data, selected }) => {
         </button>
       </NodeToolbar>
 
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!bg-[var(--accent-orange)] !w-2 !h-2 !-left-1 !rounded-full"
+      />
       <Handle
         type="source"
         position={Position.Right}

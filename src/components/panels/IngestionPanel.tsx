@@ -1,6 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DEMO_SOURCES, DEMO_CHUNKS } from '../../data/demoWorkspace';
-import { UploadCloud, Globe, CheckCircle2, X, FileText, Copy, Check } from 'lucide-react';
+import {
+  UploadCloud,
+  Globe,
+  CheckCircle2,
+  X,
+  FileText,
+  Copy,
+  Check,
+  Loader2,
+  AlertTriangle,
+} from 'lucide-react';
+
+/** A chunk row as persisted for a database workspace. */
+export interface LiveSourceChunk {
+  id: string;
+  sourceId: string;
+  sourceTitle: string;
+  ordinal: number;
+  page: number | null;
+  text: string;
+  charStart: number;
+  charEnd: number;
+}
 
 export interface IngestionPanelProps {
   isOpen: boolean;
@@ -16,6 +38,24 @@ export interface IngestionPanelProps {
     status: string;
     doi: string;
   }>;
+  /** Persisted chunks for a database workspace; omitted for the demo fixture. */
+  chunks?: LiveSourceChunk[];
+  isLoadingChunks?: boolean;
+  chunksError?: string | null;
+  /** Hide the simulated upload/scrape tabs when reading a live workspace. */
+  live?: boolean;
+}
+
+interface DisplayChunk {
+  id: string;
+  sourceId: string;
+  sourceTitle: string;
+  /** Web chunks persist no page, so a missing page must stay missing. */
+  page: number | null;
+  charStart: number;
+  charEnd: number;
+  text: string;
+  ordinal?: number;
 }
 
 export const IngestionPanel: React.FC<IngestionPanelProps> = ({
@@ -24,6 +64,10 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
   initialTab = 'upload',
   selectedSourceId = null,
   sources,
+  chunks,
+  isLoadingChunks = false,
+  chunksError = null,
+  live = false,
 }) => {
   const [activeTab, setActiveTab] = useState<'upload' | 'firecrawl' | 'chunks'>(initialTab);
   const [activeSourceFilter, setActiveSourceFilter] = useState<string | null>(selectedSourceId);
@@ -36,10 +80,10 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      if (initialTab) setActiveTab(initialTab);
+      if (initialTab) setActiveTab(live ? 'chunks' : initialTab);
       if (selectedSourceId !== undefined) setActiveSourceFilter(selectedSourceId);
     }
-  }, [isOpen, initialTab, selectedSourceId]);
+  }, [isOpen, initialTab, selectedSourceId, live]);
 
   const handleCrawl = () => {
     setCrawlStatus('Adding paper project page to local sources...');
@@ -58,7 +102,18 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
 
   if (!isOpen) return null;
 
-  const allChunks = Object.values(DEMO_CHUNKS);
+  const allChunks: DisplayChunk[] = chunks
+    ? chunks.map((chunk) => ({
+        id: chunk.id,
+        sourceId: chunk.sourceId,
+        sourceTitle: chunk.sourceTitle,
+        page: chunk.page,
+        charStart: chunk.charStart,
+        charEnd: chunk.charEnd,
+        text: chunk.text,
+        ordinal: chunk.ordinal,
+      }))
+    : Object.values(DEMO_CHUNKS);
   const displayedChunks = activeSourceFilter
     ? allChunks.filter((c) => c.sourceId === activeSourceFilter)
     : allChunks;
@@ -106,26 +161,30 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
 
         {/* Tabs with Sharp Corners */}
         <div className="mt-4 flex border-b border-[var(--border-primary)] flex-none">
-          <button
-            onClick={() => setActiveTab('upload')}
-            className={`border-b-2 px-4 py-2 text-xs uppercase tracking-wider transition cursor-pointer ${
-              activeTab === 'upload'
-                ? 'border-[#f97316] text-[#f97316] font-bold'
-                : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            PDF Upload
-          </button>
-          <button
-            onClick={() => setActiveTab('firecrawl')}
-            className={`border-b-2 px-4 py-2 text-xs uppercase tracking-wider transition cursor-pointer ${
-              activeTab === 'firecrawl'
-                ? 'border-[#f97316] text-[#f97316] font-bold'
-                : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            Firecrawl Scraper
-          </button>
+          {!live && (
+            <>
+              <button
+                onClick={() => setActiveTab('upload')}
+                className={`border-b-2 px-4 py-2 text-xs uppercase tracking-wider transition cursor-pointer ${
+                  activeTab === 'upload'
+                    ? 'border-[#f97316] text-[#f97316] font-bold'
+                    : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                PDF Upload
+              </button>
+              <button
+                onClick={() => setActiveTab('firecrawl')}
+                className={`border-b-2 px-4 py-2 text-xs uppercase tracking-wider transition cursor-pointer ${
+                  activeTab === 'firecrawl'
+                    ? 'border-[#f97316] text-[#f97316] font-bold'
+                    : 'border-transparent text-[var(--text-dim)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                Firecrawl Scraper
+              </button>
+            </>
+          )}
           <button
             onClick={() => setActiveTab('chunks')}
             className={`border-b-2 px-4 py-2 text-xs uppercase tracking-wider transition cursor-pointer ${
@@ -280,14 +339,28 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
               </div>
 
               {/* Chunks List */}
-              {displayedChunks.length === 0 ? (
+              {isLoadingChunks ? (
+                <div className="p-8 text-center border border-dashed border-[var(--border-primary)] bg-[var(--card-bg)] space-y-2">
+                  <Loader2 className="h-8 w-8 text-[#f97316] mx-auto animate-spin" />
+                  <div className="text-xs font-bold text-[var(--text-primary)]">
+                    Loading persisted chunks...
+                  </div>
+                </div>
+              ) : chunksError ? (
+                <div className="p-6 text-center border border-dashed border-red-500/40 bg-red-500/5 space-y-2">
+                  <AlertTriangle className="h-8 w-8 text-red-300 mx-auto" />
+                  <div className="text-xs font-bold text-red-200">{chunksError}</div>
+                </div>
+              ) : displayedChunks.length === 0 ? (
                 <div className="p-8 text-center border border-dashed border-[var(--border-primary)] bg-[var(--card-bg)] space-y-2">
                   <FileText className="h-8 w-8 text-[#f97316] mx-auto opacity-70" />
                   <div className="text-xs font-bold text-[var(--text-primary)]">
                     No chunks extracted yet for {currentFilteredSource?.title || 'this source'}
                   </div>
                   <p className="text-[11px] text-[var(--text-dim)]">
-                    Run the PDF coordinate ingestion pipeline to generate 512-token chunks with character offsets.
+                    {live
+                      ? 'This source has no persisted chunks. It may need OCR, or ingestion may not have completed.'
+                      : 'Run the PDF coordinate ingestion pipeline to generate 512-token chunks with character offsets.'}
                   </p>
                 </div>
               ) : (
@@ -302,10 +375,12 @@ export const IngestionPanel: React.FC<IngestionPanelProps> = ({
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
                             <span className="badge-orange-outline !text-[9px] rounded-none">
-                              Chunk {chunk.id}
+                              {chunk.ordinal !== undefined
+                                ? `Chunk #${chunk.ordinal}`
+                                : `Chunk ${chunk.id}`}
                             </span>
                             <span className="text-[10px] text-[var(--text-dim)]">
-                              PAGE {chunk.page} · CHARS {chunk.charStart}–{chunk.charEnd}
+                              PAGE {chunk.page ?? '—'} · CHARS {chunk.charStart}–{chunk.charEnd}
                             </span>
                           </div>
                           <button

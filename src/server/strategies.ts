@@ -11,7 +11,9 @@
  *   3. `null` — a task recorded before either convention existed.
  *
  * A row is never given a synthetic run id. Missing telemetry stays `null` so
- * averages exclude it rather than counting a zero.
+ * averages exclude it rather than counting a zero. `input_ref.extractionRunLabel`
+ * is display text rather than an id, so it is surfaced whenever the row carries
+ * one — including `ui:<kind>` batches, which have a label but no run id.
  */
 import type { AgentTaskStatus, TaskKind } from '../shared/types'
 import type { AgentTaskRow } from '../shared/strategies'
@@ -23,11 +25,15 @@ export interface AgentTaskQueryRow {
   taskKind: TaskKind
   /** Joined `agent_strategies.name`, preferred for display when present. */
   strategyName: string | null
+  /** `agent_tasks.model`; the provider actually used for this attempt. */
+  model?: string | null
   status: AgentTaskStatus
   inputRef: Record<string, unknown> | null
   latencyMs: number | null
   costUsd: string | number | null
   error: string | null
+  /** `agent_tasks.created_at`; optional so older callers keep compiling. */
+  createdAt?: Date | string | null
 }
 
 function nonEmptyString(value: unknown): string | null {
@@ -55,17 +61,23 @@ export function mapAgentTaskQueryRows(rows: AgentTaskQueryRow[]): AgentTaskRow[]
       typeof row.latencyMs === 'number' && Number.isFinite(row.latencyMs)
         ? row.latencyMs
         : null
+    const createdAt =
+      row.createdAt instanceof Date
+        ? row.createdAt.toISOString()
+        : nonEmptyString(row.createdAt)
 
     return {
       id: row.id,
       taskKind: row.taskKind,
       strategyId: row.strategyName ?? recordedName ?? 'unassigned',
       runId: extractionRunId ?? experimentRunId,
-      runLabel: extractionRunId ? extractionRunLabel : null,
+      runLabel: extractionRunLabel,
+      model: nonEmptyString(row.model),
       status: row.status,
       latencyMs,
       costUsd,
       error: row.error,
+      createdAt,
     }
   })
 }

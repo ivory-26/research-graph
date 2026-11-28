@@ -1424,6 +1424,7 @@ describe('repairAndRetryRun (Issue #26)', () => {
 
     const updated = await store.updateRun('run-db-2', {
       status: 'succeeded',
+      sandboxId: 'sandbox-repair-1',
       metrics: structuredClone(HERO_RECORDED_RUN_RESULT.metrics),
       environment: structuredClone(HERO_RECORDED_RUN_RESULT.environment),
       verdict: 'match',
@@ -1433,7 +1434,11 @@ describe('repairAndRetryRun (Issue #26)', () => {
       finishedAt,
     })
     expect(updated).toEqual(updatedRow)
-    expect(updatedSets[0]).toMatchObject({ status: 'succeeded', verdict: 'match' })
+    expect(updatedSets[0]).toMatchObject({
+      status: 'succeeded',
+      verdict: 'match',
+      sandboxId: 'sandbox-repair-1',
+    })
 
     returnCreated = false
     await expect(

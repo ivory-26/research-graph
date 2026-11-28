@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { CommandExitError, Sandbox } from 'e2b'
 import {
   E2BRunner,
   MetricsExtractionError,
@@ -65,10 +66,19 @@ describe('verifyEnvironmentPackages', () => {
 
 describe('runnerErrorToFailedResult mapping', () => {
   it('maps MetricsExtractionError into a failed ExperimentResult with exit code and error detail', () => {
-    const err = new MetricsExtractionError('metrics.json was missing', 0, 'stdout output', 'stderr output', 1200)
+    const err = new MetricsExtractionError(
+      'metrics.json was missing',
+      0,
+      'stdout output',
+      'stderr output',
+      1200,
+      undefined,
+      'sandbox-metrics',
+    )
     const failedResult = runnerErrorToFailedResult(err, HERO_EXPERIMENT_SPEC_RUN_A)
 
     expect(failedResult.exitCode).toBe(1) // Mapped to non-zero failure
+    expect(failedResult.sandboxId).toBe('sandbox-metrics')
     expect(failedResult.stdout).toBe('stdout output')
     expect(failedResult.stderr).toContain('metrics.json was missing')
     expect(failedResult.durationMs).toBe(1200)
@@ -81,10 +91,19 @@ describe('runnerErrorToFailedResult mapping', () => {
   })
 
   it('maps SandboxTimeoutError into a failed ExperimentResult with exit code 124', () => {
-    const err = new SandboxTimeoutError('Execution timed out after 60s', 60, '', 'DeadlineExceeded', 60000)
+    const err = new SandboxTimeoutError(
+      'Execution timed out after 60s',
+      60,
+      '',
+      'DeadlineExceeded',
+      60000,
+      undefined,
+      'sandbox-timeout',
+    )
     const failedResult = runnerErrorToFailedResult(err, HERO_EXPERIMENT_SPEC_RUN_A)
 
     expect(failedResult.exitCode).toBe(124) // Standard timeout exit code
+    expect(failedResult.sandboxId).toBe('sandbox-timeout')
     expect(failedResult.stderr).toContain('timed out')
     expect(failedResult.durationMs).toBe(60000)
 
@@ -102,10 +121,12 @@ describe('runnerErrorToFailedResult mapping', () => {
       1500,
       undefined,
       { accuracy: 0.92 },
+      'sandbox-packages',
     )
     const failedResult = runnerErrorToFailedResult(err, HERO_EXPERIMENT_SPEC_RUN_A)
 
     expect(failedResult.exitCode).toBe(1)
+    expect(failedResult.sandboxId).toBe('sandbox-packages')
     expect(failedResult.stdout).toBe('computed output')
     expect(failedResult.stderr).toContain('failed package verification')
     expect(failedResult.durationMs).toBe(1500)
@@ -255,10 +276,75 @@ describe('defaultCollectArtifacts with binary content', () => {
   })
 })
 
+const PINNED_PIP_LIST = JSON.stringify([
+  { name: 'numpy', version: '2.5.5' },
+  { name: 'pandas', version: '2.3.3' },
+  { name: 'scikit-learn', version: '1.9.1' },
+  { name: 'matplotlib', version: '3.10.0' },
+  { name: 'scipy', version: '1.17.1' },
+])
+
+type CommandRunner = (
+  cmd: string,
+  opts?: { cwd?: string; envs?: Record<string, string> },
+) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+
+/**
+ * A fake sandbox that satisfies the pinned-template contract: healthy
+ * commands and a valid `/output/metrics.json` unless a test overrides one.
+ * `kill` is always a spy so every disposal path can assert on it.
+ */
+function createHealthySandbox(options: {
+  sandboxId: string
+  metrics?: Record<string, number> | 'missing' | 'invalid'
+  run?: CommandRunner
+  kill?: () => Promise<void>
+}) {
+  const metrics = options.metrics ?? {
+    rank_impurity_noise_20: 4,
+    rank_permutation_noise_20: 11,
+  }
+
+  const defaultRun: CommandRunner = async (cmd) => {
+    if (cmd.includes('main.py')) {
+      return { exitCode: 0, stdout: 'Executed experiment', stderr: '' }
+    }
+    if (cmd.includes('python --version')) {
+      return { stdout: 'Python 3.12.0', stderr: '', exitCode: 0 }
+    }
+    if (cmd.includes('pip list')) {
+      return { stdout: PINNED_PIP_LIST, stderr: '', exitCode: 0 }
+    }
+    if (cmd.includes('cat /etc/image-digest')) {
+      return { stdout: 'sha256:digest', stderr: '', exitCode: 0 }
+    }
+    return { stdout: '', stderr: '', exitCode: 0 }
+  }
+
+  return {
+    sandboxId: options.sandboxId,
+    files: {
+      write: vi.fn(async () => {}),
+      read: vi.fn(async (path: string) => {
+        if (path === SANDBOX_METRICS_PATH) {
+          if (metrics === 'missing') throw new Error('File not found')
+          if (metrics === 'invalid') return '{not valid json'
+          return JSON.stringify(metrics)
+        }
+        throw new Error('Not found')
+      }),
+      list: vi.fn(async () => []),
+    },
+    commands: {
+      run: vi.fn(options.run ?? defaultRun),
+    },
+    kill: vi.fn(options.kill ?? (async () => {})),
+  }
+}
+
 describe('E2BRunner with mocked sandbox', () => {
   it('executes spec, writes files and datasets, and returns ExperimentResult with strict /output/metrics.json contract', async () => {
     const writtenFiles = new Map<string, string | Buffer>()
-    let killed = false
 
     const fakeSandbox = {
       sandboxId: 'test-sandbox-id',
@@ -301,9 +387,7 @@ describe('E2BRunner with mocked sandbox', () => {
           return { stdout: '', stderr: '', exitCode: 0 }
         }),
       },
-      kill: vi.fn(async () => {
-        killed = true
-      }),
+      kill: vi.fn(async () => {}),
     }
 
     const fakeDatasetFetcher = vi.fn().mockResolvedValue({
@@ -311,8 +395,9 @@ describe('E2BRunner with mocked sandbox', () => {
       sha256: 'sha256-mock-dataset',
     })
 
+    const sandboxFactory = vi.fn().mockResolvedValue(fakeSandbox as any)
     const runner = new E2BRunner({
-      sandboxFactory: vi.fn().mockResolvedValue(fakeSandbox as any),
+      sandboxFactory,
       datasetFetcher: fakeDatasetFetcher,
       verifyPackages: true,
     })
@@ -329,7 +414,19 @@ describe('E2BRunner with mocked sandbox', () => {
     expect(result.environment.imageDigest).toBe('sha256:a1b2c3d4e5f6')
     expect(writtenFiles.has('/workspace/data/breast-w.arff')).toBe(true)
     expect(writtenFiles.has('/workspace/main.py')).toBe(true)
-    expect(killed).toBe(true)
+    expect(fakeSandbox.kill).toHaveBeenCalledTimes(1)
+    expect(runner.getActiveSandboxes().size).toBe(0)
+
+    // E2B's own timeout is the final backstop if the explicit kill cannot
+    // reach the provider; it must be the spec's timeout, not a default.
+    expect(sandboxFactory).toHaveBeenCalledTimes(1)
+    expect(sandboxFactory).toHaveBeenCalledWith(
+      HERO_EXPERIMENT_SPEC_RUN_A.image,
+      expect.objectContaining({
+        timeoutMs: HERO_EXPERIMENT_SPEC_RUN_A.timeoutSeconds * 1000,
+        allowInternetAccess: false,
+      }),
+    )
   })
 
   it('respects cwd option by writing files into cwd and passing cwd to commands.run', async () => {
@@ -396,6 +493,8 @@ describe('E2BRunner with mocked sandbox', () => {
     expect(writtenFiles.has('/workspace/main.py')).toBe(true)
     expect(receivedCwd).toBe('/workspace')
     expect(receivedParameters).toBe(JSON.stringify(HERO_EXPERIMENT_SPEC_RUN_A.parameters))
+    expect(fakeSandbox.kill).toHaveBeenCalledTimes(1)
+    expect(runner.getActiveSandboxes().size).toBe(0)
   })
 
   it('throws PackageVerificationError during runner.run when sandbox packages are mismatched', async () => {
@@ -444,7 +543,13 @@ describe('E2BRunner with mocked sandbox', () => {
       verifyPackages: true,
     })
 
-    await expect(runner.run(HERO_EXPERIMENT_SPEC_RUN_A)).rejects.toThrow(PackageVerificationError)
+    const error = await runner
+      .run(HERO_EXPERIMENT_SPEC_RUN_A)
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(PackageVerificationError)
+    expect((error as PackageVerificationError).sandboxId).toBe('test-sandbox-mismatch')
+    expect(fakeSandbox.kill).toHaveBeenCalledTimes(1)
+    expect(runner.getActiveSandboxes().size).toBe(0)
   })
 
   it('throws MetricsExtractionError when /output/metrics.json is missing', async () => {
@@ -468,7 +573,34 @@ describe('E2BRunner with mocked sandbox', () => {
       datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from(''), sha256: 'xyz' }),
     })
 
-    await expect(runner.run(HERO_EXPERIMENT_SPEC_RUN_A)).rejects.toThrow(MetricsExtractionError)
+    const error = await runner
+      .run(HERO_EXPERIMENT_SPEC_RUN_A)
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(MetricsExtractionError)
+    expect((error as MetricsExtractionError).sandboxId).toBe('test-sandbox-fail')
+    expect(fakeSandbox.kill).toHaveBeenCalledTimes(1)
+    expect(runner.getActiveSandboxes().size).toBe(0)
+  })
+
+  it('kills the sandbox when /output/metrics.json is unparseable', async () => {
+    const fakeSandbox = createHealthySandbox({
+      sandboxId: 'test-sandbox-invalid-metrics',
+      metrics: 'invalid',
+    })
+    const runner = new E2BRunner({
+      sandboxFactory: vi.fn().mockResolvedValue(fakeSandbox as any),
+      datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from('data'), sha256: 'h1' }),
+    })
+
+    const error = await runner
+      .run(HERO_EXPERIMENT_SPEC_RUN_A)
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(MetricsExtractionError)
+    expect((error as MetricsExtractionError).sandboxId).toBe(
+      'test-sandbox-invalid-metrics',
+    )
+    expect(fakeSandbox.kill).toHaveBeenCalledTimes(1)
+    expect(runner.getActiveSandboxes().size).toBe(0)
   })
 
   it('handles sandbox timeout and throws SandboxTimeoutError', async () => {
@@ -497,16 +629,114 @@ describe('E2BRunner with mocked sandbox', () => {
       datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from(''), sha256: 'xyz' }),
     })
 
-    await expect(runner.run(HERO_EXPERIMENT_SPEC_RUN_A)).rejects.toThrow(SandboxTimeoutError)
+    const error = await runner
+      .run(HERO_EXPERIMENT_SPEC_RUN_A)
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(SandboxTimeoutError)
+    expect((error as SandboxTimeoutError).sandboxId).toBe('test-sandbox-timeout')
+    expect(fakeSandbox.kill).toHaveBeenCalledTimes(1)
+    expect(runner.getActiveSandboxes().size).toBe(0)
   })
 
-  it('tracks and cancels active sandboxes', async () => {
-    let sandboxKilled = false
+  it('kills the sandbox exactly once when the command exits non-zero but metrics are valid', async () => {
+    const fakeSandbox = createHealthySandbox({
+      sandboxId: 'test-sandbox-exit',
+      run: async (cmd) => {
+        if (cmd.includes('main.py')) {
+          throw new CommandExitError({
+            exitCode: 3,
+            stdout: 'partial stdout',
+            stderr: 'traceback',
+          })
+        }
+        if (cmd.includes('python --version')) {
+          return { stdout: 'Python 3.12.0', stderr: '', exitCode: 0 }
+        }
+        if (cmd.includes('pip list')) {
+          return { stdout: PINNED_PIP_LIST, stderr: '', exitCode: 0 }
+        }
+        return { stdout: 'sha256:digest', stderr: '', exitCode: 0 }
+      },
+    })
+
+    const runner = new E2BRunner({
+      sandboxFactory: vi.fn().mockResolvedValue(fakeSandbox as any),
+      datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from('data'), sha256: 'h1' }),
+    })
+
+    const result = await runner.run(HERO_EXPERIMENT_SPEC_RUN_A)
+
+    expect(result.exitCode).toBe(3)
+    expect(result.stdout).toBe('partial stdout')
+    expect(result.metrics).toEqual({
+      rank_impurity_noise_20: 4,
+      rank_permutation_noise_20: 11,
+    })
+    expect(fakeSandbox.kill).toHaveBeenCalledTimes(1)
+    expect(runner.getActiveSandboxes().size).toBe(0)
+  })
+
+  it('swallows a kill failure, warns with the sandbox id, and returns the measured result', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const fakeSandbox = createHealthySandbox({
+        sandboxId: 'sandbox-kill-fails',
+        kill: async () => {
+          throw new Error('provider unavailable')
+        },
+      })
+      const runner = new E2BRunner({
+        sandboxFactory: vi.fn().mockResolvedValue(fakeSandbox as any),
+        datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from('data'), sha256: 'h1' }),
+      })
+
+      const result = await runner.run(HERO_EXPERIMENT_SPEC_RUN_A)
+
+      expect(result.exitCode).toBe(0)
+      expect(result.metrics).toEqual({
+        rank_impurity_noise_20: 4,
+        rank_permutation_noise_20: 11,
+      })
+      expect(warn).toHaveBeenCalledTimes(1)
+      const message = String(warn.mock.calls[0]?.[0])
+      expect(message).toContain('sandbox-kill-fails')
+      expect(message).toContain('provider unavailable')
+      expect(runner.getActiveSandboxes().size).toBe(0)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('does not mask a typed run error when the kill also fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const fakeSandbox = createHealthySandbox({
+        sandboxId: 'sandbox-kill-fails-error',
+        metrics: 'missing',
+        kill: async () => {
+          throw new Error('provider unavailable')
+        },
+      })
+      const runner = new E2BRunner({
+        sandboxFactory: vi.fn().mockResolvedValue(fakeSandbox as any),
+        datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from('data'), sha256: 'h1' }),
+      })
+
+      await expect(runner.run(HERO_EXPERIMENT_SPEC_RUN_A)).rejects.toThrow(
+        MetricsExtractionError,
+      )
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0]?.[0])).toContain('sandbox-kill-fails-error')
+      expect(runner.getActiveSandboxes().size).toBe(0)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('tracks and cancels an active sandbox exactly once', async () => {
     const fakeSandbox = {
       sandboxId: 'active-sb-1',
-      kill: vi.fn(async () => {
-        sandboxKilled = true
-      }),
+      kill: vi.fn(async () => {}),
     }
 
     const runner = new E2BRunner()
@@ -514,8 +744,36 @@ describe('E2BRunner with mocked sandbox', () => {
     expect(runner.getActiveSandboxes().has('active-sb-1')).toBe(true)
 
     await runner.cancel('active-sb-1')
-    expect(sandboxKilled).toBe(true)
+    expect(fakeSandbox.kill).toHaveBeenCalledTimes(1)
     expect(runner.getActiveSandboxes().has('active-sb-1')).toBe(false)
+  })
+
+  it('falls back to Sandbox.connect().kill() for an unknown id and never throws', async () => {
+    const kill = vi.fn(async () => {})
+    const connect = vi.spyOn(Sandbox, 'connect').mockResolvedValue({ kill } as any)
+    try {
+      const runner = new E2BRunner()
+
+      await expect(runner.cancel('unknown-sandbox')).resolves.toBeUndefined()
+
+      expect(connect).toHaveBeenCalledWith('unknown-sandbox')
+      expect(kill).toHaveBeenCalledTimes(1)
+    } finally {
+      connect.mockRestore()
+    }
+  })
+
+  it('swallows a failed connect when cancelling an unknown id', async () => {
+    const connect = vi
+      .spyOn(Sandbox, 'connect')
+      .mockRejectedValue(new Error('sandbox not found'))
+    try {
+      const runner = new E2BRunner()
+
+      await expect(runner.cancel('gone-sandbox')).resolves.toBeUndefined()
+    } finally {
+      connect.mockRestore()
+    }
   })
 })
 
