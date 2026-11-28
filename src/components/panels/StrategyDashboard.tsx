@@ -290,7 +290,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
       {isDatabaseMode && runSummaries.length > 0 && (
         <div className="space-y-2">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <div className="l">Task runs</div>
+            <div className="l">Extraction batches and experiment runs</div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {attributedRuns.map((run) => (
@@ -307,7 +307,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
           <thead>
             <tr className="l border-b border-[var(--border-primary)] bg-[var(--bg-surface-hover)]">
               {isDatabaseMode && (
-                <th className="text-left p-3.5 font-semibold text-[var(--text-dim)]">Run</th>
+                <th className="text-left p-3.5 font-semibold text-[var(--text-dim)]">Batch or run</th>
               )}
               <th className="text-left p-3.5 font-semibold text-[var(--text-dim)]">Task kind</th>
               <th className="text-left p-3.5 font-semibold text-[var(--text-dim)]">Strategy</th>

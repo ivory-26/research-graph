@@ -254,6 +254,12 @@ describe('Workspace fixture (Issue #17)', () => {
       const { source, target, evidenceSourceTitle, ...rest } = edge;
       expect(source).toBe(raw.sourceNodeId);
       expect(target).toBe(raw.targetNodeId);
+      if (edge.sourceTitle !== undefined) {
+        expect(edge.sourceTitle).toBe(DEMO_GRAPH_NODES.find((node) => node.id === source)?.title);
+      }
+      if (edge.targetTitle !== undefined) {
+        expect(edge.targetTitle).toBe(DEMO_GRAPH_NODES.find((node) => node.id === target)?.title);
+      }
       expect(evidenceSourceTitle).toBe(
         raw.evidenceChunkId ? data.chunks[raw.evidenceChunkId]?.sourceTitle : undefined,
       );
