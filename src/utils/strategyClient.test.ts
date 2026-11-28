@@ -151,4 +151,20 @@ describe('per-run strategy comparison', () => {
     expect(summarizeAgentTaskRuns([])).toEqual([]);
     expect(aggregateAgentTasksByRun([])).toEqual([]);
   });
+
+  it('keeps a run with no telemetry visible without inventing a zero average', () => {
+    const [summary] = summarizeAgentTaskRuns([
+      {
+        id: 'no-telemetry', taskKind: 'propose_edges', strategyId: 'unassigned',
+        runId: 'extract:no-telemetry:single_pass', status: 'failed',
+        latencyMs: null, costUsd: null, error: 'provider error',
+      },
+    ]);
+
+    expect(summary!.attempts).toBe(1);
+    expect(summary!.failures).toBe(1);
+    expect(summary!.avgLatencyMs).toBeNull();
+    expect(summary!.avgCostUsd).toBeNull();
+    expect(summary!.totalCostUsd).toBe(0);
+  });
 });

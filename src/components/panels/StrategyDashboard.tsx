@@ -78,7 +78,9 @@ const RunKpiCard: React.FC<{ run: AgentTaskRunSummary }> = ({ run }) => {
         </div>
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-[var(--text-dim)]">Total cost</span>
-          <span className="text-[#f97316]">${run.totalCostUsd.toFixed(4)}</span>
+          <span className="text-[#f97316]">
+            {run.avgCostUsd !== null ? `$${run.totalCostUsd.toFixed(4)}` : '—'}
+          </span>
         </div>
       </div>
     </div>
