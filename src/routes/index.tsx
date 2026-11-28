@@ -32,6 +32,16 @@ import {
 } from '../utils/graphClient';
 import type { AgentTaskRow } from '../utils/strategyClient';
 
+/**
+ * An experiment id only becomes a pipeline URL when it is a UUID. A stale or
+ * hand-edited `?experimentId=` must never open an SSE connection.
+ */
+const EXPERIMENT_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const isExperimentId = (value: string | null | undefined): value is string =>
+  typeof value === 'string' && EXPERIMENT_ID_RE.test(value);
+
 const VALID_PAGES: ReadonlySet<PageId> = new Set([
   'overview',
   'graph',
@@ -195,6 +205,26 @@ function WorkspacePage() {
   const streamCleanupRef = useRef<(() => void) | null>(null);
   const lastSeqRef = useRef<Record<string, number>>({});
   const approvalOpenedByStreamRef = useRef(false);
+  /**
+   * The gate the UI currently shows. The async decision handlers compare
+   * against this after their POST resolves: a stream terminal, a newer gate,
+   * or a URL change may have replaced it while the request was in flight.
+   */
+  const activeGateRef = useRef<{ experimentId: string; gateSeq: number } | null>(null);
+  const pendingDecisionRef = useRef(false);
+  const decisionTokenRef = useRef(0);
+
+  const openGate = (expId: string, seq: number, spec: ExperimentSpec | null) => {
+    activeGateRef.current = { experimentId: expId, gateSeq: seq };
+    setGateSeq(seq);
+    setActiveGateSpec(spec);
+  };
+
+  const clearGate = () => {
+    activeGateRef.current = null;
+    setGateSeq(null);
+    setActiveGateSpec(null);
+  };
 
   // Load live user workspaces (with UUIDs) on mount, preserving the demo fixture entry
   useEffect(() => {
@@ -322,9 +352,40 @@ function WorkspacePage() {
 
   // Separate effect for URL-triggered SSE pipeline stream so workspace switches do not kill an active stream
   useEffect(() => {
-    if (search.experimentId) {
-      handleOpenPipelineRun(search.experimentId);
+    const urlExperimentId = search.experimentId;
+
+    if (!urlExperimentId) {
+      // The URL no longer names a run. Any gate it opened is stale: reset it
+      // rather than leaving a decision that posts to a run the address bar
+      // does not show.
+      clearGate();
+      setApprovalError(null);
+      if (approvalOpenedByStreamRef.current) {
+        approvalOpenedByStreamRef.current = false;
+        setIsApprovalOpen(false);
+      }
+      return;
     }
+
+    if (!isExperimentId(urlExperimentId)) {
+      // Never open an EventSource for a non-UUID. Drop the invalid param so a
+      // reload cannot retry it.
+      clearGate();
+      setExperimentId(null);
+      setIsApprovalOpen(false);
+      setExecutionLogs((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] [SSE] Ignored invalid experimentId in URL`,
+      ]);
+      showToast('Experiment ID in the URL is not a valid UUID');
+      navigate({
+        search: (prev) => ({ ...prev, experimentId: undefined }),
+        replace: true,
+      });
+      return;
+    }
+
+    handleOpenPipelineRun(urlExperimentId);
 
     return () => {
       if (streamCleanupRef.current) {
@@ -365,6 +426,19 @@ function WorkspacePage() {
       return;
     }
 
+    if (!isExperimentId(expId)) {
+      // The modal validates its own input, but the URL and state can be stale.
+      // Refuse before creating an EventSource.
+      const msg = 'Experiment ID must be a valid UUID.';
+      setApprovalError(msg);
+      setExecutionLogs((prev) => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] [SSE] Refused invalid experiment id`,
+      ]);
+      showToast(msg);
+      return;
+    }
+
     // Close previous stream if reconnecting or switching to a new experiment ID
     if (targetExperimentId && streamCleanupRef.current) {
       streamCleanupRef.current();
@@ -373,8 +447,7 @@ function WorkspacePage() {
     }
 
     if (targetExperimentId && targetExperimentId !== experimentId) {
-      setGateSeq(null);
-      setActiveGateSpec(null);
+      clearGate();
     }
 
     setExperimentId(expId);
@@ -400,15 +473,13 @@ function WorkspacePage() {
           },
           onApprovalRequested: (event) => {
             setExperimentId(event.experimentId);
-            setGateSeq(event.seq);
-            setActiveGateSpec(event.spec);
+            openGate(event.experimentId, event.seq, event.spec);
             setApprovalError(null);
             approvalOpenedByStreamRef.current = true;
             setIsApprovalOpen(true);
           },
           onApprovalResolved: () => {
-            setGateSeq(null);
-            setActiveGateSpec(null);
+            clearGate();
             if (approvalOpenedByStreamRef.current) {
               approvalOpenedByStreamRef.current = false;
               setIsApprovalOpen(false);
@@ -420,7 +491,9 @@ function WorkspacePage() {
             if (es && typeof EventSource !== 'undefined' && es.readyState === EventSource.CONNECTING) {
               return;
             }
-            const msg = `Pipeline stream error for ${expId}`;
+            const detail =
+              err instanceof Error && err.message ? `: ${err.message}` : '';
+            const msg = `Pipeline stream error for ${expId}${detail}`;
             setExecutionLogs((prev) => [
               ...prev,
               `[${new Date().toLocaleTimeString()}] [SSE ERROR] ${msg}`,
@@ -431,17 +504,29 @@ function WorkspacePage() {
               streamCleanupRef.current = null;
             }
             setIsStreaming(false);
+            // A dead connection cannot deliver this gate's decision. Reset the
+            // gate but keep the URL so a reload can retry the experiment.
+            clearGate();
+            setApprovalError(msg);
+            if (approvalOpenedByStreamRef.current) {
+              approvalOpenedByStreamRef.current = false;
+              setIsApprovalOpen(false);
+            }
           },
           onComplete: () => {
             delete lastSeqRef.current[expId];
             streamCleanupRef.current = null;
             setIsStreaming(false);
             setExperimentId(null);
-            setGateSeq(null);
-            setActiveGateSpec(null);
-            if (search.experimentId) {
+            clearGate();
+            // Only the terminal event clears the URL, and only when the URL
+            // still names this experiment. A replaced run keeps its own param.
+            if (search.experimentId === expId) {
               navigate({
-                search: (prev) => ({ ...prev, experimentId: undefined }),
+                search: (prev) =>
+                  prev.experimentId === expId
+                    ? { ...prev, experimentId: undefined }
+                    : prev,
                 replace: true,
               });
             }
@@ -465,6 +550,10 @@ function WorkspacePage() {
       return;
     }
 
+    if (pendingDecisionRef.current) return;
+
+    pendingDecisionRef.current = true;
+    const decisionToken = ++decisionTokenRef.current;
     setIsSubmittingApproval(true);
     setApprovalError(null);
     const timestamp = new Date().toLocaleTimeString();
@@ -476,15 +565,36 @@ function WorkspacePage() {
         decision: 'approved',
       });
 
+      // The gate may have been resolved by the stream or replaced by a newer
+      // one while this POST was in flight. Never clear a gate the modal no
+      // longer shows.
+      const stillCurrent =
+        activeGateRef.current?.experimentId === expId &&
+        activeGateRef.current?.gateSeq === seq;
+
       if (!result.ok) {
         const errMsg = result.error || `Approval refused (HTTP ${result.status})`;
+        const codeLabel = result.code ?? `HTTP ${result.status}`;
+        setExecutionLogs((prev) => [
+          ...prev,
+          `[${timestamp}] [APPROVAL] Approve refused (${codeLabel}): ${errMsg}`,
+        ]);
+        setIsConsoleOpen(true);
+        if (!stillCurrent) return;
         setApprovalError(errMsg);
         showToast(errMsg);
+        if (result.status === 409) {
+          // The gate was already decided, or the experiment went terminal.
+          // The stream is the source of truth; drop the stale decision UI.
+          clearGate();
+          setIsApprovalOpen(false);
+        }
         return;
       }
 
-      setGateSeq(null);
-      setActiveGateSpec(null);
+      if (!stillCurrent) return;
+
+      clearGate();
       setIsApprovalOpen(false);
       setIsConsoleOpen(true);
       showToast(`Plan confirmed for ${expId} (gate #${seq})`);
@@ -493,7 +603,10 @@ function WorkspacePage() {
         `[${timestamp}] [POST /api/pipeline/${expId}/approve] Gate #${seq} approved`,
       ]);
     } finally {
-      setIsSubmittingApproval(false);
+      if (decisionTokenRef.current === decisionToken) {
+        pendingDecisionRef.current = false;
+        setIsSubmittingApproval(false);
+      }
     }
   };
 
@@ -503,6 +616,10 @@ function WorkspacePage() {
       return;
     }
 
+    if (pendingDecisionRef.current) return;
+
+    pendingDecisionRef.current = true;
+    const decisionToken = ++decisionTokenRef.current;
     setIsSubmittingApproval(true);
     setApprovalError(null);
     const timestamp = new Date().toLocaleTimeString();
@@ -514,23 +631,45 @@ function WorkspacePage() {
         decision: 'rejected',
       });
 
+      const stillCurrent =
+        activeGateRef.current?.experimentId === expId &&
+        activeGateRef.current?.gateSeq === seq;
+
       if (!result.ok) {
         const errMsg = result.error || `Rejection refused (HTTP ${result.status})`;
+        const codeLabel = result.code ?? `HTTP ${result.status}`;
+        setExecutionLogs((prev) => [
+          ...prev,
+          `[${timestamp}] [APPROVAL] Reject refused (${codeLabel}): ${errMsg}`,
+        ]);
+        setIsConsoleOpen(true);
+        if (!stillCurrent) return;
         setApprovalError(errMsg);
         showToast(errMsg);
+        if (result.status === 409) {
+          clearGate();
+          setIsApprovalOpen(false);
+        }
         return;
       }
 
-      setGateSeq(null);
-      setActiveGateSpec(null);
+      if (!stillCurrent) return;
+
+      clearGate();
       setIsApprovalOpen(false);
+      // Keep the rejection in view: the console is the durable UI record of
+      // what the POST did, so open it instead of only toasting.
+      setIsConsoleOpen(true);
       showToast('Experiment plan rejected');
       setExecutionLogs((prev) => [
         ...prev,
         `[${timestamp}] [POST /api/pipeline/${expId}/approve] Gate #${seq} rejected`,
       ]);
     } finally {
-      setIsSubmittingApproval(false);
+      if (decisionTokenRef.current === decisionToken) {
+        pendingDecisionRef.current = false;
+        setIsSubmittingApproval(false);
+      }
     }
   };
 

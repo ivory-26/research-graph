@@ -19,6 +19,49 @@ export interface SendApprovalResult {
   status: number;
   data?: unknown;
   error?: string;
+  /** The coded refusal from the server's `{ error: { code, message } }` envelope. */
+  code?: string;
+}
+
+/**
+ * Reads the delivery layer's error body. `src/server/pipeline-delivery/errors.ts`
+ * answers every refusal with `{ error: { code, message } }`; older call sites
+ * and transport failures used a bare `{ error: string }` or `{ message }`.
+ * All three shapes are supported so the approval modal shows the server's
+ * product-authored sentence instead of `HTTP 409: Conflict`.
+ */
+function readErrorBody(
+  payload: unknown,
+): { code?: string; message?: string } {
+  if (!payload || typeof payload !== 'object') return {};
+
+  const record = payload as Record<string, unknown>;
+  const error = record.error;
+
+  if (typeof error === 'string' && error.trim().length > 0) {
+    return { message: error };
+  }
+
+  if (error && typeof error === 'object' && !Array.isArray(error)) {
+    const envelope = error as Record<string, unknown>;
+    return {
+      code:
+        typeof envelope.code === 'string' && envelope.code.trim().length > 0
+          ? envelope.code
+          : undefined,
+      message:
+        typeof envelope.message === 'string' &&
+        envelope.message.trim().length > 0
+          ? envelope.message
+          : undefined,
+    };
+  }
+
+  if (typeof record.message === 'string' && record.message.trim().length > 0) {
+    return { message: record.message };
+  }
+
+  return {};
 }
 
 /**
@@ -72,16 +115,15 @@ export async function sendPipelineApproval(
     }
 
     if (!response.ok) {
-      const errorMsg =
-        (data && typeof data === 'object' && typeof data.error === 'string' && data.error) ||
-        (data && typeof data === 'object' && typeof data.message === 'string' && data.message) ||
-        `HTTP ${response.status}: ${response.statusText}`;
+      const { code, message } = readErrorBody(data);
+      const errorMsg = message ?? `HTTP ${response.status}: ${response.statusText}`;
 
       return {
         ok: false,
         status: response.status,
         data,
         error: errorMsg,
+        code,
       };
     }
 
@@ -110,6 +152,32 @@ export interface PipelineStreamHandlers {
   ) => void;
 }
 
+/**
+ * The server's hard response budget (`STREAM_BUDGET_MS` in
+ * `src/server/pipeline-transport/constants.ts`, docs/01-architecture.md).
+ * One response is one pipeline attempt, and the server closes it — with a
+ * terminal event for the owner — within this window.
+ */
+export const PIPELINE_STREAM_BUDGET_MS = 240_000;
+
+/** The server's SSE comment cadence; the watchdog allows one missed heartbeat. */
+export const PIPELINE_HEARTBEAT_INTERVAL_MS = 15_000;
+
+/**
+ * How long the client waits for new events before it stops the browser's
+ * native `EventSource` from retrying forever.
+ *
+ * Native `EventSource` auto-reconnects on every error, including a permanent
+ * 404/409 refusal, so a dead or finished run produces an endless retry loop:
+ * each attempt opens a new request, gets the same refusal and fires `onerror`
+ * again. The watchdog is one server budget plus one heartbeat of silence; a
+ * reconnect that is actually replaying events re-arms it, while a refusal
+ * loop never does. A test asserts the value stays aligned with the server
+ * budget constants.
+ */
+export const PIPELINE_STREAM_WATCHDOG_MS =
+  PIPELINE_STREAM_BUDGET_MS + PIPELINE_HEARTBEAT_INTERVAL_MS;
+
 export interface PipelineStreamOptions {
   EventSourceClass?: typeof EventSource;
   /**
@@ -119,6 +187,12 @@ export interface PipelineStreamOptions {
    * native `Last-Event-ID` header sent on automatic reconnects.
    */
   initialLastSeq?: number;
+  /**
+   * Override for the no-progress watchdog. Tests inject a short value; the
+   * default is `PIPELINE_STREAM_WATCHDOG_MS`. A non-positive value disables
+   * the watchdog.
+   */
+  watchdogMs?: number;
 }
 
 /**
@@ -145,9 +219,50 @@ export function subscribeToPipelineStream(
     : 0;
   const url = startSeq > 0 ? `${baseUrl}?seq=${startSeq}` : baseUrl;
   const es = new ES(url);
+  const watchdogMs = options?.watchdogMs ?? PIPELINE_STREAM_WATCHDOG_MS;
   let lastSeq = startSeq;
+  let closed = false;
+  let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearWatchdog = (): void => {
+    if (watchdogTimer !== null) {
+      clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    }
+  };
+
+  const close = (): void => {
+    if (closed) return;
+    closed = true;
+    clearWatchdog();
+    es.close();
+  };
+
+  /**
+   * (Re)starts the no-progress deadline. It is re-armed only by a newly
+   * delivered event: replay duplicates do not count as progress, and an
+   * erroring connection never does, so a permanent refusal cannot keep the
+   * native reconnect loop alive forever.
+   */
+  const armWatchdog = (): void => {
+    if (closed || watchdogMs <= 0) return;
+    clearWatchdog();
+    watchdogTimer = setTimeout(() => {
+      watchdogTimer = null;
+      if (closed) return;
+      close();
+      handlers.onError?.(
+        new Error(
+          `Pipeline stream received no events for ${watchdogMs} ms; stopped reconnecting`,
+        ),
+      );
+    }, watchdogMs);
+  };
+
+  armWatchdog();
 
   es.onmessage = (e: MessageEvent) => {
+    if (closed) return;
     try {
       const data = JSON.parse(e.data) as PipelineEvent;
       if (typeof data.seq === 'number' && data.seq <= lastSeq) {
@@ -156,6 +271,7 @@ export function subscribeToPipelineStream(
       if (typeof data.seq === 'number') {
         lastSeq = data.seq;
       }
+      armWatchdog();
       handlers.onEvent?.(data);
 
       if (data.type === 'stage.started') {
@@ -180,8 +296,13 @@ export function subscribeToPipelineStream(
         } else {
           handlers.onLog?.(`[PIPELINE] Completed successfully (runId: ${data.runId ?? 'n/a'})`);
         }
-        handlers.onComplete?.(data);
-        es.close();
+        try {
+          handlers.onComplete?.(data);
+        } finally {
+          // A terminal event is the only clean end: stop the watchdog and
+          // the native connection together.
+          close();
+        }
       }
     } catch (parseErr) {
       handlers.onError?.(parseErr);
@@ -189,10 +310,11 @@ export function subscribeToPipelineStream(
   };
 
   es.onerror = (err) => {
+    if (closed) return;
     handlers.onError?.(err);
   };
 
   return () => {
-    es.close();
+    close();
   };
 }

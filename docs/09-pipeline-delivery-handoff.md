@@ -227,6 +227,17 @@ evidence; no further live provider calls were made.
   and `sendPipelineApproval`) and `src/routes/index.tsx` / `ApprovalModal.tsx`
   wire the SSE stream and approval POST; live workspace experiment creation
   still requires an active `experimentId` from a seeded/created experiment.
+- **Keep the owner tab open.** The first `GET /api/pipeline/:experimentId`
+  claims the experiment's one execution start; every later GET — a native
+  `EventSource` reconnect, a second tab, or a reload — is a follower that
+  replays the durable log after its cursor. A reconnect cannot re-claim,
+  restart or resume the stages: if the tab that opened the run goes away
+  mid-run, ADR 0003 says the run is lost, and a reconnect can only show what
+  was already persisted. The browser therefore must keep the original tab open
+  for the duration of a run. `subscribeToPipelineStream` also stops the native
+  reconnect loop after one server budget plus one heartbeat of silence, so a
+  finished or refused stream cannot retry forever; that watchdog closes the
+  connection, it does not bring the run back.
 - **Live verification is opt-in, not CI.** The two runs recorded above passed
   on 2026-11-25 against template build `3060b313`, but the files are skipped
   without credentials and are not part of the main suite. On 25 November
