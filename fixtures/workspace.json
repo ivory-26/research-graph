@@ -17,9 +17,11 @@
       "year": 2007,
       "doi": "10.1186/1471-2105-8-25",
       "url": "https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-8-25",
-      "sha256": "9f5835b4c1064dbbf9738efc633a2862bc74a3f124a9e403d168541c6f50b4ea",
-      "bytes": 421048,
-      "isHero": true
+      "sha256": "07c2801d84b912e97fede1fcf8d31dcda15cf63520054a29561b7b38fa1f74b5",
+      "bytes": 397660,
+      "isHero": true,
+      "file": "papers/strobl-2007.pdf",
+      "pages": 21
     },
     {
       "id": "src-2",
@@ -30,9 +32,11 @@
       "year": 2008,
       "doi": "10.1186/1471-2105-9-307",
       "url": "https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-9-307",
-      "sha256": "e499d14ec7a7ec41bc2275b28d68f6bf7dafe43f11d11a68bb279f0612984920",
-      "bytes": 512480,
-      "isHero": false
+      "sha256": "c60f719b29b68807e2b47bd1f8b289f58f31e861b6bbec1c49f56905585c0539",
+      "bytes": 451013,
+      "isHero": false,
+      "file": "papers/strobl-2008.pdf",
+      "pages": 11
     },
     {
       "id": "src-3",
@@ -43,9 +47,11 @@
       "year": 2010,
       "doi": "10.18637/jss.v036.i11",
       "url": "https://www.jstatsoft.org/article/view/v036i11",
-      "sha256": "286d9a9ba426177196cb951167732dcfc7847ea68377da12b9195b0ff70ecaa5",
-      "bytes": 387192,
-      "isHero": false
+      "sha256": "4142662e9e94dadcfec9d07faabd6d40e5c447d02be1cb78ff66de69fcf61c45",
+      "bytes": 517768,
+      "isHero": false,
+      "file": "papers/kursa-2010.pdf",
+      "pages": 13
     }
   ],
   "chunks": {
@@ -53,46 +59,46 @@
       "id": "chunk-1",
       "sourceId": "src-1",
       "sourceTitle": "Strobl et al. 2007",
-      "page": 4,
-      "charStart": 3810,
-      "charEnd": 4220,
-      "text": "A variable with more categories has a higher probability to be selected in individual splits purely by chance. Consequently, impurity-based variable importance measures (Gini importance) are severely biased towards variables with many categories, even when they carry no actual information about the response."
+      "page": 5,
+      "charStart": 20155,
+      "charEnd": 20699,
+      "text": "The mean Gini importance (over 1000 simulation runs), that is displayed in Figure 2, is biased even stronger. Like the selection frequencies for the randomForest function (cf. top row in Figure 1) the Gini importance shows a strong preference for variables with many categories and the continuous variable, the statistical sources of which are explained in the section on variable selection bias in classification trees below. We conclude that the Gini importance cannot be used to reliably measure variable importance in this situation either."
     },
     "chunk-2": {
       "id": "chunk-2",
       "sourceId": "src-1",
       "sourceTitle": "Strobl et al. 2007",
-      "page": 6,
-      "charStart": 6150,
-      "charEnd": 6580,
-      "text": "Simulation design: A tabular dataset is augmented with multiple uninformative categorical noise variables with varying numbers of categories (e.g., 2, 5, and 20 levels). We compare standard Gini impurity importance ranks against permutation importance ranks across all features."
+      "page": 3,
+      "charStart": 13691,
+      "charEnd": 13943,
+      "text": "The behavior of the selection frequency, the Gini importance and the permutation importance of the randomForest function is explored in a simulation design where potential predictor variables vary in their scale of measurement and number of categories."
     },
     "chunk-3": {
       "id": "chunk-3",
       "sourceId": "src-1",
       "sourceTitle": "Strobl et al. 2007",
-      "page": 8,
-      "charStart": 8940,
-      "charEnd": 9320,
-      "text": "In our simulation study, the 20-category noise feature ranked consistently among the top five features when evaluated with Gini impurity importance, despite being completely independent of the outcome. In contrast, permutation importance ranked the noise feature at or near the bottom."
+      "page": 5,
+      "charStart": 19001,
+      "charEnd": 19799,
+      "text": "In the null case, when all predictor variables are equally uninformative, the selection frequencies as well as the Gini importance and the permutation importance of all predictor variables are supposed to be equal. However, as presented in Figure 1, the mean selection frequencies (over 1000 simulation runs) of the predictor variables differ substantially when the randomForest function (cf. top row in Figure 1) or the cforest function with bootstrap sampling (cf. bottom row, left plot in Figure 1) are used. Variables with more categories are obviously preferred. Only when the cforest function is used together with subsampling without replacement (cf. bottom row, right plot in Figure 1) are the variable selection frequencies for the uninformative predictor variables equally low as desired."
     },
     "chunk-4": {
       "id": "chunk-4",
       "sourceId": "src-2",
       "sourceTitle": "Strobl et al. 2008",
-      "page": 3,
-      "charStart": 2900,
-      "charEnd": 3310,
-      "text": "While standard permutation importance reflects the marginal impact of a predictor, conditional variable importance further prevents preference for correlated predictors and preserves parity across disparate measurement scales."
+      "page": 1,
+      "charStart": 2121,
+      "charEnd": 2416,
+      "text": "Based on these considerations we develop a new, conditional permutation scheme for the computation of the variable importance measure. Conclusion: The resulting conditional variable importance reflects the true impact of each predictor variable more reliably than the original marginal approach."
     },
     "chunk-5": {
       "id": "chunk-5",
       "sourceId": "src-3",
       "sourceTitle": "Kursa & Rudnicki 2010",
-      "page": 5,
-      "charStart": 4100,
-      "charEnd": 4530,
-      "text": "The Boruta algorithm creates shadow features by shuffling values of original attributes across objects. It rejects the hypothesis that a feature is uninformative only if its importance significantly exceeds the maximal importance among shadow features across repeated random forest runs."
+      "page": 3,
+      "charStart": 6745,
+      "charEnd": 7106,
+      "text": "For each attribute we create a corresponding ‘shadow’ attribute, whose values are obtained by shuffling values of the original attribute across objects. We then perform a classification using all attributes of this extended system and compute the importance of all attributes. The importance of a shadow attribute can be nonzero only due to random fluctuations."
     }
   },
   "nodes": [
@@ -100,7 +106,10 @@
       "id": "source-strobl-2007",
       "type": "source",
       "title": "Strobl et al. 2007",
-      "position": { "x": 45, "y": 150 },
+      "position": {
+        "x": 45,
+        "y": 150
+      },
       "data": {
         "type": "source",
         "sourceId": "src-1",
@@ -110,14 +119,18 @@
         "isHero": true,
         "venue": "BMC Bioinformatics 8:25",
         "doi": "10.1186/1471-2105-8-25",
-        "pages": 14
-      }
+        "pages": 21
+      },
+      "sourceId": "src-1"
     },
     {
       "id": "source-strobl-2008",
       "type": "source",
       "title": "Strobl et al. 2008",
-      "position": { "x": 45, "y": 320 },
+      "position": {
+        "x": 45,
+        "y": 320
+      },
       "data": {
         "type": "source",
         "sourceId": "src-2",
@@ -127,14 +140,18 @@
         "isHero": false,
         "venue": "BMC Bioinformatics 9:307",
         "doi": "10.1186/1471-2105-9-307",
-        "pages": 12
-      }
+        "pages": 11
+      },
+      "sourceId": "src-2"
     },
     {
       "id": "source-kursa-2010",
       "type": "source",
       "title": "Kursa & Rudnicki 2010",
-      "position": { "x": 45, "y": 495 },
+      "position": {
+        "x": 45,
+        "y": 495
+      },
       "data": {
         "type": "source",
         "sourceId": "src-3",
@@ -145,13 +162,17 @@
         "venue": "JSS 36(11)",
         "doi": "10.18637/jss.v036.i11",
         "pages": 13
-      }
+      },
+      "sourceId": "src-3"
     },
     {
       "id": "claim-gini-bias",
       "type": "claim",
       "title": "Gini Importance Bias",
-      "position": { "x": 340, "y": 255 },
+      "position": {
+        "x": 340,
+        "y": 255
+      },
       "data": {
         "type": "claim",
         "sublabel": "CLAIM · QUALITATIVE",
@@ -162,45 +183,57 @@
         "methodName": "impurity",
         "mode": "adapted",
         "locator": {
-          "page": 4,
-          "quote": "A variable with more categories has a higher probability to be selected in individual splits purely by chance. Consequently, impurity-based variable importance measures (Gini importance) are severely biased towards variables with many categories, even when they carry no actual information about the response.",
-          "charStart": 3810,
-          "charEnd": 4220
+          "page": 5,
+          "quote": "Like the selection frequencies for the randomForest function (cf. top row in Figure 1) the Gini importance shows a strong preference for variables with many categories and the continuous variable, the statistical sources of which are explained in the section on variable selection bias in classification trees below.",
+          "charStart": 20265,
+          "charEnd": 20581
         },
         "sourceId": "src-1"
-      }
+      },
+      "sourceId": "src-1"
     },
     {
       "id": "method-impurity",
       "type": "method",
       "title": "Impurity importance",
-      "position": { "x": 340, "y": 390 },
+      "position": {
+        "x": 340,
+        "y": 390
+      },
       "data": {
         "type": "method",
         "sublabel": "METHOD",
         "title": "Impurity importance",
         "summary": "Mean decrease in impurity (MDI) across trees.",
         "library": "scikit-learn==1.9.1"
-      }
+      },
+      "sourceId": "src-1"
     },
     {
       "id": "method-permutation",
       "type": "method",
       "title": "Permutation importance",
-      "position": { "x": 340, "y": 475 },
+      "position": {
+        "x": 340,
+        "y": 475
+      },
       "data": {
         "type": "method",
         "sublabel": "METHOD",
         "title": "Permutation importance",
         "summary": "Mean decrease in accuracy when feature is shuffled.",
         "library": "scikit-learn==1.9.1"
-      }
+      },
+      "sourceId": "src-1"
     },
     {
       "id": "dataset-breast-w",
       "type": "dataset",
       "title": "breast-w + 3 noise cols",
-      "position": { "x": 635, "y": 145 },
+      "position": {
+        "x": 635,
+        "y": 145
+      },
       "data": {
         "type": "dataset",
         "sublabel": "DATASET · ADAPTED",
@@ -211,13 +244,17 @@
         "rows": 569,
         "features": 9,
         "noiseColumns": "noise_2, noise_5, noise_20"
-      }
+      },
+      "sourceId": "src-1"
     },
     {
       "id": "run-a",
       "type": "run",
       "title": "impurity",
-      "position": { "x": 635, "y": 390 },
+      "position": {
+        "x": 635,
+        "y": 390
+      },
       "data": {
         "type": "run",
         "sublabel": "RUN A · ROOT",
@@ -228,14 +265,20 @@
         "verdict": null,
         "isPreview": true,
         "network": "none",
-        "parameter": { "importance_method": "impurity" }
-      }
+        "parameter": {
+          "importance_method": "impurity"
+        }
+      },
+      "sourceId": null
     },
     {
       "id": "run-b",
       "type": "run",
       "title": "permutation",
-      "position": { "x": 635, "y": 500 },
+      "position": {
+        "x": 635,
+        "y": 500
+      },
       "data": {
         "type": "run",
         "sublabel": "RUN B · WHAT-IF",
@@ -247,15 +290,21 @@
         "verdict": null,
         "isPreview": true,
         "network": "none",
-        "parameter": { "importance_method": "permutation" },
+        "parameter": {
+          "importance_method": "permutation"
+        },
         "singleParamDiff": "importance_method: impurity → permutation"
-      }
+      },
+      "sourceId": null
     },
     {
       "id": "result-a",
       "type": "result",
       "title": "Result A (Impurity Specification)",
-      "position": { "x": 890, "y": 230 },
+      "position": {
+        "x": 890,
+        "y": 230
+      },
       "data": {
         "type": "result",
         "sublabel": "RESULT · PREVIEW",
@@ -281,13 +330,17 @@
           ],
           "explanation": "Specification target: Noise feature with 20 categories ranked #4 in impurity importance."
         }
-      }
+      },
+      "sourceId": null
     },
     {
       "id": "result-b",
       "type": "result",
       "title": "Result B (Permutation Remedy)",
-      "position": { "x": 890, "y": 480 },
+      "position": {
+        "x": 890,
+        "y": 480
+      },
       "data": {
         "type": "result",
         "sublabel": "RESULT · PREVIEW",
@@ -313,181 +366,195 @@
           ],
           "explanation": "Specification target: Permutation importance drops noise_20 from rank 4 to rank 11 (bottom quartile)."
         }
-      }
+      },
+      "sourceId": null
     }
   ],
   "edges": [
     {
       "id": "e-src1-claim",
-      "source": "source-strobl-2007",
-      "target": "claim-gini-bias",
       "relation": "supports",
       "status": "accepted",
       "confidence": 0.82,
       "evidenceChunkId": "chunk-1",
-      "quote": "A variable with more categories has a higher probability to be selected in individual splits purely by chance. Consequently, impurity-based variable importance measures (Gini importance) are severely biased towards variables with many categories, even when they carry no actual information about the response.",
-      "page": 4,
-      "charStart": 3810,
-      "charEnd": 4220,
+      "quote": "Like the selection frequencies for the randomForest function (cf. top row in Figure 1) the Gini importance shows a strong preference for variables with many categories and the continuous variable, the statistical sources of which are explained in the section on variable selection bias in classification trees below.",
+      "page": 5,
+      "charStart": 20155,
+      "charEnd": 20699,
       "chunkNumber": 1,
       "sourceTitle": "Strobl et al. 2007",
       "targetTitle": "Claim",
-      "rationale": "Core theoretical finding documented in Section 2 with mathematical justification."
+      "rationale": "Documents the simulation result that Gini importance strongly prefers variables with many categories.",
+      "sourceNodeId": "source-strobl-2007",
+      "targetNodeId": "claim-gini-bias",
+      "evidenceRunId": null
     },
     {
       "id": "e-src2-claim",
-      "source": "source-strobl-2008",
-      "target": "claim-gini-bias",
-      "relation": "cites",
+      "relation": "supports",
       "status": "accepted",
       "confidence": 0.74,
       "evidenceChunkId": "chunk-4",
-      "quote": "While standard permutation importance reflects the marginal impact of a predictor, conditional variable importance further prevents preference for correlated predictors",
-      "page": 3,
-      "charStart": 2900,
-      "charEnd": 3310,
+      "quote": "The resulting conditional variable importance reflects the true impact of each predictor variable more reliably than the original marginal approach.",
+      "page": 1,
+      "charStart": 2121,
+      "charEnd": 2416,
       "chunkNumber": 4,
       "sourceTitle": "Strobl et al. 2008",
       "targetTitle": "Claim",
-      "rationale": "Extends unconditional permutation importance to address correlation structures."
+      "rationale": "Introduces conditional variable importance, which reflects each predictor variable more reliably than the marginal approach.",
+      "sourceNodeId": "source-strobl-2008",
+      "targetNodeId": "claim-gini-bias",
+      "evidenceRunId": null
     },
     {
       "id": "e-src3-claim",
-      "source": "source-kursa-2010",
-      "target": "claim-gini-bias",
-      "relation": "contradicts",
+      "relation": "supports",
       "status": "suggested",
       "confidence": 0.61,
       "evidenceChunkId": "chunk-5",
-      "quote": "The Boruta algorithm creates shadow features by shuffling values of original attributes across objects. It rejects the hypothesis that a feature is uninformative only if its importance significantly exceeds the maximal importance among shadow features",
-      "page": 5,
-      "charStart": 4100,
-      "charEnd": 4530,
+      "quote": "For each attribute we create a corresponding ‘shadow’ attribute, whose values are obtained by shuffling values of the original attribute across objects. We then perform a classification using all attributes of this extended system and compute the importance of all attributes. The importance of a shadow attribute can be nonzero only due to random fluctuations.",
+      "page": 3,
+      "charStart": 6745,
+      "charEnd": 7106,
       "chunkNumber": 5,
       "sourceTitle": "Kursa & Rudnicki 2010",
       "targetTitle": "Claim",
-      "rationale": "Questions whether permutation alone is sufficient without shadow feature baseline thresholding."
+      "rationale": "Introduces shadow-attribute importance as a null reference for deciding whether a feature importance exceeds chance.",
+      "sourceNodeId": "source-kursa-2010",
+      "targetNodeId": "claim-gini-bias",
+      "evidenceRunId": null
     },
     {
       "id": "e-claim-method-1",
-      "source": "claim-gini-bias",
-      "target": "method-impurity",
       "relation": "tests",
       "status": "accepted",
       "confidence": 0.95,
       "evidenceChunkId": "chunk-2",
-      "quote": "We compare standard Gini impurity importance ranks against permutation importance ranks across all features.",
-      "page": 6,
-      "charStart": 6150,
-      "charEnd": 6580,
+      "quote": "The behavior of the selection frequency, the Gini importance and the permutation importance of the randomForest function is explored in a simulation design where potential predictor variables vary in their scale of measurement and number of categories.",
+      "page": 3,
+      "charStart": 13691,
+      "charEnd": 13943,
       "chunkNumber": 2,
       "sourceTitle": "Strobl et al. 2007",
       "targetTitle": "Impurity importance",
-      "rationale": "Specifies the random forest impurity evaluation protocol."
+      "rationale": "Documents the simulation design used to compare Gini and permutation importance.",
+      "sourceNodeId": "claim-gini-bias",
+      "targetNodeId": "method-impurity",
+      "evidenceRunId": null
     },
     {
       "id": "e-claim-method-2",
-      "source": "claim-gini-bias",
-      "target": "method-permutation",
       "relation": "tests",
       "status": "accepted",
       "confidence": 0.94,
       "evidenceChunkId": "chunk-2",
-      "quote": "We compare standard Gini impurity importance ranks against permutation importance ranks across all features.",
-      "page": 6,
-      "charStart": 6150,
-      "charEnd": 6580,
+      "quote": "The behavior of the selection frequency, the Gini importance and the permutation importance of the randomForest function is explored in a simulation design where potential predictor variables vary in their scale of measurement and number of categories.",
+      "page": 3,
+      "charStart": 13691,
+      "charEnd": 13943,
       "chunkNumber": 2,
       "sourceTitle": "Strobl et al. 2007",
       "targetTitle": "Permutation importance",
-      "rationale": "Defines permutation importance as the un-biased alternative."
+      "rationale": "Names permutation importance as the comparison measure in the same simulation design.",
+      "sourceNodeId": "claim-gini-bias",
+      "targetNodeId": "method-permutation",
+      "evidenceRunId": null
     },
     {
       "id": "e-claim-dataset",
-      "source": "claim-gini-bias",
-      "target": "dataset-breast-w",
       "relation": "uses_dataset",
       "status": "accepted",
       "confidence": 0.91,
       "evidenceChunkId": "chunk-2",
-      "quote": "Simulation design: A tabular dataset is augmented with multiple uninformative categorical noise variables with varying numbers of categories (e.g., 2, 5, and 20 levels).",
-      "page": 6,
-      "charStart": 6150,
-      "charEnd": 6580,
+      "quote": "The behavior of the selection frequency, the Gini importance and the permutation importance of the randomForest function is explored in a simulation design where potential predictor variables vary in their scale of measurement and number of categories.",
+      "page": 3,
+      "charStart": 13691,
+      "charEnd": 13943,
       "chunkNumber": 2,
       "sourceTitle": "Strobl et al. 2007",
       "targetTitle": "breast-w + 3 noise cols",
-      "rationale": "Specifies the synthetic augmentation of the breast cancer benchmark dataset."
+      "rationale": "The demo adapts the paper's simulation design (predictors with 2-20 categories) to breast-w.",
+      "sourceNodeId": "claim-gini-bias",
+      "targetNodeId": "dataset-breast-w",
+      "evidenceRunId": null
     },
     {
       "id": "e-method1-run1",
-      "source": "method-impurity",
-      "target": "run-a",
       "relation": "produced",
       "status": "accepted",
-      "confidence": 1.0,
+      "confidence": 1,
       "evidenceRunId": "run-1",
-      "rationale": "Run A executes standard Gini impurity MDI."
+      "rationale": "Run A executes standard Gini impurity MDI.",
+      "sourceNodeId": "method-impurity",
+      "targetNodeId": "run-a",
+      "evidenceChunkId": null
     },
     {
       "id": "e-method2-run2",
-      "source": "method-permutation",
-      "target": "run-b",
       "relation": "produced",
       "status": "accepted",
-      "confidence": 1.0,
+      "confidence": 1,
       "evidenceRunId": "run-2",
-      "rationale": "Run B executes permutation importance on identical fold splits."
+      "rationale": "Run B executes permutation importance on identical fold splits.",
+      "sourceNodeId": "method-permutation",
+      "targetNodeId": "run-b",
+      "evidenceChunkId": null
     },
     {
       "id": "e-dataset-run1",
-      "source": "dataset-breast-w",
-      "target": "run-a",
       "relation": "uses_dataset",
       "status": "accepted",
-      "confidence": 1.0,
+      "confidence": 1,
       "evidenceRunId": "run-1",
-      "rationale": "Run A trained on OpenML 52350."
+      "rationale": "Run A trained on OpenML 52350.",
+      "sourceNodeId": "dataset-breast-w",
+      "targetNodeId": "run-a",
+      "evidenceChunkId": null
     },
     {
       "id": "e-dataset-run2",
-      "source": "dataset-breast-w",
-      "target": "run-b",
       "relation": "uses_dataset",
       "status": "accepted",
-      "confidence": 1.0,
+      "confidence": 1,
       "evidenceRunId": "run-2",
-      "rationale": "Run B trained on OpenML 52350."
+      "rationale": "Run B trained on OpenML 52350.",
+      "sourceNodeId": "dataset-breast-w",
+      "targetNodeId": "run-b",
+      "evidenceChunkId": null
     },
     {
       "id": "e-run1-result1",
-      "source": "run-a",
-      "target": "result-a",
       "relation": "produced",
       "status": "accepted",
-      "confidence": 1.0,
+      "confidence": 1,
       "evidenceRunId": "run-1",
-      "rationale": "Impurity test specification with target rank #4 for noise_20."
+      "rationale": "Impurity test specification with target rank #4 for noise_20.",
+      "sourceNodeId": "run-a",
+      "targetNodeId": "result-a",
+      "evidenceChunkId": null
     },
     {
       "id": "e-run2-result2",
-      "source": "run-b",
-      "target": "result-b",
       "relation": "produced",
       "status": "accepted",
-      "confidence": 1.0,
+      "confidence": 1,
       "evidenceRunId": "run-2",
-      "rationale": "Permutation test specification with target rank #11 for noise_20."
+      "rationale": "Permutation test specification with target rank #11 for noise_20.",
+      "sourceNodeId": "run-b",
+      "targetNodeId": "result-b",
+      "evidenceChunkId": null
     },
     {
       "id": "e-run1-run2-whatif",
-      "source": "run-a",
-      "target": "run-b",
       "relation": "derived_from",
       "status": "accepted",
-      "confidence": 1.0,
+      "confidence": 1,
       "evidenceRunId": "run-2",
-      "rationale": "What-If intervention branch: only importance_method is altered."
+      "rationale": "What-If intervention branch: only importance_method is altered.",
+      "sourceNodeId": "run-a",
+      "targetNodeId": "run-b",
+      "evidenceChunkId": null
     }
   ],
   "strategies": [
@@ -510,7 +577,7 @@
       "preferred": false,
       "attempts": 8,
       "successes": 5,
-      "score": 0.60,
+      "score": 0.6,
       "avgLatencyMs": 2400,
       "totalCostUsd": 0.012,
       "totalTokens": 12800
@@ -522,7 +589,7 @@
       "preferred": false,
       "attempts": 6,
       "successes": 3,
-      "score": 0.50,
+      "score": 0.5,
       "avgLatencyMs": 3100,
       "totalCostUsd": 0.008,
       "totalTokens": 8100
@@ -546,7 +613,7 @@
       "preferred": true,
       "attempts": 3,
       "successes": 2,
-      "score": 0.60,
+      "score": 0.6,
       "avgLatencyMs": 1400,
       "totalCostUsd": 0.004,
       "totalTokens": 4200

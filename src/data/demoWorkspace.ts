@@ -1,17 +1,34 @@
 import rawWorkspace from '../../fixtures/workspace.json';
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../fixtures/hero-spec';
+import { parseWorkspaceFixture } from './workspace-fixture';
 import type {
-  NodeType,
+  StrategyStat,
+  WorkspaceEdge,
+  WorkspaceNode,
+  WorkspaceSource,
+} from './workspace-fixture';
+import type {
   EdgeRelation,
   EdgeStatus,
+  GraphEdge,
+  GraphNode,
+  NodeType,
   RunMode,
   RunStatus,
   Verdict,
   VerdictDetail,
-  NodeData,
 } from '../shared/types';
 
 export type { NodeType, EdgeRelation, EdgeStatus, RunMode, RunStatus, Verdict, VerdictDetail };
+export type {
+  WorkspaceEdge,
+  WorkspaceNode,
+  WorkspaceNodeData,
+  WorkspaceSource,
+  SourceChunk,
+  StrategyStat,
+  WorkspaceFixture,
+} from './workspace-fixture';
 
 export const PINNED_IMAGE_PACKAGES: Record<string, string> = {
   numpy: '2.5.5',
@@ -21,93 +38,37 @@ export const PINNED_IMAGE_PACKAGES: Record<string, string> = {
   matplotlib: '3.10.0',
 };
 
-export interface SourceChunk {
-  id: string;
-  sourceId: string;
-  sourceTitle: string;
-  page: number;
-  charStart: number;
-  charEnd: number;
-  text: string;
-}
+/**
+ * The offline demo workspace, parsed once from `fixtures/workspace.json`.
+ *
+ * `parseWorkspaceFixture` validates every node as a `GraphNode`, every edge as
+ * a `GraphEdge`, and the provenance rules that tie quotes to checked-in chunks.
+ * A bad fixture fails here rather than rendering as if it were measured data.
+ */
+const fixture = parseWorkspaceFixture(rawWorkspace);
 
-export interface WorkspaceSource {
-  id: string;
-  kind: 'paper' | 'web' | 'repo' | 'dataset' | 'note';
-  title: string;
-  authors: string;
-  venue: string;
-  year: number;
-  url?: string;
-  doi?: string;
-  sha256: string;
-  bytes: number;
-  isHero?: boolean;
-}
+export const DEMO_WORKSPACE = fixture.workspace;
+export const DEMO_SOURCES: WorkspaceSource[] = fixture.sources;
+export const DEMO_CHUNKS = fixture.chunks;
+export const DEMO_STRATEGIES: StrategyStat[] = fixture.strategies;
 
-export type WorkspaceNodeData = NodeData & {
-  title?: string;
-  sublabel?: string;
-  isPreview?: boolean;
-  isHero?: boolean;
-  venue?: string;
-  doi?: string;
-  pages?: number;
-  noiseColumns?: string;
-  features?: number;
-  parameter?: Record<string, any>;
-  parentRunId?: string;
-  singleParamDiff?: string;
-  criteria?: string;
-  verdictDetail?: VerdictDetail;
-  [key: string]: any;
-};
+/** Validated contract rows, without the presentation-only adapter fields. */
+export const DEMO_GRAPH_NODES: GraphNode[] = fixture.nodes;
+export const DEMO_GRAPH_EDGES: GraphEdge[] = fixture.edges;
 
-export interface WorkspaceNode {
-  id: string;
-  type: NodeType;
-  title: string;
-  position: { x: number; y: number };
-  data: WorkspaceNodeData;
-}
+/**
+ * The canvas/panel shape: the same validated rows plus `position` and React
+ * Flow's `source` / `target` endpoint names. This adapter exists so the fixture
+ * can use the frozen `GraphNode` / `GraphEdge` names while the existing DOM
+ * keeps reading `source` / `target`.
+ */
+export const DEMO_NODES: WorkspaceNode[] = fixture.nodes;
+export const DEMO_EDGES: WorkspaceEdge[] = fixture.edges.map((edge) => ({
+  ...edge,
+  source: edge.sourceNodeId,
+  target: edge.targetNodeId,
+}));
 
-export interface WorkspaceEdge {
-  id: string;
-  source: string;
-  target: string;
-  relation: EdgeRelation;
-  status: EdgeStatus;
-  confidence?: number;
-  evidenceChunkId?: string;
-  evidenceRunId?: string;
-  quote?: string;
-  page?: number;
-  charStart?: number;
-  charEnd?: number;
-  chunkNumber?: number;
-  sourceTitle?: string;
-  targetTitle?: string;
-  rationale?: string;
-}
-
-export interface StrategyStat {
-  id: string;
-  name: string;
-  taskKind: string;
-  preferred?: boolean;
-  attempts: number;
-  successes: number;
-  score: number; // (successes + 1) / (attempts + 2)
-  avgLatencyMs: number;
-  totalCostUsd: number;
-  totalTokens: number;
-}
-
-// Single source of truth: all demo workspace data is derived directly from fixtures/workspace.json
-export const DEMO_WORKSPACE = rawWorkspace.workspace;
-export const DEMO_SOURCES: WorkspaceSource[] = rawWorkspace.sources as unknown as WorkspaceSource[];
-export const DEMO_CHUNKS: Record<string, SourceChunk> = rawWorkspace.chunks as unknown as Record<string, SourceChunk>;
-export const DEMO_NODES: WorkspaceNode[] = rawWorkspace.nodes as unknown as WorkspaceNode[];
 const demoSourceCount = DEMO_NODES.filter((node) => node.type === 'source').length;
 const demoClaimCount = DEMO_NODES.filter((node) => node.type === 'claim').length;
 export const DEMO_WORKSPACE_SUBTITLE = [
@@ -115,7 +76,5 @@ export const DEMO_WORKSPACE_SUBTITLE = [
   `${demoClaimCount} ${demoClaimCount === 1 ? 'claim' : 'claims'}`,
   `${DEMO_WORKSPACE.dataset} (fixture)`,
 ].join(' · ');
-export const DEMO_EDGES: WorkspaceEdge[] = rawWorkspace.edges as unknown as WorkspaceEdge[];
-export const DEMO_STRATEGIES: StrategyStat[] = rawWorkspace.strategies as unknown as StrategyStat[];
 
 export const HERO_PYTHON_SCRIPT = HERO_EXPERIMENT_SPEC_RUN_A.files['main.py'];
