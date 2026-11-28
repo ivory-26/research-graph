@@ -675,6 +675,9 @@ export function createProductionPipelineStages(
             .update(runs)
             .set({
               status,
+              // A run killed mid-EXECUTE records the sandbox it reached; a
+              // failure before `Sandbox.create` leaves the column null.
+              sandboxId: result.sandboxId ?? null,
               // Whatever the runner captured before the abort is still the
               // run's output. Metrics are deliberately not written: a result
               // obtained after cancellation is not trusted as a measurement.

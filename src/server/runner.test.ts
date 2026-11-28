@@ -66,10 +66,19 @@ describe('verifyEnvironmentPackages', () => {
 
 describe('runnerErrorToFailedResult mapping', () => {
   it('maps MetricsExtractionError into a failed ExperimentResult with exit code and error detail', () => {
-    const err = new MetricsExtractionError('metrics.json was missing', 0, 'stdout output', 'stderr output', 1200)
+    const err = new MetricsExtractionError(
+      'metrics.json was missing',
+      0,
+      'stdout output',
+      'stderr output',
+      1200,
+      undefined,
+      'sandbox-metrics',
+    )
     const failedResult = runnerErrorToFailedResult(err, HERO_EXPERIMENT_SPEC_RUN_A)
 
     expect(failedResult.exitCode).toBe(1) // Mapped to non-zero failure
+    expect(failedResult.sandboxId).toBe('sandbox-metrics')
     expect(failedResult.stdout).toBe('stdout output')
     expect(failedResult.stderr).toContain('metrics.json was missing')
     expect(failedResult.durationMs).toBe(1200)
@@ -82,10 +91,19 @@ describe('runnerErrorToFailedResult mapping', () => {
   })
 
   it('maps SandboxTimeoutError into a failed ExperimentResult with exit code 124', () => {
-    const err = new SandboxTimeoutError('Execution timed out after 60s', 60, '', 'DeadlineExceeded', 60000)
+    const err = new SandboxTimeoutError(
+      'Execution timed out after 60s',
+      60,
+      '',
+      'DeadlineExceeded',
+      60000,
+      undefined,
+      'sandbox-timeout',
+    )
     const failedResult = runnerErrorToFailedResult(err, HERO_EXPERIMENT_SPEC_RUN_A)
 
     expect(failedResult.exitCode).toBe(124) // Standard timeout exit code
+    expect(failedResult.sandboxId).toBe('sandbox-timeout')
     expect(failedResult.stderr).toContain('timed out')
     expect(failedResult.durationMs).toBe(60000)
 
@@ -103,10 +121,12 @@ describe('runnerErrorToFailedResult mapping', () => {
       1500,
       undefined,
       { accuracy: 0.92 },
+      'sandbox-packages',
     )
     const failedResult = runnerErrorToFailedResult(err, HERO_EXPERIMENT_SPEC_RUN_A)
 
     expect(failedResult.exitCode).toBe(1)
+    expect(failedResult.sandboxId).toBe('sandbox-packages')
     expect(failedResult.stdout).toBe('computed output')
     expect(failedResult.stderr).toContain('failed package verification')
     expect(failedResult.durationMs).toBe(1500)
@@ -523,7 +543,11 @@ describe('E2BRunner with mocked sandbox', () => {
       verifyPackages: true,
     })
 
-    await expect(runner.run(HERO_EXPERIMENT_SPEC_RUN_A)).rejects.toThrow(PackageVerificationError)
+    const error = await runner
+      .run(HERO_EXPERIMENT_SPEC_RUN_A)
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(PackageVerificationError)
+    expect((error as PackageVerificationError).sandboxId).toBe('test-sandbox-mismatch')
     expect(fakeSandbox.kill).toHaveBeenCalledTimes(1)
     expect(runner.getActiveSandboxes().size).toBe(0)
   })
@@ -549,7 +573,11 @@ describe('E2BRunner with mocked sandbox', () => {
       datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from(''), sha256: 'xyz' }),
     })
 
-    await expect(runner.run(HERO_EXPERIMENT_SPEC_RUN_A)).rejects.toThrow(MetricsExtractionError)
+    const error = await runner
+      .run(HERO_EXPERIMENT_SPEC_RUN_A)
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(MetricsExtractionError)
+    expect((error as MetricsExtractionError).sandboxId).toBe('test-sandbox-fail')
     expect(fakeSandbox.kill).toHaveBeenCalledTimes(1)
     expect(runner.getActiveSandboxes().size).toBe(0)
   })
@@ -564,7 +592,13 @@ describe('E2BRunner with mocked sandbox', () => {
       datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from('data'), sha256: 'h1' }),
     })
 
-    await expect(runner.run(HERO_EXPERIMENT_SPEC_RUN_A)).rejects.toThrow(MetricsExtractionError)
+    const error = await runner
+      .run(HERO_EXPERIMENT_SPEC_RUN_A)
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(MetricsExtractionError)
+    expect((error as MetricsExtractionError).sandboxId).toBe(
+      'test-sandbox-invalid-metrics',
+    )
     expect(fakeSandbox.kill).toHaveBeenCalledTimes(1)
     expect(runner.getActiveSandboxes().size).toBe(0)
   })
@@ -595,7 +629,11 @@ describe('E2BRunner with mocked sandbox', () => {
       datasetFetcher: vi.fn().mockResolvedValue({ bytes: Buffer.from(''), sha256: 'xyz' }),
     })
 
-    await expect(runner.run(HERO_EXPERIMENT_SPEC_RUN_A)).rejects.toThrow(SandboxTimeoutError)
+    const error = await runner
+      .run(HERO_EXPERIMENT_SPEC_RUN_A)
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(SandboxTimeoutError)
+    expect((error as SandboxTimeoutError).sandboxId).toBe('test-sandbox-timeout')
     expect(fakeSandbox.kill).toHaveBeenCalledTimes(1)
     expect(runner.getActiveSandboxes().size).toBe(0)
   })

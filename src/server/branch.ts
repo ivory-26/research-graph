@@ -697,6 +697,8 @@ export type NewRepairRunRecord = {
 
 export type RepairRunUpdate = {
   status: RunStatus
+  /** The sandbox the repaired run reached; absent when none was created. */
+  sandboxId?: string | null
   metrics: Record<string, number>
   environment: RunEnvironment
   verdict: Verdict | null
@@ -746,6 +748,12 @@ export function createDrizzleRepairRunStore(
         .update(runs)
         .set({
           status: patch.status,
+          // Only overwrite the column when the caller has an observation: a
+          // provider failure before `Sandbox.create` must leave it null, not
+          // erase an id another update already recorded.
+          ...(patch.sandboxId === undefined
+            ? {}
+            : { sandboxId: patch.sandboxId ?? null }),
           metrics: patch.metrics,
           environment: patch.environment,
           verdict: patch.verdict,
@@ -1169,6 +1177,7 @@ function sanitizeRunnerError(
     console.error('[repairAndRetryRun] sandbox timed out', err)
     return {
       exitCode: 124,
+      sandboxId: timeoutErr.sandboxId ?? null,
       stdout: timeoutErr.stdout ?? '',
       stderr: 'The experiment sandbox timed out before completing',
       metrics: {},
@@ -1194,6 +1203,7 @@ function sanitizeRunnerError(
     const isPkg = (err as Error).name === 'PackageVerificationError'
     return {
       exitCode: 1,
+      sandboxId: (err as { sandboxId?: string | null }).sandboxId ?? null,
       stdout: (err as any).stdout ?? '',
       stderr: isPkg
         ? 'Runtime environment package verification failed'
@@ -1640,6 +1650,7 @@ async function executeChainedRepairRun(
     try {
       await options.runStore.updateRun(newRun.id, {
         status: options.abortedStatus?.() ?? 'cancelled',
+        sandboxId: result.sandboxId ?? null,
         metrics: {},
         environment: result.environment,
         verdict: null,
@@ -1670,6 +1681,7 @@ async function executeChainedRepairRun(
 
   const updatedRun = await options.runStore.updateRun(newRun.id, {
     status: runStatus,
+    sandboxId: result.sandboxId ?? null,
     metrics: result.metrics,
     environment: result.environment,
     verdict: evaluated.verdict,

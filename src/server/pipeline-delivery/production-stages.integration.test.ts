@@ -404,7 +404,12 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       ))
       const rows = await runRows()
       const [parent, child] = rows
-      expect(parent).toMatchObject({ attempt: 1, status: 'failed', verdict: 'failed' })
+      expect(parent).toMatchObject({
+        attempt: 1,
+        status: 'failed',
+        verdict: 'failed',
+        sandbox_id: 'sandbox-test-1',
+      })
       expect(parent!.spec.files['main.py']).toBe(brokenScript)
       const task = await testDb.pool.query<{ input_ref: unknown }>(
         "SELECT input_ref FROM agent_tasks WHERE task_kind = 'repair_script'",
@@ -420,7 +425,12 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       }
       expect(rows).toHaveLength(2)
       expect(child).toMatchObject({
-        attempt: 2, parent_run_id: parent!.id, status: 'succeeded', verdict: 'match',
+        attempt: 2,
+        parent_run_id: parent!.id,
+        status: 'succeeded',
+        verdict: 'match',
+        // The repaired run's own sandbox, persisted by the repair store.
+        sandbox_id: 'sandbox-test-1',
       })
       expect(child!.spec.files['main.py']).toBe(candidate)
       expect(sse.events.at(-1)).toMatchObject({ type: 'pipeline.completed', runId: child!.id })
@@ -437,7 +447,15 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       async run() {
         this.runCalls++
         if (this.runCalls === 1) {
-          throw new SandboxTimeoutError('Execution timed out after 30 seconds', 30)
+          throw new SandboxTimeoutError(
+            'Execution timed out after 30 seconds',
+            30,
+            '',
+            '',
+            0,
+            undefined,
+            'sandbox-timeout-1',
+          )
         }
         return measuredResult({ metrics: { score: 0.9 } })
       },
@@ -460,11 +478,17 @@ describeIntegration('production pipeline stages over real Postgres', () => {
 
     const rows = await runRows()
     expect(rows).toHaveLength(2)
-    expect(rows[0]).toMatchObject({ attempt: 1, status: 'timeout' })
+    expect(rows[0]).toMatchObject({
+      attempt: 1,
+      status: 'timeout',
+      // A typed timeout still reports the sandbox that ran.
+      sandbox_id: 'sandbox-timeout-1',
+    })
     expect(rows[1]).toMatchObject({
       attempt: 2,
       parent_run_id: rows[0]!.id,
       status: 'succeeded',
+      sandbox_id: 'sandbox-test-1',
     })
     expect(runner.runCalls).toBe(2)
   })
@@ -484,6 +508,9 @@ describeIntegration('production pipeline stages over real Postgres', () => {
             0,
             'computed ranks\n',
             '',
+            0,
+            undefined,
+            'sandbox-metrics-1',
           )
         }
         return measuredResult({ metrics: { score: 0.8 } })
@@ -523,12 +550,18 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     const rows = await runRows()
     expect(rows).toHaveLength(2)
     const [parent, child] = rows
-    expect(parent).toMatchObject({ attempt: 1, status: 'failed' })
+    expect(parent).toMatchObject({
+      attempt: 1,
+      status: 'failed',
+      // A typed metrics failure still reports the sandbox that ran.
+      sandbox_id: 'sandbox-metrics-1',
+    })
     expect(child).toMatchObject({
       attempt: 2,
       parent_run_id: parent!.id,
       status: 'succeeded',
       verdict: 'match',
+      sandbox_id: 'sandbox-test-1',
     })
     expect(child!.spec.files['main.py']).toBe(candidate)
 
@@ -561,6 +594,10 @@ describeIntegration('production pipeline stages over real Postgres', () => {
           0,
           'computed\n',
           '',
+          0,
+          undefined,
+          {},
+          'sandbox-packages-1',
         )
       },
     }
@@ -574,7 +611,12 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     expect(runner.runCalls).toBe(1)
     const rows = await runRows()
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ attempt: 1, status: 'failed' })
+    expect(rows[0]).toMatchObject({
+      attempt: 1,
+      status: 'failed',
+      // A typed package failure still reports the sandbox that ran.
+      sandbox_id: 'sandbox-packages-1',
+    })
     const tasks = await testDb.pool.query(
       "SELECT id FROM agent_tasks WHERE task_kind = 'repair_script'",
     )
@@ -1214,7 +1256,12 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
     const rows = await runRows()
-    expect(rows[0]).toMatchObject({ status: 'timeout', verdict: null })
+    expect(rows[0]).toMatchObject({
+      status: 'timeout',
+      verdict: null,
+      // The sandbox created after the abort still lands on the run row.
+      sandbox_id: 'sandbox-late',
+    })
   })
 
   it('cancels the live sandbox and marks the run timed out when the budget expires', async () => {
@@ -1259,7 +1306,11 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
     const rows = await runRows()
-    expect(rows[0]).toMatchObject({ status: 'timeout', verdict: null })
+    expect(rows[0]).toMatchObject({
+      status: 'timeout',
+      verdict: null,
+      sandbox_id: 'sandbox-test-1',
+    })
 
     // The abort path still owes the graph once the row is terminal.
     const graph = await waitForRunNode()

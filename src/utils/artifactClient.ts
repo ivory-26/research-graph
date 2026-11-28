@@ -42,9 +42,10 @@ function readErrorBody(payload: unknown): { code?: string; message?: string } {
 }
 
 /**
- * Loads one run's artifact manifest. A 404 means the run does not exist or is
- * not visible to this session; a 403 means the run belongs to another
- * workspace. Neither is retried.
+ * Loads one run's artifact manifest. A 404 means the run does not exist or its
+ * workspace cannot be proven to belong to this session: the server answers
+ * `404 RUN_NOT_FOUND` for both a missing run and a non-member, so neither case
+ * leaks which one it was. Not retried.
  */
 export async function fetchRunArtifactManifest(
   runId: string,

@@ -56,6 +56,7 @@ export class PackageVerificationError extends Error {
     public readonly durationMs: number = 0,
     public readonly environment?: RunEnvironment,
     public readonly metrics: Record<string, number> = {},
+    public readonly sandboxId?: string | null,
   ) {
     super(message)
     this.name = 'PackageVerificationError'
@@ -76,6 +77,7 @@ export class MetricsExtractionError extends Error {
     public readonly stderr: string,
     public readonly durationMs: number = 0,
     public readonly environment?: RunEnvironment,
+    public readonly sandboxId?: string | null,
   ) {
     super(message)
     this.name = 'MetricsExtractionError'
@@ -94,6 +96,7 @@ export class SandboxTimeoutError extends Error {
     public readonly stderr: string = '',
     public readonly durationMs: number = 0,
     public readonly environment?: RunEnvironment,
+    public readonly sandboxId?: string | null,
   ) {
     super(message)
     this.name = 'SandboxTimeoutError'
@@ -112,6 +115,7 @@ export function runnerErrorToFailedResult(
   if (err instanceof PackageVerificationError) {
     return {
       exitCode: err.exitCode || 1,
+      sandboxId: err.sandboxId ?? null,
       stdout: err.stdout,
       stderr: err.stderr ? `${err.stderr}\n${err.message}` : err.message,
       metrics: err.metrics,
@@ -132,6 +136,7 @@ export function runnerErrorToFailedResult(
   if (err instanceof MetricsExtractionError) {
     return {
       exitCode: err.exitCode || 1,
+      sandboxId: err.sandboxId ?? null,
       stdout: err.stdout,
       stderr: err.stderr ? `${err.stderr}\n${err.message}` : err.message,
       metrics: {},
@@ -152,6 +157,7 @@ export function runnerErrorToFailedResult(
   if (err instanceof SandboxTimeoutError) {
     return {
       exitCode: 124, // Standard timeout exit code
+      sandboxId: err.sandboxId ?? null,
       stdout: err.stdout,
       stderr: err.stderr ? `${err.stderr}\n${err.message}` : err.message,
       metrics: {},
@@ -659,6 +665,7 @@ export class E2BRunner implements ExperimentRunner {
               String(err),
               Date.now() - started,
               environment,
+              sandboxId,
             )
           }
           throw err
@@ -678,6 +685,7 @@ export class E2BRunner implements ExperimentRunner {
           proc.stderr,
           durationMs,
           environment,
+          sandboxId,
         )
       }
 
@@ -692,6 +700,7 @@ export class E2BRunner implements ExperimentRunner {
           proc.stderr,
           durationMs,
           environment,
+          sandboxId,
         )
       }
 
@@ -704,6 +713,7 @@ export class E2BRunner implements ExperimentRunner {
           proc.stderr,
           durationMs,
           environment,
+          sandboxId,
         )
       }
 
@@ -723,6 +733,7 @@ export class E2BRunner implements ExperimentRunner {
             durationMs,
             environment,
             validatedMetrics,
+            sandboxId,
           )
         }
       }

@@ -7,7 +7,7 @@ Status as of 28 November. Rows marked **verified** have been exercised against t
 | # | Risk | Likelihood | Impact | Mitigation | Fallback |
 |---|---|---|---|---|---|
 | 1 | **The browser never reaches the pipeline** | Low — **verified** | High | PR #68 exercised browser approval through pipeline completion and rejection through cancellation using fresh pending experiments in the workspace seeded by #8 | Record the backend and the UI separately, and say so |
-| 2 | **No deploy on 30 November** | High | High | `vercel.json` and [11-deploy](./11-deploy.md) exist; no hosted deploy exists yet (#9) | A local recording and a repository link; say plainly that no hosted link exists |
+| 2 | **Production drifts from `main` before submission** | Medium | High | Production is live at <https://research-graph-sage.vercel.app> (Vercel project `research-graph`, team `sahil-64d5`; #9 closed); redeploy after the last merge and verify the deployed link before recording, per [11-deploy](./11-deploy.md) | Record against the deployed URL and state which commit is live |
 | 3 | Seed replay exceeds the one-minute target | Medium | Medium | `pnpm seed` rebuilds the recorded workspace through the production paths (#8); replay takes 3m07s on the free-tier embedding quota, capture 5m29s | Use a billed Gemini embedding key for the take, or record embeddings; the video does not depend on a fresh seed |
 | 4 | **Deck written on the last night** | High | High | The deck is not on `main` | Ship a shorter deck; the video carries the submission |
 | 5 | The failure beat has no real failure to show | High | Medium | The repair loop is built; a real failed sandbox or provider error must still supply the material | Say out loud what the failure exposed and how the repair loop handles it |
