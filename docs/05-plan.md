@@ -68,7 +68,7 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 |---|---|---|
 | Sign-in / sign-up screens & route gate | #16 | `src/routes/sign-in.tsx`, `sign-up.tsx`, `index.tsx` `beforeLoad`, `src/utils/authClient.ts` |
 | Browser→pipeline SSE & approval client | #20 | `src/utils/pipelineClient.ts`, `ApprovalModal.tsx`, `src/routes/index.tsx` |
-| Guarded graph, workspace & strategy routes | #18, #21 | `src/routes/api/graph.ts`, `src/routes/api/workspaces.ts`, `src/routes/api/strategies.ts`, `src/utils/graphClient.ts`, `src/utils/strategyClient.ts`. Target canvas zoom: `fitView` with `padding: 0.2` (`0.38` in memory mode), `minZoom: 0.2`, `maxZoom: 2.4` (`ResearchCanvas.tsx`). |
+| Guarded graph, workspace & strategy routes | #18, #21 | `src/routes/api/graph.ts`, `src/routes/api/workspaces.ts`, `src/routes/api/strategies.ts`, `src/utils/graphClient.ts`, `src/utils/strategyClient.ts`. Canvas framing uses `fitView` with `padding: '20%'` (`'38%'` in memory mode), `minZoom: 0.2`, and `maxZoom: 2.4` (`ResearchCanvas.tsx`). |
 
 ### Not on `main` on 27 November
 
