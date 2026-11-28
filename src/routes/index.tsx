@@ -18,6 +18,7 @@ import { ConsoleDrawer } from '../components/panels/ConsoleDrawer';
 import {
   DEMO_NODES,
   DEMO_EDGES,
+  DEMO_WORKSPACE_SUBTITLE,
 } from '../data/demoWorkspace';
 import type { ExperimentSpec } from '../shared/types';
 import { getCurrentUser } from '../server/auth';
@@ -66,7 +67,7 @@ const WORKSPACES = [
   {
     id: 'research-graph',
     name: 'Research Graph',
-    subtitle: '3 sources · 1 claim · OpenML:52350 (fixture)',
+    subtitle: DEMO_WORKSPACE_SUBTITLE,
   },
 ];
 

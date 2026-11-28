@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import rawWorkspace from '../../../fixtures/workspace.json';
+import { DEMO_WORKSPACE_SUBTITLE } from '../../data/demoWorkspace';
 import {
   Play,
   Terminal,
@@ -111,9 +111,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   }, [isMoreMenuOpen]);
 
-  const sourceCount = rawWorkspace.nodes.filter((n) => n.type === 'source').length;
-  const claimCount = rawWorkspace.nodes.filter((n) => n.type === 'claim').length;
-
   return (
     <header className="flex flex-col w-full z-30 select-none border-b border-[var(--border-primary)] bg-[var(--header-bg)] transition-colors duration-200">
       {/* Prithvi Twin Signature 2px Tri-color Header Accent Stripe */}
@@ -168,7 +165,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       {
                         id: 'research-graph',
                         name: currentWorkspace,
-                        subtitle: `${sourceCount} sources · ${claimCount} claim (fixture)`,
+                        subtitle: DEMO_WORKSPACE_SUBTITLE,
                       },
                     ]
                 ).map((ws) => {
