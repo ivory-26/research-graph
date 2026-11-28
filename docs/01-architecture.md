@@ -39,7 +39,7 @@ Generated Python never runs in the application process, never receives the datab
 
 Dataset bytes are fetched by the **application**, hashed, then uploaded into the sandbox. This is why execution can be network-free without losing the ability to download data — and it means the hash recorded in the run environment is the hash of the bytes that were actually used.
 
-The diagram is the target shape. On `main` the routes under `src/routes/api` are the two pipeline endpoints and the auth proxy; there are no CRUD server functions for sources, nodes, edges or runs, and the browser does not call the pipeline yet.
+The diagram is the target shape. The routes under `src/routes/api` are the two pipeline endpoints, the auth proxy, and guarded `/api/graph`, `/api/workspaces` and `/api/strategies` reads; the browser opens the pipeline stream and posts gate decisions when an experiment ID is active, and reads the graph and strategy routes for a database workspace. There are still no CRUD server functions for sources, nodes, edges or runs.
 
 ## Request lifecycle
 

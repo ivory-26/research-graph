@@ -68,7 +68,7 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 |---|---|---|
 | Sign-in / sign-up screens & route gate | #16 | `src/routes/sign-in.tsx`, `sign-up.tsx`, `index.tsx` `beforeLoad`, `src/utils/authClient.ts` |
 | Browser→pipeline SSE & approval client | #20 | `src/utils/pipelineClient.ts`, `ApprovalModal.tsx`, `src/routes/index.tsx` |
-| Guarded graph, workspace & strategy routes | #18 (seed #8 has landed; run the remaining checks), #22 | `src/routes/api/graph.ts`, `src/routes/api/workspaces.ts`, `src/routes/api/strategies.ts`, `src/utils/graphClient.ts`, `src/utils/strategyClient.ts`. Target canvas zoom: `fitView` with `padding: 0.2` (`0.38` in memory mode), `minZoom: 0.2`, `maxZoom: 2.4` (`ResearchCanvas.tsx`). |
+| Guarded graph, workspace & strategy routes | #18, #21 | `src/routes/api/graph.ts`, `src/routes/api/workspaces.ts`, `src/routes/api/strategies.ts`, `src/utils/graphClient.ts`, `src/utils/strategyClient.ts`. Target canvas zoom: `fitView` with `padding: 0.2` (`0.38` in memory mode), `minZoom: 0.2`, `maxZoom: 2.4` (`ResearchCanvas.tsx`). |
 
 ### Not on `main` on 27 November
 
@@ -76,10 +76,10 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 |---|---|---|
 | Write a completed run back as result/run nodes and the `produced` edge | #7 | the graph beat showing a real result |
 | Production deploy | #9 | the deployed-link success criterion |
-| Repair loop and multi-strategy selection | #26 | the repair loop is built; strategy selection remains unbuilt |
+| Strategy selection | #26 | automated selection remains unbuilt; the repair loop and what-if branch are built as modules, and EXECUTE adoption of Run B is #62 |
 | Server-side notebook export | Built into production run evaluation | a notebook generated from a real run |
 
-`pnpm typecheck` and `pnpm db:check` pass. `pnpm test` runs 27 `node:test` transport checks plus the Vitest suites: without `TEST_DATABASE_URL`, 411 app tests and 90 seed tests pass and 62 app tests skip on 27 November. The skipped files are the opt-in Postgres, E2B and Gemini integration suites.
+`pnpm typecheck` and `pnpm db:check` pass. `pnpm test` runs 27 `node:test` transport checks plus the Vitest suites: without `TEST_DATABASE_URL`, 417 app tests and 90 seed tests pass and 64 app tests skip on 27 November. The skipped files are the opt-in Postgres, E2B and Gemini integration suites.
 
 ## Workstreams
 

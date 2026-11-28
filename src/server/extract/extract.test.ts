@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { ingestPdf } from '../ingest'
+import { DEFAULT_META_MODEL_ID, DEFAULT_MODEL_ID, callModel, type CallModel } from '../model'
 import { buildExtractionPrompt, extractClaims } from './claims'
 import { normalizeQuote, validateClaimQuotes, verifyVerbatimQuote } from './quote'
 import { ExtractionResultSchema, type ChunkRef, type ExtractedClaim, type ExtractionResult } from './types'
@@ -129,6 +130,25 @@ describe('validateClaimQuotes', () => {
     expect(result.accepted).toHaveLength(0)
     expect(result.rejected).toHaveLength(1)
     expect(result.rejected[0].reason).toBe('VERBATIM_QUOTE_NOT_FOUND')
+  })
+
+  it('rejects quotes exceeding 400 characters with QUOTE_TOO_LONG per claim without aborting sibling claims', () => {
+    const overlong = 'A'.repeat(405)
+    const valid = 'Random forests are robust across noise.'
+    const localChunks: ChunkRef[] = [
+      { id: 'c-len', ordinal: 0, page: 1, text: `${overlong} ${valid}` },
+    ]
+    const result = validateClaimQuotes(
+      [
+        { text: 'Overlong quote claim', quote: overlong, chunkId: 'c-len' },
+        { text: 'Valid concise claim', quote: valid, chunkId: 'c-len' },
+      ],
+      localChunks,
+    )
+    expect(result.accepted).toHaveLength(1)
+    expect(result.accepted[0]?.text).toBe('Valid concise claim')
+    expect(result.rejected).toHaveLength(1)
+    expect(result.rejected[0]?.reason).toBe('QUOTE_TOO_LONG')
   })
 
   it('prefers chunk ID lookup over another chunk ordinal when ID is a decimal string', () => {
@@ -829,65 +849,84 @@ describe('Integration test with real Strobl 2007 paper text (Issue #12 acceptanc
     15000,
   )
 
-  const hasKey = Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY)
+  const hasGeminiKey = Boolean(
+    process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+  )
+  const hasMetaKey = Boolean(process.env.META_API_KEY)
   const hasDb = Boolean(process.env.DATABASE_URL)
-  const canRunLive = hasKey && hasDb && fs.existsSync(stroblPdfPath)
-  it.skipIf(!canRunLive)(
+
+  async function runLiveStroblExtraction(pinnedModelId: string) {
+    const { getDb } = await import('../../db/client')
+    const { agentTasks, sources, workspaces } = await import('../../db/schema')
+    const { eq } = await import('drizzle-orm')
+
+    const db = getDb()
+    const testWsId = crypto.randomUUID()
+    const testSourceId = crypto.randomUUID()
+    const pinnedCallModel: CallModel = (schema, prompt, ctx) =>
+      callModel(schema, prompt, { ...ctx, modelId: pinnedModelId })
+
+    try {
+      await db.insert(workspaces).values({
+        id: testWsId,
+        name: 'Extract Live Test Workspace',
+        slug: `test-ws-extract-${Date.now()}`,
+      })
+
+      await db.insert(sources).values({
+        id: testSourceId,
+        workspaceId: testWsId,
+        kind: 'paper',
+        title: 'Strobl 2007 Paper',
+        sha256: 'test-extract-sha',
+        bytes: 1024,
+      })
+
+      const buffer = fs.readFileSync(stroblPdfPath)
+      const { chunks } = await ingestPdf(buffer)
+      const chunkRefs: ChunkRef[] = chunks.map((c) => ({
+        id: `chunk-${c.ordinal}`,
+        ordinal: c.ordinal,
+        text: c.text,
+        page: c.page,
+      }))
+
+      const outcome = await extractClaims({
+        workspaceId: testWsId,
+        sourceId: testSourceId,
+        chunks: chunkRefs,
+        strategy: 'single_pass',
+        callModelFn: pinnedCallModel,
+      })
+
+      expect(outcome.acceptedClaims.length).toBeGreaterThanOrEqual(1)
+      const hero = outcome.acceptedClaims.find(
+        (c) =>
+          c.text.toLowerCase().includes('importance') ||
+          c.quote.toLowerCase().includes('importance'),
+      )
+      expect(hero).toBeDefined()
+      const cited = chunkRefs.find((c) => c.ordinal === hero!.chunkOrdinal)
+      expect(cited).toBeDefined()
+      expect(verifyVerbatimQuote(hero!.quote, cited!.text)).toBe(true)
+    } finally {
+      await db.delete(agentTasks).where(eq(agentTasks.workspaceId, testWsId)).catch(() => {})
+      await db.delete(sources).where(eq(sources.id, testSourceId)).catch(() => {})
+      await db.delete(workspaces).where(eq(workspaces.id, testWsId)).catch(() => {})
+    }
+  }
+
+  const canRunLiveGemini = hasGeminiKey && hasDb && fs.existsSync(stroblPdfPath)
+  it.skipIf(!canRunLiveGemini)(
     'LIVE: executes extractClaims with real Gemini model on Strobl 2007 and extracts hero claim',
-    async () => {
-      const { getDb } = await import('../../db/client')
-      const { workspaces, sources } = await import('../../db/schema')
-      const { eq } = await import('drizzle-orm')
+    async () => runLiveStroblExtraction(DEFAULT_MODEL_ID),
+    60000,
+  )
 
-      const db = getDb()
-      const testWsId = crypto.randomUUID()
-      const testSourceId = crypto.randomUUID()
-
-      try {
-        await db.insert(workspaces).values({
-          id: testWsId,
-          name: 'Extract Live Test Workspace',
-          slug: `test-ws-extract-${Date.now()}`,
-        })
-
-        await db.insert(sources).values({
-          id: testSourceId,
-          workspaceId: testWsId,
-          kind: 'paper',
-          title: 'Strobl 2007 Paper',
-          sha256: 'test-extract-sha',
-          bytes: 1024,
-        })
-
-        const buffer = fs.readFileSync(stroblPdfPath)
-        const { chunks } = await ingestPdf(buffer)
-        const chunkRefs: ChunkRef[] = chunks.map((c) => ({
-          id: `chunk-${c.ordinal}`,
-          ordinal: c.ordinal,
-          text: c.text,
-          page: c.page,
-        }))
-
-        const outcome = await extractClaims({
-          workspaceId: testWsId,
-          sourceId: testSourceId,
-          chunks: chunkRefs,
-          strategy: 'single_pass',
-        })
-
-        expect(outcome.acceptedClaims.length).toBeGreaterThanOrEqual(1)
-        const hero = outcome.acceptedClaims.find((c) =>
-          c.text.toLowerCase().includes('importance') || c.quote.toLowerCase().includes('importance'),
-        )
-        expect(hero).toBeDefined()
-        const cited = chunkRefs.find((c) => c.ordinal === hero!.chunkOrdinal)
-        expect(cited).toBeDefined()
-        expect(verifyVerbatimQuote(hero!.quote, cited!.text)).toBe(true)
-      } finally {
-        await db.delete(sources).where(eq(sources.id, testSourceId)).catch(() => {})
-        await db.delete(workspaces).where(eq(workspaces.id, testWsId)).catch(() => {})
-      }
-    },
+  const canRunLiveMeta = hasMetaKey && hasDb && fs.existsSync(stroblPdfPath)
+  it.skipIf(!canRunLiveMeta)(
+    'LIVE META: executes extractClaims with muse-spark-1.3-contributor on Strobl 2007 and extracts hero claim',
+    async () => runLiveStroblExtraction(DEFAULT_META_MODEL_ID),
     60000,
   )
 

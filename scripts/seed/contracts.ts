@@ -267,7 +267,7 @@ export type RunEdgeErrorCode =
 export type SeedErrorCode =
   | 'MISSING_DATABASE_URL'
   | 'MISSING_GEMINI_KEY'
-  | 'MISSING_MODEL_API_KEY'
+  | 'MISSING_META_API_KEY'
   | 'INVALID_EMBEDDING_PACING'
   | 'MISSING_ACTOR'
   | 'MISSING_ASSET'

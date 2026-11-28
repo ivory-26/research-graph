@@ -1,21 +1,31 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { APICallError } from 'ai'
 import { MockLanguageModelV4 } from 'ai/test'
 import { z } from 'zod'
 import { agentTasks } from '../db/schema'
 import type { Database } from '../db/client'
+import { ExtractionResultSchema, ProposeEdgesResultSchema } from './extract/types'
+import { RetrievalAnswerSchema } from './retrieval'
 import {
   AgentTaskPersistenceError,
   DEFAULT_MAX_ATTEMPTS,
+  DEFAULT_META_CHAT_COMPLETIONS_URL,
+  DEFAULT_META_MODEL_ID,
   DEFAULT_MODEL_ID,
+  DEFAULT_PRICING,
+  MetaApiError,
   createCallModel,
   createDrizzleAgentTaskStore,
   createGeminiGenerator,
+  createMetaGenerator,
   isRetryableProviderError,
+  resolveConfiguredDefaultModelId,
+  resolveMetaApiKey,
+  toMetaStrictJsonSchema,
   type AgentTaskInsert,
   type AgentTaskStore,
   type CallModelContext,
-  type StructuredGenerateText,
+  type GeminiGenerateText,
   type PersistedAgentTask,
   type StructuredGenerator,
 } from './model'
@@ -153,7 +163,7 @@ describe('callModel task accounting', () => {
     expect(requests).toBe(2)
     expect(inserted).toHaveLength(2)
 
-    // The failed attempt: its own row, its own latency, no invented tokens.
+    // The 429 attempt: its own row, its own latency, no invented token counts.
     expect(inserted[0]).toMatchObject({
       workspaceId: 'workspace-1',
       strategyId: 'strategy-1',
@@ -193,7 +203,8 @@ describe('callModel task accounting', () => {
       'agent-task-1',
       'agent-task-2',
     ])
-  })
+    },
+  )
 
   it('stops at the documented attempt ceiling and keeps every row', async () => {
     const store = new MemoryTaskStore()
@@ -441,9 +452,9 @@ describe('callModel sequencing', () => {
 describe('createGeminiGenerator', () => {
   it('disables the SDK retry loop and forwards usage', async () => {
     const fakeModel = new MockLanguageModelV4()
-    const calls: Array<Parameters<StructuredGenerateText>[0]> = []
+    const calls: Array<Parameters<GeminiGenerateText>[0]> = []
 
-    const fakeGenerateText: StructuredGenerateText = async (options) => {
+    const fakeGenerateText: GeminiGenerateText = async (options) => {
       calls.push(options)
       return {
         output: { ok: true },
@@ -491,6 +502,236 @@ describe('isRetryableProviderError', () => {
     ).toBe(false)
     expect(isRetryableProviderError({ statusCode: 429 })).toBe(true)
     expect(isRetryableProviderError({ statusCode: 503 })).toBe(true)
+    expect(isRetryableProviderError(new MetaApiError(429, 'rate limited'))).toBe(true)
+    expect(isRetryableProviderError(new MetaApiError(503, 'unavailable'))).toBe(true)
     expect(isRetryableProviderError(new Error('429 in a message'))).toBe(false)
+  })
+})
+
+describe('Meta Model API support in callModel (muse-spark-1.3-contributor)', () => {
+  it('resolveMetaApiKey and resolveConfiguredDefaultModelId only switch on explicit META_API_KEY', () => {
+    expect(resolveMetaApiKey({} as NodeJS.ProcessEnv)).toBeNull()
+    expect(resolveMetaApiKey({ META_API_KEY: '   ' } as NodeJS.ProcessEnv)).toBeNull()
+    expect(resolveMetaApiKey({ MODEL_API_KEY: 'ignored-generic' } as NodeJS.ProcessEnv)).toBeNull()
+    expect(resolveConfiguredDefaultModelId({} as NodeJS.ProcessEnv)).toBe(DEFAULT_MODEL_ID)
+    expect(resolveConfiguredDefaultModelId({ MODEL_API_KEY: 'ignored-generic' } as NodeJS.ProcessEnv)).toBe(
+      DEFAULT_MODEL_ID,
+    )
+
+    expect(resolveMetaApiKey({ META_API_KEY: '  stub-meta-key  ' } as NodeJS.ProcessEnv)).toBe(
+      'stub-meta-key',
+    )
+    expect(
+      resolveConfiguredDefaultModelId({ META_API_KEY: 'stub-meta-key' } as NodeJS.ProcessEnv),
+    ).toBe(DEFAULT_META_MODEL_ID)
+  })
+
+  it('toMetaStrictJsonSchema builds strict JSON Schema objects without length/range keywords, including production schemas', () => {
+    const TestSchema = z.object({
+      title: z.string().max(120).describe('Concise title'),
+      items: z
+        .array(
+          z.object({
+            name: z.string().min(1).max(80),
+            score: z.number().min(0).max(1).nullable(),
+          }),
+        )
+        .max(12),
+    })
+
+    function assertStrictNodeTree(node: unknown): void {
+      if (Array.isArray(node)) {
+        node.forEach(assertStrictNodeTree)
+        return
+      }
+      if (typeof node !== 'object' || node === null) return
+      const obj = node as Record<string, unknown>
+      expect(obj.$schema).toBeUndefined()
+      expect(obj.$defs).toBeUndefined()
+      expect(obj.$ref).toBeUndefined()
+      if (obj.type === 'object' || (typeof obj.properties === 'object' && obj.properties !== null)) {
+        expect(obj.additionalProperties).toBe(false)
+        const propKeys = Object.keys((obj.properties as Record<string, unknown>) ?? {})
+        expect(obj.required).toEqual(propKeys)
+        for (const prop of Object.values((obj.properties as Record<string, unknown>) ?? {})) {
+          assertStrictNodeTree(prop)
+        }
+      }
+      if (obj.items !== undefined) assertStrictNodeTree(obj.items)
+      if (obj.anyOf !== undefined) assertStrictNodeTree(obj.anyOf)
+      if (obj.oneOf !== undefined) assertStrictNodeTree(obj.oneOf)
+      if (obj.allOf !== undefined) assertStrictNodeTree(obj.allOf)
+    }
+
+    for (const prodSchema of [
+      TestSchema,
+      ExtractionResultSchema,
+      ProposeEdgesResultSchema,
+      RetrievalAnswerSchema,
+    ]) {
+      const strictSchema = toMetaStrictJsonSchema(prodSchema)
+      expect(strictSchema.type).toBe('object')
+      assertStrictNodeTree(strictSchema)
+
+      const serialized = JSON.stringify(strictSchema)
+      expect(serialized).not.toContain('"$schema"')
+      expect(serialized).not.toContain('"$defs"')
+      expect(serialized).not.toContain('"$ref"')
+      expect(serialized).not.toContain('"minLength"')
+      expect(serialized).not.toContain('"maxLength"')
+      expect(serialized).not.toContain('"maxItems"')
+      expect(serialized).not.toContain('"minimum"')
+      expect(serialized).not.toContain('"maximum"')
+    }
+  })
+
+  it('createMetaGenerator posts documented Meta payload, rejects non-contributor Meta models, and redacts the sent key', async () => {
+    let capturedUrl = ''
+    let capturedInit: RequestInit | undefined
+    const dummyToken = 'stub-bearer-token-value'
+
+    const okFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      capturedUrl = String(input)
+      capturedInit = init
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: 'stop',
+              message: { content: JSON.stringify({ claims: ['verified'] }) },
+            },
+          ],
+          usage: { prompt_tokens: 150, completion_tokens: 60 },
+        }),
+        { status: 200 },
+      )
+    })
+
+    const gen = createMetaGenerator({
+      fetchImpl: okFetch as unknown as typeof fetch,
+      getApiKey: () => dummyToken,
+      maxCompletionTokens: 4096,
+    })
+
+    const out = await gen({
+      modelId: DEFAULT_META_MODEL_ID,
+      prompt: 'Extract claims',
+      schema: ClaimSchema,
+    })
+
+    expect(capturedUrl).toBe(DEFAULT_META_CHAT_COMPLETIONS_URL)
+    expect((capturedInit?.headers as Record<string, string>).Authorization).toBe(`Bearer ${dummyToken}`)
+    const payload = JSON.parse(String(capturedInit?.body))
+    expect(payload.model).toBe('muse-spark-1.3-contributor')
+    expect(payload.max_completion_tokens).toBe(4096)
+    expect(payload.response_format.type).toBe('json_schema')
+    expect(payload.response_format.json_schema.strict).toBe(true)
+    expect(out).toEqual({
+      output: { claims: ['verified'] },
+      inputTokens: 150,
+      outputTokens: 60,
+    })
+
+    await expect(
+      gen({ modelId: 'muse-spark-1.3', prompt: 'test', schema: ClaimSchema }),
+    ).rejects.toThrow(/muse-spark-1\.3-contributor/)
+
+    const failFetch = vi.fn(async () =>
+      new Response(`Unauthorized for ${dummyToken} / Bearer header.payload.sig`, { status: 401 }),
+    )
+    const failGen = createMetaGenerator({
+      fetchImpl: failFetch as unknown as typeof fetch,
+      getApiKey: () => dummyToken,
+    })
+
+    try {
+      await failGen({ modelId: DEFAULT_META_MODEL_ID, prompt: 'test', schema: ClaimSchema })
+      expect.unreachable('expected 401 failure')
+    } catch (err) {
+      expect(err).toBeInstanceOf(MetaApiError)
+      const msg = err instanceof Error ? err.message : String(err)
+      expect(msg).not.toContain(dummyToken)
+      expect(msg).not.toContain('header.payload.sig')
+      expect(msg).toContain('[REDACTED]')
+    }
+  })
+
+  it('routes explicit Meta vs Gemini models cleanly through the single callModel runtime and costs Meta contributor rates', async () => {
+    const store = new MemoryTaskStore()
+    const calls: string[] = []
+    const sleeps: number[] = []
+    let metaAttempts = 0
+
+    const geminiStub: StructuredGenerator = async ({ modelId }) => {
+      calls.push(`gemini:${modelId}`)
+      return { output: { claims: ['from-gemini'] }, inputTokens: 100, outputTokens: 20 }
+    }
+
+    const metaStub: StructuredGenerator = async ({ modelId }) => {
+      calls.push(`meta:${modelId}`)
+      metaAttempts += 1
+      if (metaAttempts === 1) {
+        throw new MetaApiError(429, 'rate limit')
+      }
+      return {
+        output: { claims: ['from-meta'] },
+        inputTokens: 1_000_000,
+        outputTokens: 500_000,
+      }
+    }
+
+    const call = createCallModel({
+      sleep: async (ms) => {
+        sleeps.push(ms)
+      },
+      random: () => 0.5,
+      now: steppingClock(),
+      baseDelayMs: 100,
+      maxDelayMs: 500,
+      resolveDefaultModelId: () => DEFAULT_META_MODEL_ID,
+      resolveGenerator: (modelId) => {
+        if (modelId === DEFAULT_META_MODEL_ID) return metaStub
+        if (modelId.startsWith('muse-')) {
+          throw new Error(`Meta Model API provider supports '${DEFAULT_META_MODEL_ID}' only`)
+        }
+        return geminiStub
+      },
+    })
+
+    // 1. Evaluator-style explicit gemini-4-hydrogen stays on Gemini even when Meta is default
+    const evalRes = await call(ClaimSchema, 'explain', {
+      ...context(store),
+      taskKind: 'explain_gap',
+      modelId: 'gemini-4-hydrogen',
+    })
+    expect(evalRes.output).toEqual({ claims: ['from-gemini'] })
+
+    // 2. Omitted modelId routes to muse-spark-1.3-contributor with 429 retry and published contributor rate
+    const metaRes = await call(ClaimSchema, 'extract', context(store))
+    expect(metaRes.output).toEqual({ claims: ['from-meta'] })
+    expect(sleeps).toEqual([50])
+
+    // 3. Disallowed muse-* variant fails fast without entering the attempt loop
+    await expect(
+      call(ClaimSchema, 'extract', { ...context(store), modelId: 'muse-spark-1.3' }),
+    ).rejects.toThrow(/muse-spark-1\.3-contributor/)
+
+    expect(calls).toEqual([
+      'gemini:gemini-4-hydrogen',
+      'meta:muse-spark-1.3-contributor',
+      'meta:muse-spark-1.3-contributor',
+    ])
+    expect(store.rows.map((r) => [r.model, r.status, r.costUsd])).toEqual([
+      ['gemini-4-hydrogen', 'succeeded', '0.000300'],
+      ['muse-spark-1.3-contributor', 'retried', null],
+      [
+        'muse-spark-1.3-contributor',
+        'succeeded',
+        (
+          DEFAULT_PRICING[DEFAULT_META_MODEL_ID]!.inputUsdPerMillionTokens +
+          0.5 * DEFAULT_PRICING[DEFAULT_META_MODEL_ID]!.outputUsdPerMillionTokens
+        ).toFixed(6),
+      ],
+    ])
   })
 })
