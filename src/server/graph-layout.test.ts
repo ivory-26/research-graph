@@ -119,7 +119,7 @@ describe('layoutGraphNodes', () => {
     expectNoOverlap(nodes)
   })
 
-  it('keeps a 65-node seeded workspace narrow and overlap-free', () => {
+  it('keeps a 65-node seeded workspace compact and overlap-free', () => {
     const nodes: GraphLayoutNode[] = [
       ...Array.from({ length: 3 }, (_, i) => node(`source-${i}`, 'source')),
       ...Array.from({ length: 35 }, (_, i) => node(`claim-${i}`, 'claim')),
@@ -136,16 +136,9 @@ describe('layoutGraphNodes', () => {
     const layout = layoutGraphNodes(nodes)
     expect(layout.size).toBe(65)
 
-    const xs = [...layout.values()].map((position) => position.x)
-    const maxX = Math.max(...xs)
-    const maxRightEdge = Math.max(
-      ...[...layout.values()].map((p) => p.x + GRAPH_CARD_WIDTH),
-    )
-
-    // The pre-#18 grid used five rows per group and reached ~3930px. The
-    // claim group dominates, so 13 rows per column keeps it well under that.
-    expect(maxX).toBeLessThan(2250)
-    expect(maxRightEdge).toBeLessThan(2500)
+    const positions = [...layout.values()]
+    expect(Math.max(...positions.map(({ x }) => x + GRAPH_CARD_WIDTH))).toBeLessThan(3300)
+    expect(Math.max(...positions.map(({ y }) => y + GRAPH_CARD_HEIGHT))).toBeLessThan(1900)
 
     const fallback = nodes.filter((n) => n.positionX === 0 && n.positionY === 0)
     for (const n of fallback) {

@@ -31,8 +31,8 @@ export const GRAPH_CARD_HEIGHT = 200
 export const GRAPH_COLUMN_WIDTH = 260
 /** Row stride: card height plus a readable gap. */
 export const GRAPH_ROW_HEIGHT = 220
-/** Rows per fallback column. Taller columns keep a 65-node seed narrow. */
-export const GRAPH_MAX_ROWS_PER_COLUMN = 13
+/** Rows per fallback column, sized for the seeded canvas viewport. */
+export const GRAPH_MAX_ROWS_PER_COLUMN = 8
 
 /** Space after the last stored card before the first fallback column. */
 const STORED_GAP = 60

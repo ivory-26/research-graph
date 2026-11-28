@@ -79,7 +79,7 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 | Strategy selection | #26 | automated selection remains unbuilt; the repair loop and what-if branch are built as modules, and EXECUTE adoption of Run B is #62 |
 | Server-side notebook export | Built into production run evaluation | a notebook generated from a real run |
 
-`pnpm typecheck` and `pnpm db:check` pass. `pnpm test` runs 27 `node:test` transport checks plus the Vitest suites: without `TEST_DATABASE_URL`, 417 app tests and 90 seed tests pass and 64 app tests skip on 27 November. The skipped files are the opt-in Postgres, E2B and Gemini integration suites.
+On 28 November, `pnpm typecheck`, `pnpm db:check` and `pnpm build` passed. The default `pnpm test` run passed 27 transport checks, 433 app tests and 90 seed tests. It skipped 64 opt-in Postgres, E2B and Gemini integration tests.
 
 ## Workstreams
 

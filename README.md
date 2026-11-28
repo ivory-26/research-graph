@@ -36,7 +36,7 @@ The graph is the presentation, not the product. The product is the claim:
 - strategy selection (the repair loop and what-if branch are built)
 - server-side notebook generation from `run_artifacts` (the UI builds one from the fixture)
 
-**Verified 27 November 2026:** `pnpm typecheck`, `pnpm db:check`, `pnpm test` and `pnpm build` pass on this branch after merging current `main`: 27 `node:test` transport checks, 417 Vitest tests passed and 64 skipped, plus 90 seed tests. The skipped files are the opt-in Postgres/E2B/Gemini integration suites; they run only with `TEST_DATABASE_URL` (and `LIVE_SMOKE=1` for the credentialed smoke). See [docs/09-pipeline-delivery-handoff.md](./docs/09-pipeline-delivery-handoff.md).
+**Verified 28 November 2026:** `pnpm typecheck`, `pnpm db:check`, `pnpm test` and `pnpm build` passed after merging `main`. The default suite passed 27 transport checks, 433 app tests and 90 seed tests. It skipped 64 opt-in integration tests. See the [pipeline delivery handoff](./docs/09-pipeline-delivery-handoff.md) for their configuration.
 
 | Document | Contents |
 |---|---|
