@@ -494,7 +494,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
             <span>
               {page !== undefined
                 ? `PAGE ${page}${chunkNumber !== undefined ? ` · CHUNK #${chunkNumber}` : ''}${charStart !== undefined ? ` · CHARS ${charStart}–${charEnd}` : ''}`
-                : 'VERBATIM QUOTE'}
+                : 'EVIDENCE CHUNK'}
             </span>
             <button
               type="button"

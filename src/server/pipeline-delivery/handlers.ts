@@ -229,7 +229,7 @@ export function createPipelineHandlers(
         }
 
         // Only an explicit Last-Event-ID header suppresses execution claiming.
-        // The client-internal `?seq=N` fallback still sets the replay cursor so
+        // The caller-supplied `?seq=N` fallback still sets the replay cursor so
         // seen events are skipped, while allowing a fresh claim if none exists.
         const isReconnect = lastEventIdHeader !== null
         const cursor = parsedCursor ?? 0

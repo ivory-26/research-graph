@@ -5,7 +5,7 @@ import type {
   PipelineCancelledEvent,
   PipelineFailedEvent,
 } from '../shared/events';
-import { HEARTBEAT_INTERVAL_MS, STREAM_BUDGET_MS } from '../server/pipeline-transport/constants';
+import { HEARTBEAT_INTERVAL_MS, STREAM_BUDGET_MS } from '../shared/pipeline-timing';
 
 export type ApprovalDecision = 'approved' | 'rejected';
 
