@@ -652,6 +652,16 @@ function validateEventPayload(
 
     case 'approval.requested':
       validateExperimentSpec(event.spec)
+      if (event.repair !== undefined) {
+        const repair = requireRecord(event.repair, 'event.repair', code)
+        requireUuid(repair.parentRunId, 'event.repair.parentRunId', code)
+        if (repair.attempt !== undefined) {
+          requireNumber(repair.attempt, 'event.repair.attempt', code, {
+            integer: true,
+            min: 1,
+          })
+        }
+      }
       return
 
     case 'approval.resolved':

@@ -13,6 +13,13 @@ provider and the mounted routes are implemented in
 |---|---|---|
 | `GET` | `/api/pipeline/:experimentId` | `src/routes/api/pipeline/$experimentId.ts` |
 | `POST` | `/api/pipeline/:experimentId/approve` | `src/routes/api/pipeline/$experimentId/approve.ts` |
+| `GET` | `/api/runs/:runId/artifacts` | `src/routes/api/runs/$runId/artifacts.ts` |
+
+The artifact route is authenticated and workspace-scoped like the pipeline
+routes. It returns a manifest (`?artifact=` omitted) or verified bytes
+(`?artifact=<id>` / `?artifact=notebook`); `src/server/run-artifacts.ts` owns the
+read and integrity check. A successful repaired run persists its own notebook,
+and `ExportModal` consumes the manifest when a live run id is supplied.
 
 Both route files are thin adapters. They forward `{ request, params }` to
 the framework-free handlers and return the raw `Response`. The behaviour lives
@@ -64,9 +71,10 @@ Rules the provider keeps:
 
 What the provider deliberately does not do:
 
-- It does not write result/run graph nodes or the `produced` edge. That is
-  `src/server/pipeline.ts` (#7), which has not landed. The run row and the
-  durable events are the record this layer owns.
+- It does not write result/run graph nodes or the `produced` edge inline. That
+  is `src/server/pipeline.ts` (#7, landed), which the provider calls once the
+  run is terminal. The run row and the durable events remain the record this
+  layer owns.
 - It does not stream `run.stdout` chunks. The transport's only write path is
   the durable event log, so per-chunk stdout would create one row per line;
   `runs.stdout` is the durable record.
@@ -223,12 +231,16 @@ evidence; no further live provider calls were made.
 
 ## What is still missing
 
-- **#7 graph write-back.** A completed run does not yet become result/run nodes
-  plus the `produced` edge. That is the one integration seam #6 does not own.
+- **#7 graph write-back.** Landed: a terminal run becomes result/run nodes plus
+  the `produced` edge through `projectRunToGraph` in `src/server/pipeline.ts`,
+  called by the production stage provider.
 - **Browser client wiring.** `src/utils/pipelineClient.ts` (`subscribeToPipelineStream`
   and `sendPipelineApproval`) and `src/routes/index.tsx` / `ApprovalModal.tsx`
   wire the SSE stream and approval POST; live workspace experiment creation
   still requires an active `experimentId` from a seeded/created experiment.
+  `ExportModal` is wired from the workspace page: `ExperimentsPage`'s
+  `onOpenRunExport` supplies the active run, and the modal reads
+  `/api/runs/:runId/artifacts`.
 - **Keep the owner tab open.** The first `GET /api/pipeline/:experimentId`
   claims the experiment's one execution start; every later GET — a native
   `EventSource` reconnect, a second tab, or a reload — is a follower that
@@ -242,10 +254,12 @@ evidence; no further live provider calls were made.
   connection, it does not bring the run back.
 - **Live verification is opt-in, not CI.** The two runs recorded above passed
   on 2026-11-25 against template build `3060b313`, but the files are skipped
-  without credentials and are not part of the main suite. On 25 November
-  `pnpm test` reports 303 passed and 29 skipped overall (27 `node:test`
-  transport checks, then Vitest's 276 passed / 29 skipped); the skipped files
-  are these integration suites.
+  without credentials and are not part of the main suite. On 28 November
+  `pnpm test` reports 27 `node:test` transport checks, 532 app tests and 93
+  seed tests passed, with 74 opt-in integration tests skipped. Pointing
+  `TEST_DATABASE_URL` at a disposable local Postgres runs 65 of those: Vitest
+  then passed 597 and skipped 9 that need a real Neon branch or live
+  Gemini/Meta/E2B credentials.
 - **Standalone provider probes are unresolved.** The isolated Gemini boundary
   runs failed with different errors (invalid key, then no output) while the
   full pipeline succeeded minutes earlier; the cause is not established.

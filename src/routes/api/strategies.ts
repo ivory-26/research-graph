@@ -40,6 +40,7 @@ export const Route = createFileRoute('/api/strategies')({
               id: agentTasks.id,
               taskKind: agentTasks.taskKind,
               strategyName: agentStrategies.name,
+              model: agentTasks.model,
               status: agentTasks.status,
               inputRef: agentTasks.inputRef,
               latencyMs: agentTasks.latencyMs,

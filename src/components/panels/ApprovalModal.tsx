@@ -12,6 +12,11 @@ interface ApprovalModalProps {
   experimentId?: string | null;
   gateSeq?: number | null;
   spec?: ExperimentSpec | null;
+  /**
+   * Set when this gate is a repaired-script candidate rather than the initial
+   * plan. The parent run is the failed attempt the candidate was chained from.
+   */
+  repair?: { parentRunId: string; attempt?: number | null } | null;
   errorMessage?: string | null;
   isSubmitting?: boolean;
   isStreaming?: boolean;
@@ -26,6 +31,7 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
   experimentId,
   gateSeq,
   spec: liveSpec,
+  repair = null,
   errorMessage,
   isSubmitting = false,
   isStreaming = false,
@@ -77,7 +83,11 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
                   Human Approval Gate: Experiment Plan
                 </h2>
                 <span className="badge-orange-outline rounded-none">
-                  {hasLiveGate ? 'AWAIT_APPROVAL' : 'FIXTURE PREVIEW · NO LIVE GATE'}
+                  {hasLiveGate
+                    ? repair
+                      ? 'REPAIR APPROVAL'
+                      : 'AWAIT_APPROVAL'
+                    : 'FIXTURE PREVIEW · NO LIVE GATE'}
                 </span>
               </div>
               <p className="text-xs text-[var(--text-dim)] mt-0.5 font-mono">
@@ -105,6 +115,19 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
             <div className="flex items-center gap-2 border border-red-500/40 bg-red-950/20 p-3 text-xs text-red-300 font-mono">
               <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
               <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {hasLiveGate && repair && (
+            <div className="flex items-start gap-2 border border-amber-500/40 bg-amber-950/15 p-3 text-xs text-amber-200/90 font-mono">
+              <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+              <span>
+                Repair candidate for failed run{' '}
+                <span className="text-amber-100">{repair.parentRunId}</span>
+                {typeof repair.attempt === 'number' ? ` · next attempt ${repair.attempt}` : ''}.
+                {' '}Only import, column-name and dataset-path edits are auto-approved;
+                any other script change needs this decision.
+              </span>
             </div>
           )}
 

@@ -235,7 +235,7 @@ This is the "runs on a laptop CPU" claim. `Dockerfile.template` is the built ima
 
 ## Notebook export
 
-Production saves the notebook after persisting the verdict for a successful run. `ExportModal.tsx` also builds a demonstration notebook from the fixture. The persisted artifact records a specific run's frozen spec and environment.
+Production saves the notebook after persisting the verdict for every successful run, including a successful repaired run (each repair candidate is its own `runs` row). `ExportModal.tsx` reads the persisted artifact through `GET /api/runs/:runId/artifacts` when a live run id is supplied, and otherwise builds a demonstration notebook from the fixture in explicit demo mode. The persisted artifact records a specific run's frozen spec and environment.
 
 `runArtifacts(kind='notebook')` is an nbformat v4 document built from the frozen spec, not from a model call. Cells:
 
@@ -247,6 +247,16 @@ Production saves the notebook after persisting the verdict for a successful run.
 6. **Markdown** — the criteria, and what pass/fail means.
 
 Because the notebook is generated from the same spec the sandbox ran, "open in Colab and it runs" is a claim we can make honestly. Any drift between the notebook and the run would be a bug in one function, not a maintenance problem.
+
+Artifacts are read back through one authorized endpoint:
+
+| Method | Path | Returns |
+|---|---|---|
+| `GET` | `/api/runs/:runId/artifacts` | JSON manifest: run status, attempt, `parentRunId` (set for a repaired run), measured metrics, verdict, and artifact metadata |
+| `GET` | `/api/runs/:runId/artifacts?artifact=<id>` | The artifact bytes with a download filename |
+| `GET` | `/api/runs/:runId/artifacts?artifact=notebook` | The run's reproducibility notebook |
+
+The route proves the signed-in actor and workspace membership before returning a row; a run id from another workspace is refused. `run_artifacts.content` has no encoding column, so the reader accepts the bytes only when they reproduce the recorded `sha256` and byte count, trying the two encodings the writers use (canonical base64 for runner output, UTF-8 for the notebook). A mismatch is an integrity error, not a different file.
 
 ## Failures worth naming
 
@@ -263,3 +273,10 @@ Because the notebook is generated from the same spec the sandbox ran, "open in C
 | Sandbox path is absolute or escapes the workspace | `sanitizeSandboxPath` | `failed` (not started) | `failed` |
 | Pinned package missing or wrong version | environment verification after the run | `failed` | `failed` |
 | 240 s stream budget expires while a run is active | transport signal | `timeout` | `failed` |
+
+Which of these enter the bounded repair loop is deliberate. A non-zero exit, a
+missing or invalid `metrics.json`, and a sandbox timeout are script-caused:
+`isRepairableRunnerFailure` routes them to `REPAIR_SCRIPT`, and each executed
+candidate is its own `runs` row. A pinned-package mismatch and an untyped
+runner/provider failure are not: rewriting the script cannot fix an environment
+or an SDK outage, so the pipeline stops instead of burning both attempts.

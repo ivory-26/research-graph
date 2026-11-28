@@ -29,6 +29,21 @@ export async function handleAuthRequest(
 }
 
 /**
+ * Completes a social sign-in callback before the route guard reads the session.
+ *
+ * Returns a redirect carrying the exchanged session cookies (verifier already
+ * removed from the URL), or `null` when the request is not an OAuth callback.
+ * Server-only work is loaded inside the call, so importing this module from the
+ * request middleware never pulls the SDK into a client bundle.
+ */
+export async function completeOAuthCallback(
+  request: Request,
+): Promise<Response | null> {
+  const { completeOAuthCallback: complete } = await loadAuth()
+  return complete(request)
+}
+
+/**
  * Returns the current verified user, or `null` when signed out.
  *
  * The response is private and uncached because it depends on the request's

@@ -97,6 +97,16 @@ export type EdgeUpsertedEvent = PipelineEventBase & {
 export type ApprovalRequestedEvent = PipelineEventBase & {
   type: 'approval.requested'
   spec: ExperimentSpec
+  /**
+   * Present only for a repaired-script gate. The initial plan gate omits it.
+   * Additive: older persisted events and clients simply have no repair context.
+   */
+  repair?: {
+    /** The failed/timed-out run the candidate was chained from. */
+    parentRunId: string
+    /** The attempt number the candidate will run as (`parent.attempt + 1`). */
+    attempt?: number
+  }
 }
 
 export type ApprovalResolvedEvent = PipelineEventBase & {

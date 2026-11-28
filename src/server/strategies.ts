@@ -23,6 +23,8 @@ export interface AgentTaskQueryRow {
   taskKind: TaskKind
   /** Joined `agent_strategies.name`, preferred for display when present. */
   strategyName: string | null
+  /** `agent_tasks.model`; the provider actually used for this attempt. */
+  model?: string | null
   status: AgentTaskStatus
   inputRef: Record<string, unknown> | null
   latencyMs: number | null
@@ -62,6 +64,7 @@ export function mapAgentTaskQueryRows(rows: AgentTaskQueryRow[]): AgentTaskRow[]
       strategyId: row.strategyName ?? recordedName ?? 'unassigned',
       runId: extractionRunId ?? experimentRunId,
       runLabel: extractionRunId ? extractionRunLabel : null,
+      model: nonEmptyString(row.model),
       status: row.status,
       latencyMs,
       costUsd,

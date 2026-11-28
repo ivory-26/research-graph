@@ -8,10 +8,17 @@ import {
   AuthUnavailableError,
   requireCurrentUser,
   UnauthenticatedError,
+  WorkspaceAccessDeniedError,
 } from '../../server/auth.server';
+import { ensureOwnerWorkspace } from '../../server/auth/workspace.server';
 
 /**
  * Auth-guarded endpoint listing the current user's workspaces with their UUIDs.
+ *
+ * On a verified user's first visit it also creates their personal workspace and
+ * owner membership (idempotently), so first use lands on real data instead of an
+ * empty list. Only the verified user's id is used; no workspace is ever granted
+ * from request input.
  */
 export const Route = createFileRoute('/api/workspaces')({
   server: {
@@ -19,6 +26,7 @@ export const Route = createFileRoute('/api/workspaces')({
       GET: async ({ request }) => {
         try {
           const user = await requireCurrentUser(request);
+          await ensureOwnerWorkspace(user);
           const db = getDb();
 
           const rows = await db
@@ -51,7 +59,8 @@ export const Route = createFileRoute('/api/workspaces')({
           if (
             err instanceof UnauthenticatedError ||
             err instanceof AuthUnavailableError ||
-            err instanceof AuthConfigurationError
+            err instanceof AuthConfigurationError ||
+            err instanceof WorkspaceAccessDeniedError
           ) {
             return Response.json(
               { error: err.message, code: err.code },

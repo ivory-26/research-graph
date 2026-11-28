@@ -22,7 +22,11 @@ import {
 } from 'vitest'
 
 import { createCallModel } from '../model'
-import { SandboxTimeoutError } from '../runner'
+import {
+  MetricsExtractionError,
+  PackageVerificationError,
+  SandboxTimeoutError,
+} from '../runner'
 import type { PipelineEvent } from '../../shared/events'
 import type { ExperimentSpec } from '../../shared/types'
 import type { PipelineTimings } from './timings'
@@ -462,6 +466,118 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       status: 'succeeded',
     })
     expect(runner.runCalls).toBe(2)
+  })
+
+  it('repairs a run that exited 0 without valid metrics and persists the repaired notebook', async () => {
+    const originalScript = seed.spec.files['main.py']!
+    // A substantive change (not imports/columns/paths), so it re-opens the gate.
+    const candidate = originalScript.replace('0.9', '0.8')
+    const runner: StubRunner = {
+      ...createStubRunner('succeed'),
+      async run() {
+        this.runCalls++
+        if (this.runCalls === 1) {
+          // The script exited successfully but never wrote /output/metrics.json.
+          throw new MetricsExtractionError(
+            'Execution completed (exit code 0), but /output/metrics.json was not created.',
+            0,
+            'computed ranks\n',
+            '',
+          )
+        }
+        return measuredResult({ metrics: { score: 0.8 } })
+      },
+    }
+    const callModel = createCallModel({
+      generate: async ({ prompt }) => ({
+        output: prompt.includes('metrics.json was not created')
+          ? { script: candidate, summary: 'Write the metrics file' }
+          : { explanation: 'The repaired run produced the expected score.' },
+        inputTokens: 15,
+        outputTokens: 10,
+      }),
+    })
+    const handlers = handlersFor(runner, FAST_TIMINGS, callModel)
+    const sse = consume(await handlers.stream(streamRequest(seed.experimentId), {
+      experimentId: seed.experimentId,
+    }))
+
+    const initial = await approveRequested(handlers, sse)
+    const repairGate = (await sse.waitFor(
+      (event) => event.type === 'approval.requested' && event.seq > initial.seq,
+    )) as Extract<PipelineEvent, { type: 'approval.requested' }>
+    expect(runner.runCalls).toBe(1)
+    // A metrics-extraction failure is a script bug, not infrastructure: the
+    // repair loop opened a gate instead of ending the pipeline.
+    expect(repairGate.repair?.parentRunId).toBeTruthy()
+    expect(repairGate.repair?.attempt).toBe(2)
+
+    const response = await handlers.approve(
+      approveRequest(seed.experimentId, repairGate.seq, 'approved'),
+      { experimentId: seed.experimentId },
+    )
+    expect(response.status).toBe(200)
+    await sse.waitFor((event) => event.type === 'pipeline.completed')
+
+    const rows = await runRows()
+    expect(rows).toHaveLength(2)
+    const [parent, child] = rows
+    expect(parent).toMatchObject({ attempt: 1, status: 'failed' })
+    expect(child).toMatchObject({
+      attempt: 2,
+      parent_run_id: parent!.id,
+      status: 'succeeded',
+      verdict: 'match',
+    })
+    expect(child!.spec.files['main.py']).toBe(candidate)
+
+    const notebooks = await testDb.pool.query<{ content: string }>(
+      "SELECT content FROM run_artifacts WHERE run_id = $1 AND kind = 'notebook'",
+      [child!.id],
+    )
+    expect(notebooks.rows).toHaveLength(1)
+    const notebook = JSON.parse(notebooks.rows[0]!.content)
+    expect(notebook).toMatchObject({ nbformat: 4, nbformat_minor: 5 })
+    expect(notebook.cells[0].source.join('')).toContain('Reproducibility Record')
+
+    // One REPAIR_SCRIPT model call, one task row, scoped to the failed parent
+    // run: a metrics failure opens the repair path without duplicating either.
+    const repairTasks = await testDb.pool.query<{ input_ref: unknown }>(
+      "SELECT input_ref FROM agent_tasks WHERE task_kind = 'repair_script'",
+    )
+    expect(repairTasks.rows).toEqual([
+      { input_ref: { experimentId: seed.experimentId, runId: parent!.id } },
+    ])
+  })
+
+  it('does not enter the repair loop for a pinned-package mismatch', async () => {
+    const runner: StubRunner = {
+      ...createStubRunner('succeed'),
+      async run() {
+        this.runCalls++
+        throw new PackageVerificationError(
+          'Sandbox environment failed package verification: numpy',
+          0,
+          'computed\n',
+          '',
+        )
+      },
+    }
+    const handlers = handlersFor(runner)
+    const sse = consume(await handlers.stream(streamRequest(seed.experimentId), {
+      experimentId: seed.experimentId,
+    }))
+    await approveRequested(handlers, sse)
+    await sse.waitFor((event) => event.type === 'pipeline.completed')
+
+    expect(runner.runCalls).toBe(1)
+    const rows = await runRows()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ attempt: 1, status: 'failed' })
+    const tasks = await testDb.pool.query(
+      "SELECT id FROM agent_tasks WHERE task_kind = 'repair_script'",
+    )
+    expect(tasks.rows).toHaveLength(0)
   })
 
   it('offers the persisted plan at the gate after real planner validation', async () => {

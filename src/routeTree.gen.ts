@@ -12,12 +12,15 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
+import { Route as ApiExperimentsRouteImport } from './routes/api/experiments'
 import { Route as ApiGraphRouteImport } from './routes/api/graph'
+import { Route as ApiSourcesRouteImport } from './routes/api/sources'
 import { Route as ApiStrategiesRouteImport } from './routes/api/strategies'
 import { Route as ApiWorkspacesRouteImport } from './routes/api/workspaces'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiPipelineExperimentIdRouteImport } from './routes/api/pipeline/$experimentId'
 import { Route as ApiPipelineExperimentIdApproveRouteImport } from './routes/api/pipeline/$experimentId/approve'
+import { Route as ApiRunsRunIdArtifactsRouteImport } from './routes/api/runs/$runId/artifacts'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,9 +37,19 @@ const SignUpRoute = SignUpRouteImport.update({
   path: '/sign-up',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiExperimentsRoute = ApiExperimentsRouteImport.update({
+  id: '/api/experiments',
+  path: '/api/experiments',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiGraphRoute = ApiGraphRouteImport.update({
   id: '/api/graph',
   path: '/api/graph',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSourcesRoute = ApiSourcesRouteImport.update({
+  id: '/api/sources',
+  path: '/api/sources',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiStrategiesRoute = ApiStrategiesRouteImport.update({
@@ -65,40 +78,54 @@ const ApiPipelineExperimentIdApproveRoute =
     path: '/approve',
     getParentRoute: () => ApiPipelineExperimentIdRoute,
   } as any)
+const ApiRunsRunIdArtifactsRoute = ApiRunsRunIdArtifactsRouteImport.update({
+  id: '/api/runs/$runId/artifacts',
+  path: '/api/runs/$runId/artifacts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
+  '/api/experiments': typeof ApiExperimentsRoute
   '/api/graph': typeof ApiGraphRoute
+  '/api/sources': typeof ApiSourcesRoute
   '/api/strategies': typeof ApiStrategiesRoute
   '/api/workspaces': typeof ApiWorkspacesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/pipeline/$experimentId': typeof ApiPipelineExperimentIdRouteWithChildren
   '/api/pipeline/$experimentId/approve': typeof ApiPipelineExperimentIdApproveRoute
+  '/api/runs/$runId/artifacts': typeof ApiRunsRunIdArtifactsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
+  '/api/experiments': typeof ApiExperimentsRoute
   '/api/graph': typeof ApiGraphRoute
+  '/api/sources': typeof ApiSourcesRoute
   '/api/strategies': typeof ApiStrategiesRoute
   '/api/workspaces': typeof ApiWorkspacesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/pipeline/$experimentId': typeof ApiPipelineExperimentIdRouteWithChildren
   '/api/pipeline/$experimentId/approve': typeof ApiPipelineExperimentIdApproveRoute
+  '/api/runs/$runId/artifacts': typeof ApiRunsRunIdArtifactsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
+  '/api/experiments': typeof ApiExperimentsRoute
   '/api/graph': typeof ApiGraphRoute
+  '/api/sources': typeof ApiSourcesRoute
   '/api/strategies': typeof ApiStrategiesRoute
   '/api/workspaces': typeof ApiWorkspacesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/pipeline/$experimentId': typeof ApiPipelineExperimentIdRouteWithChildren
   '/api/pipeline/$experimentId/approve': typeof ApiPipelineExperimentIdApproveRoute
+  '/api/runs/$runId/artifacts': typeof ApiRunsRunIdArtifactsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -106,45 +133,57 @@ export interface FileRouteTypes {
     | '/'
     | '/sign-in'
     | '/sign-up'
+    | '/api/experiments'
     | '/api/graph'
+    | '/api/sources'
     | '/api/strategies'
     | '/api/workspaces'
     | '/api/auth/$'
     | '/api/pipeline/$experimentId'
     | '/api/pipeline/$experimentId/approve'
+    | '/api/runs/$runId/artifacts'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/sign-in'
     | '/sign-up'
+    | '/api/experiments'
     | '/api/graph'
+    | '/api/sources'
     | '/api/strategies'
     | '/api/workspaces'
     | '/api/auth/$'
     | '/api/pipeline/$experimentId'
     | '/api/pipeline/$experimentId/approve'
+    | '/api/runs/$runId/artifacts'
   id:
     | '__root__'
     | '/'
     | '/sign-in'
     | '/sign-up'
+    | '/api/experiments'
     | '/api/graph'
+    | '/api/sources'
     | '/api/strategies'
     | '/api/workspaces'
     | '/api/auth/$'
     | '/api/pipeline/$experimentId'
     | '/api/pipeline/$experimentId/approve'
+    | '/api/runs/$runId/artifacts'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
+  ApiExperimentsRoute: typeof ApiExperimentsRoute
   ApiGraphRoute: typeof ApiGraphRoute
+  ApiSourcesRoute: typeof ApiSourcesRoute
   ApiStrategiesRoute: typeof ApiStrategiesRoute
   ApiWorkspacesRoute: typeof ApiWorkspacesRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiPipelineExperimentIdRoute: typeof ApiPipelineExperimentIdRouteWithChildren
+  ApiRunsRunIdArtifactsRoute: typeof ApiRunsRunIdArtifactsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -170,11 +209,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignUpRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/experiments': {
+      id: '/api/experiments'
+      path: '/api/experiments'
+      fullPath: '/api/experiments'
+      preLoaderRoute: typeof ApiExperimentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/graph': {
       id: '/api/graph'
       path: '/api/graph'
       fullPath: '/api/graph'
       preLoaderRoute: typeof ApiGraphRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/sources': {
+      id: '/api/sources'
+      path: '/api/sources'
+      fullPath: '/api/sources'
+      preLoaderRoute: typeof ApiSourcesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/strategies': {
@@ -212,6 +265,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPipelineExperimentIdApproveRouteImport
       parentRoute: typeof ApiPipelineExperimentIdRoute
     }
+    '/api/runs/$runId/artifacts': {
+      id: '/api/runs/$runId/artifacts'
+      path: '/api/runs/$runId/artifacts'
+      fullPath: '/api/runs/$runId/artifacts'
+      preLoaderRoute: typeof ApiRunsRunIdArtifactsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -233,21 +293,25 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,
+  ApiExperimentsRoute: ApiExperimentsRoute,
   ApiGraphRoute: ApiGraphRoute,
+  ApiSourcesRoute: ApiSourcesRoute,
   ApiStrategiesRoute: ApiStrategiesRoute,
   ApiWorkspacesRoute: ApiWorkspacesRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiPipelineExperimentIdRoute: ApiPipelineExperimentIdRouteWithChildren,
+  ApiRunsRunIdArtifactsRoute: ApiRunsRunIdArtifactsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
+import type { startInstance } from './start.ts'
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

@@ -109,7 +109,9 @@ A spec that violates a rule is rejected with the full list of errors. On `main` 
 
 The approval screen shows the resource and isolation cards (network disabled, vCPU and memory, dataset mode), the dataset reference, URL and size, the criteria, and then the full generated script. Approve or reject.
 
-On `main` the gate is durable: `approval_gates` binds the offered spec to the `approval.requested` seq, the execution claim and the experiment. The POST is same-origin and authenticated, checks workspace membership, and records the verified actor. Exactly one decision can be written, and it names the gate it decides, so it cannot be applied to a different plan. The executed run uses the offered spec, not a re-read of `experiments.spec`. A rejection of the initial plan emits `pipeline.cancelled` (`reason: 'rejected'`) and never calls `EXECUTE`; a rejected repair gate ends the pipeline without executing the candidate. The current approval *screen* is rendered from the hero fixture, not from a live gate.
+On `main` the gate is durable: `approval_gates` binds the offered spec to the `approval.requested` seq, the execution claim and the experiment. The POST is same-origin and authenticated, checks workspace membership, and records the verified actor. Exactly one decision can be written, and it names the gate it decides, so it cannot be applied to a different plan. The executed run uses the offered spec, not a re-read of `experiments.spec`. A rejection of the initial plan emits `pipeline.cancelled` (`reason: 'rejected'`) and never calls `EXECUTE`; a rejected repair gate ends the pipeline without executing the candidate.
+
+A repair gate is distinguishable from the initial plan: its `approval.requested` event carries an optional `repair: { parentRunId, attempt }`, and `approval_gates.repair_parent_run_id` records the same link. The approval screen shows "REPAIR APPROVAL", the failed parent run and the next attempt, so a human is never asked to approve a rewritten script as if it were the original plan.
 
 ### EXECUTE
 
@@ -145,7 +147,12 @@ One parameter, enforced: the diff between parent and child `spec` must have exac
 
 **Status on `main`: built.** `src/server/branch.ts` implements the loop and `src/server/pipeline-delivery/production-stages.ts` starts it after a failed or timed-out run. Bounded 429 backoff in `callModel` remains the only retry behaviour for other stages.
 
-On `failed` or `timeout`, up to **two** repair attempts:
+On `failed` or `timeout`, up to **two** repair attempts. A non-zero exit, a
+missing or invalid `metrics.json`, and a sandbox timeout enter the loop
+(`isRepairableRunnerFailure`). A pinned-package mismatch or an untyped
+runner/provider failure does not: rewriting the script cannot fix an environment
+or an SDK outage. A successful repaired run persists its own reproducibility
+notebook and artifacts against its own `runs` row, exactly like the first run.
 
 1. `REPAIR_SCRIPT` receives the script, the spec, and the last 4,000 characters of stderr.
 2. It returns a full replacement script, not a diff.

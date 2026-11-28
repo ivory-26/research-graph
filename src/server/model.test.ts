@@ -20,6 +20,7 @@ import {
   createMetaGenerator,
   isRetryableProviderError,
   resolveConfiguredDefaultModelId,
+  resolveGeminiApiKey,
   resolveMetaApiKey,
   toMetaStrictJsonSchema,
   type AgentTaskInsert,
@@ -505,6 +506,28 @@ describe('isRetryableProviderError', () => {
     expect(isRetryableProviderError(new MetaApiError(429, 'rate limited'))).toBe(true)
     expect(isRetryableProviderError(new MetaApiError(503, 'unavailable'))).toBe(true)
     expect(isRetryableProviderError(new Error('429 in a message'))).toBe(false)
+  })
+})
+
+describe('resolveGeminiApiKey', () => {
+  it('prefers the documented Google variable', () => {
+    expect(
+      resolveGeminiApiKey({
+        GOOGLE_GENERATIVE_AI_API_KEY: 'google-key',
+        GEMINI_API_KEY: 'alias-key',
+      } as NodeJS.ProcessEnv),
+    ).toBe('google-key')
+  })
+
+  it('accepts the GEMINI_API_KEY alias so a deploy does not embed and then fail text calls', () => {
+    expect(
+      resolveGeminiApiKey({ GEMINI_API_KEY: '  alias-key  ' } as NodeJS.ProcessEnv),
+    ).toBe('alias-key')
+  })
+
+  it('returns null when neither variable is set', () => {
+    expect(resolveGeminiApiKey({} as NodeJS.ProcessEnv)).toBeNull()
+    expect(resolveGeminiApiKey({ GEMINI_API_KEY: '   ' } as NodeJS.ProcessEnv)).toBeNull()
   })
 })
 

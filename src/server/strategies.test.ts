@@ -72,6 +72,16 @@ describe('mapAgentTaskQueryRows', () => {
     expect(measured!.latencyMs).toBe(250)
   })
 
+  it('surfaces the recorded model so the optional Meta provider is observable', () => {
+    const [meta] = mapAgentTaskQueryRows([
+      row({ model: 'muse-spark-1.3-contributor' }),
+    ])
+    expect(meta!.model).toBe('muse-spark-1.3-contributor')
+
+    const [unrecorded] = mapAgentTaskQueryRows([row({ model: '   ' })])
+    expect(unrecorded!.model).toBeNull()
+  })
+
   it('uses strategy names and leaves tasks without a name unassigned', () => {
     const tasks = mapAgentTaskQueryRows([
       row({ strategyName: 'sectioned', inputRef: { strategy: 'single_pass' } }),

@@ -27,16 +27,15 @@ The graph is the presentation, not the product. The product is the claim:
 - Auth: Neon Auth session verification, the same-origin `/api/auth/$` proxy, the workspace-membership guard, `/sign-in` & `/sign-up` screens (#16), and the `/` `beforeLoad` route gate
 - Seed: `pnpm seed` rebuilds the recorded workspace from an empty database through production ingestion, approval gates, E2B runs, evaluation and graph projection; `pnpm seed:compare` checks two fresh databases as one logical workspace (#8)
 - UI: the React Flow canvas, evidence panel, approval modal, comparison view, strategy dashboard and notebook export, reading `GET /api/graph` / `GET /api/strategies` / `GET /api/pipeline/:experimentId` when a database workspace/experiment UUID is active and falling back to `fixtures/workspace.json` otherwise
+- Run artifacts: a successful run (including a successful repaired run) persists its reproducibility notebook; `GET /api/runs/:runId/artifacts` returns an authenticated manifest and `?artifact=<id>` / `?artifact=notebook` downloads the verified bytes. `ExportModal` uses it when a live run is supplied and stays explicitly in demo-fixture mode otherwise.
 - CI: typecheck, tests and `db:check` on same-repository PRs, plus a read-only OpenCode reviewer that also covers the approved fork (fork checks report `NOT RUN`)
 
 **Not on `main` yet**
 
-- writing a completed run back as result/run nodes and the `produced` edge (#7)
-- the production deploy (#9)
+- the production deploy (#9); the Nitro preset, Node 26 pin, 300 s function duration and environment-variable list are configured in [`docs/11-deploy.md`](./docs/11-deploy.md)
 - strategy selection (the repair loop and what-if branch are built)
-- displaying the persisted run notebook in the UI
 
-**Verified 28 November 2026:** `pnpm typecheck`, `pnpm db:check`, `pnpm test` and `pnpm build` passed after merging `main`. The default suite passed 27 transport checks, 433 app tests and 90 seed tests. It skipped 64 opt-in integration tests. See the [pipeline delivery handoff](./docs/09-pipeline-delivery-handoff.md) for their configuration.
+**Verified 28 November 2026:** `pnpm typecheck`, `pnpm db:check`, `pnpm test`, `pnpm build` and a `VERCEL=1 pnpm build` passed. The default suite passed 27 transport checks, 532 app tests and 93 seed tests. It skipped 74 opt-in integration tests; with a disposable Postgres (`TEST_DATABASE_URL`) 65 of those ran and Vitest passed 597 tests, leaving 9 that need a real Neon branch or live Gemini/Meta/E2B credentials. See the [pipeline delivery handoff](./docs/09-pipeline-delivery-handoff.md) for their configuration.
 
 | Document | Contents |
 |---|---|
@@ -51,6 +50,7 @@ The graph is the presentation, not the product. The product is the claim:
 | [08-auth](./docs/08-auth.md) | Neon Auth setup, proxy, workspace guard |
 | [09-pipeline-delivery](./docs/09-pipeline-delivery-handoff.md) | SSE delivery, approval path, test and live-run record |
 | [10-docs-maintenance](./docs/10-docs-maintenance.md) | the manual refresh process and when each doc must change |
+| [11-deploy](./docs/11-deploy.md) | Vercel/Nitro configuration, environment variables, and what the deploy still needs |
 | [GLOSSARY](./GLOSSARY.md) | the vocabulary |
 | [ADRs](./docs/adr/) | why the surprising decisions were made |
 

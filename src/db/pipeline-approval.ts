@@ -147,6 +147,7 @@ export async function openApprovalGate(
       return { gate: existing, event, created: false }
     }
 
+    let repairAttempt: number | null = null
     if (repairParentRunId === null) {
       if (experiment.approvalState !== 'pending') {
         throw new PipelineDbError(
@@ -172,6 +173,7 @@ export async function openApprovalGate(
           'a repair gate requires a previously approved experiment',
         )
       }
+      repairAttempt = parent.attempt + 1
       await tx.update(experiments).set({
         approvalState: 'pending',
         approvedBy: null,
@@ -182,7 +184,20 @@ export async function openApprovalGate(
     const event = await appendEventLocked(tx, {
       experimentId,
       workspaceId,
-      input: { type: 'approval.requested', spec },
+      input: {
+        type: 'approval.requested',
+        spec,
+        // Additive context so the approval UI can say what it is approving.
+        // The initial gate omits the field entirely.
+        ...(repairParentRunId
+          ? {
+              repair: {
+                parentRunId: repairParentRunId,
+                ...(repairAttempt === null ? {} : { attempt: repairAttempt }),
+              },
+            }
+          : {}),
+      },
     })
     if (event.type !== 'approval.requested') {
       throw new PipelineDbError(

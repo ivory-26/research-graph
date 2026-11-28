@@ -1,9 +1,12 @@
+import { randomUUID } from 'node:crypto'
 import { and, asc, eq, ne } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import {
+  edges as edgesTable,
   nodes as nodesTable,
   sourceChunks as sourceChunksTable,
   sources as sourcesTable,
+  type NewEdge,
   type NewNode,
   type NodeRow,
   type SourceChunkRow,
@@ -135,9 +138,14 @@ function buildNodesFromExtraction(
   workspaceId: string,
   source: SourceRow,
   extraction: ExtractionOutcome,
-): NewNode[] {
+  chunkRows: SourceChunkRow[],
+): { nodes: NewNode[]; structuralEdges: NewEdge[] } {
+  // Node ids are minted here rather than by the database so a structural edge
+  // can name its endpoints without relying on INSERT ... RETURNING row order.
+  const sourceNodeId = randomUUID()
   const items: NewNode[] = [
     {
+      id: sourceNodeId,
       workspaceId,
       type: 'source',
       title: source.title,
@@ -150,12 +158,25 @@ function buildNodesFromExtraction(
     },
   ]
 
+  // A claim was read out of exactly one source chunk, so the source→claim edge
+  // is a deterministic fact, not another model judgement. The chunk id is the
+  // evidence the database requires; no edge is written when the claim cannot be
+  // tied back to a persisted chunk.
+  const chunkIdByOrdinal = new Map<number, string>()
+  for (const chunk of chunkRows) {
+    chunkIdByOrdinal.set(chunk.ordinal, chunk.id)
+  }
+
+  const structuralEdges: NewEdge[] = []
+
   for (const claim of extraction.acceptedClaims) {
     const hasReportedMeta =
       (claim.metric !== null && claim.metric !== undefined) ||
       (claim.reportedValue !== null && claim.reportedValue !== undefined)
 
+    const claimNodeId = randomUUID()
     items.push({
+      id: claimNodeId,
       workspaceId,
       type: 'claim',
       title: claim.text.slice(0, 140),
@@ -180,6 +201,19 @@ function buildNodesFromExtraction(
         },
       } satisfies NodeData,
     })
+
+    const evidenceChunkId = chunkIdByOrdinal.get(claim.chunkOrdinal)
+    if (evidenceChunkId) {
+      structuralEdges.push({
+        workspaceId,
+        sourceNodeId,
+        targetNodeId: claimNodeId,
+        relation: 'supports',
+        status: 'accepted',
+        evidenceChunkId,
+        confidence: 1,
+      })
+    }
   }
 
   const primaryLibraryUrl = extraction.codeUrls[0] ?? null
@@ -213,7 +247,7 @@ function buildNodesFromExtraction(
     })
   }
 
-  return items
+  return { nodes: items, structuralEdges }
 }
 
 function dedupeChunks(chunks: ChunkRef[]): ChunkRef[] {
@@ -380,11 +414,31 @@ export async function ingestSourceToGraphForWorkspace(
     taskStore: options.taskStore,
   })
 
-  // 3. Persist extracted source/claim/method/dataset nodes in one atomic transaction
-  const nodesToInsert = buildNodesFromExtraction(workspaceId, sourceRow, extraction)
+  // 3. Persist extracted source/claim/method/dataset nodes and the structural
+  //    source→claim edges in one atomic transaction. The claim→source link is
+  //    grounded in the chunk the quote was verified against, so the graph is
+  //    connected without depending on the model proposing that edge too.
+  const { nodes: nodesToInsert, structuralEdges } = buildNodesFromExtraction(
+    workspaceId,
+    sourceRow,
+    extraction,
+    chunkRows,
+  )
   const createdNodes: NodeRow[] =
     nodesToInsert.length > 0
-      ? await db.transaction(async (tx) => tx.insert(nodesTable).values(nodesToInsert).returning())
+      ? await db.transaction(async (tx) => {
+          const insertedNodes = await tx
+            .insert(nodesTable)
+            .values(nodesToInsert)
+            .returning()
+          if (structuralEdges.length > 0) {
+            // `.returning()` is not needed for the caller, but it makes the
+            // insert execute through the same interface the test adapters and
+            // Drizzle both implement.
+            await tx.insert(edgesTable).values(structuralEdges).returning({ id: edgesTable.id })
+          }
+          return insertedNodes
+        })
       : []
 
   const allNodes: NodeSummary[] = [...priorNodes, ...createdNodes.map(summarizeNodeRow)]
@@ -467,6 +521,7 @@ export async function ingestSourceToGraphForWorkspace(
     runId: options.runId ?? null,
     runLabel: options.runLabel ?? null,
     evidenceSelection,
+    existingEdges: structuralEdges,
     callModelFn: options.callModelFn,
     updateTaskStatusFn: options.updateTaskStatusFn,
     storeEdgesFn: options.storeEdgesFn,

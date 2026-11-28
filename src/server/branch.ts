@@ -24,7 +24,7 @@ import type {
   RunSucceededEvent,
   VerdictComputedEvent,
 } from '../shared/events'
-import { evaluateExperiment } from './evaluate-verdict'
+import { evaluateExperiment, type EvaluatedVerdict } from './evaluate-verdict'
 import {
   AgentTaskPersistenceError,
   callModel as productionCallModel,
@@ -1117,6 +1117,8 @@ export type RepairRetryOptions = {
   abortedStatus?: () => 'cancelled' | 'timeout'
   callModelFn?: CallModel
   onStdout?: (chunk: string) => void
+  /** Persist run-scoped evidence after a repair candidate becomes terminal. */
+  onRunTerminal?: RepairRunTerminalHook
   /** Active execution claim id required when `openApprovalGate` is provided. */
   claimId?: string
   /** Durable gate opener matching `openApprovalGate(db, input)` (`src/db/pipeline-approval.ts:55`). */
@@ -1470,6 +1472,7 @@ export async function repairAndRetryRun(
         runner: options.runner,
         emitEvent: options.emitEvent,
         onStdout: options.onStdout,
+        onRunTerminal: options.onRunTerminal,
         signal,
         abortedStatus: options.abortedStatus,
         now,
@@ -1500,11 +1503,25 @@ export async function repairAndRetryRun(
   }
 }
 
+/**
+ * Called once a repair candidate's `runs` row is terminal. This is the seam the
+ * production provider uses to persist the repaired run's own evidence (the
+ * reproducibility notebook and any runner artifacts) without teaching this
+ * module about claims, sources or `run_artifacts`.
+ */
+export type RepairRunTerminalHook = (
+  run: RepairRunRecord,
+  result: ExperimentResult,
+  evaluated: EvaluatedVerdict,
+) => Promise<void> | void
+
 export type ExecuteChainedRepairRunOptions = {
   runStore: RepairRunStore
   runner: ExperimentRunner
   emitEvent?: (event: RepairPipelineEvent) => Promise<void> | void
   onStdout?: (chunk: string) => void
+  /** Persist run-scoped evidence after the terminal row is written. */
+  onRunTerminal?: RepairRunTerminalHook
   signal?: AbortSignal
   abortedStatus?: () => 'cancelled' | 'timeout'
   now?: () => Date
@@ -1661,6 +1678,18 @@ async function executeChainedRepairRun(
     stderr: result.stderr,
     finishedAt: now(),
   })
+
+  // Persist run-scoped evidence before the success event: a client that sees
+  // `run.succeeded` can then immediately list and download the notebook. A
+  // failure here must not turn a measured success into a pipeline failure, so
+  // it is logged and the terminal event still goes out.
+  if (options.onRunTerminal) {
+    try {
+      await options.onRunTerminal(updatedRun, result, evaluated)
+    } catch (error) {
+      console.error('[executeChainedRepairRun] terminal hook failed', error)
+    }
+  }
 
   if (runStatus === 'succeeded') {
     await emit({

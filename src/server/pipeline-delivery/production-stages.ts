@@ -45,6 +45,8 @@ import type {
   ExperimentResult,
   ExperimentSpec,
   RunEnvironment,
+  Verdict,
+  VerdictDetail,
 } from '../../shared/types'
 import {
   MAX_REPAIR_ATTEMPTS,
@@ -53,6 +55,7 @@ import {
   repairAndRetryRun,
   type RepairPipelineEvent,
   type RepairRunRecord,
+  type RepairRunTerminalHook,
 } from '../branch'
 import { evaluateAndExplainExperiment } from '../evaluate'
 import {
@@ -72,6 +75,12 @@ import {
   runnerErrorToFailedResult,
   type ExperimentRunner,
 } from '../runner'
+import {
+  classifyRunnerFailure,
+  isRepairableRunnerFailure,
+  safeRunnerFailureMessage,
+  type RunnerFailureKind,
+} from '../runner-failure'
 import { saveRunArtifacts } from './artifacts'
 import {
   PipelineStageError,
@@ -188,6 +197,78 @@ async function projectRunToGraphSafely(
       '[pipeline-delivery] could not project the terminal run onto the graph',
       error,
     )
+  }
+}
+
+type EvaluatedRun = {
+  verdict: Verdict
+  detail: VerdictDetail
+}
+
+/**
+ * Persists the reproducibility notebook for one successful run.
+ *
+ * The notebook is built from the run's own frozen spec and measured
+ * environment (never from a model call), which is what makes "open this in
+ * Colab and it runs" honest. Both the initial EXECUTE path and a successful
+ * repair candidate call this: a repaired run is still a real run and deserves
+ * its own record.
+ *
+ * Failure is logged and swallowed by the caller's run path: a notebook that
+ * could not be written must not turn a measured success into a failed run. The
+ * `runs` row remains the authoritative result either way.
+ */
+async function saveRunNotebookSafe(
+  db: Database,
+  workspaceId: string,
+  runId: string,
+  spec: ExperimentSpec,
+  environment: RunEnvironment,
+  evaluated: EvaluatedRun,
+): Promise<void> {
+  try {
+    const [claim] = await db
+      .select({
+        data: nodes.data,
+        paperTitle: sources.title,
+        doi: sources.doi,
+      })
+      .from(nodes)
+      .leftJoin(
+        sources,
+        and(
+          eq(sources.id, nodes.sourceId),
+          eq(sources.workspaceId, nodes.workspaceId),
+        ),
+      )
+      .where(
+        and(
+          eq(nodes.id, spec.claimNodeId),
+          eq(nodes.workspaceId, workspaceId),
+          eq(nodes.type, 'claim'),
+        ),
+      )
+
+    if (claim?.data.type !== 'claim') {
+      throw new Error('the run claim could not be loaded')
+    }
+
+    await saveNotebookArtifact(db, runId, {
+      spec,
+      environment,
+      paperTitle: claim.paperTitle,
+      doi: claim.doi,
+      claim: {
+        text: claim.data.text,
+        quote: claim.data.locator.quote,
+        page: claim.data.locator.page,
+        reported: claim.data.reported,
+      },
+      verdict: evaluated.verdict,
+      verdictExplanation: evaluated.detail.explanation,
+    })
+  } catch (error) {
+    console.error('[pipeline-delivery] could not save the run notebook', error)
   }
 }
 
@@ -358,7 +439,29 @@ export function createProductionPipelineStages(
       const { at: _at, experimentId: _experimentId, ...input } = event
       await context.emit(input)
     }
+    const onRunTerminal: RepairRunTerminalHook = async (run, result, evaluated) => {
+      if (run.status !== 'succeeded') return
+      if (result.artifacts.length > 0) {
+        try {
+          await saveRunArtifacts(db, run.id, result.artifacts)
+        } catch (error) {
+          console.error('[pipeline-delivery] could not persist repaired run artifacts', {
+            runId: run.id,
+            name: error instanceof Error ? error.name : 'UnknownError',
+          })
+        }
+      }
+      await saveRunNotebookSafe(
+        db,
+        context.workspaceId,
+        run.id,
+        run.spec,
+        result.environment,
+        evaluated,
+      )
+    }
     const repairOptions = {
+      onRunTerminal,
       runStore: {
         ...repairStore,
         async updateRun(...args: Parameters<typeof repairStore.updateRun>) {
@@ -503,13 +606,15 @@ export function createProductionPipelineStages(
       let result: ExperimentResult
       let runnerThrew = false
       let runnerTimedOut = false
+      let runnerFailureKind: RunnerFailureKind | null = null
       try {
         result = await executionRunner.run(spec, () => {
           // Durable stdout lives in `runs.stdout`; see the module header.
         })
       } catch (error) {
         runnerThrew = true
-        runnerTimedOut = error instanceof SandboxTimeoutError
+        runnerFailureKind = classifyRunnerFailure(error)
+        runnerTimedOut = runnerFailureKind === 'timeout'
         result = failedResultFromRunnerError(error, spec, startedAt)
       }
 
@@ -589,11 +694,17 @@ export function createProductionPipelineStages(
           }
         }
 
+        const runnerFailureMessage = runnerTimedOut
+          ? safeRunnerFailureMessage('timeout')
+          : runnerFailureKind
+            ? safeRunnerFailureMessage(runnerFailureKind)
+            : 'The experiment script did not exit successfully'
+
         if (runnerThrew) {
           await context.emit({
             type: 'run.failed',
             runId,
-            error: 'The experiment runner did not complete',
+            error: runnerFailureMessage,
           })
         } else {
           await context.emit({ type: 'run.succeeded', runId, result })
@@ -605,12 +716,7 @@ export function createProductionPipelineStages(
           // StageStatus has no `timeout`; the run row keeps that distinction.
           status: runStatus === 'succeeded' ? 'succeeded' : 'failed',
           taskId: null,
-          error:
-            runStatus === 'succeeded'
-              ? null
-              : runnerThrew
-                ? 'The experiment runner did not complete'
-                : 'The experiment script did not exit successfully',
+          error: runStatus === 'succeeded' ? null : runnerFailureMessage,
         })
 
         await context.emit({ type: 'stage.started', stage: 'EVALUATE' })
@@ -657,50 +763,14 @@ export function createProductionPipelineStages(
         if (!terminalRun) throw new Error('the terminal run could not be read back')
 
         if (runStatus === 'succeeded') {
-          try {
-            const [claim] = await db
-              .select({
-                data: nodes.data,
-                paperTitle: sources.title,
-                doi: sources.doi,
-              })
-              .from(nodes)
-              .leftJoin(
-                sources,
-                and(
-                  eq(sources.id, nodes.sourceId),
-                  eq(sources.workspaceId, nodes.workspaceId),
-                ),
-              )
-              .where(
-                and(
-                  eq(nodes.id, spec.claimNodeId),
-                  eq(nodes.workspaceId, context.workspaceId),
-                  eq(nodes.type, 'claim'),
-                ),
-              )
-
-            if (claim?.data.type !== 'claim') {
-              throw new Error('the run claim could not be loaded')
-            }
-
-            await saveNotebookArtifact(db, runId, {
-              spec,
-              environment: result.environment,
-              paperTitle: claim.paperTitle,
-              doi: claim.doi,
-              claim: {
-                text: claim.data.text,
-                quote: claim.data.locator.quote,
-                page: claim.data.locator.page,
-                reported: claim.data.reported,
-              },
-              verdict: evaluated.verdict,
-              verdictExplanation: evaluated.detail.explanation,
-            })
-          } catch (error) {
-            console.error('[pipeline-delivery] could not save the run notebook', error)
-          }
+          await saveRunNotebookSafe(
+            db,
+            context.workspaceId,
+            runId,
+            spec,
+            result.environment,
+            evaluated,
+          )
         }
 
         if (context.signal.aborted) {
@@ -762,7 +832,17 @@ export function createProductionPipelineStages(
           )
         }
 
-        if (runStatus === 'timeout' || (runStatus === 'failed' && !runnerThrew)) {
+        // A script that crashed or wrote missing/invalid metrics is repairable.
+        // A pinned-package mismatch or an untagged provider/SDK failure is not:
+        // rewriting the script cannot fix either, and the two attempts are a
+        // demo budget, not a retry loop for infrastructure.
+        const repairableRunnerFailure =
+          runnerFailureKind !== null && isRepairableRunnerFailure(runnerFailureKind)
+        const shouldRepair =
+          runStatus === 'timeout' ||
+          (runStatus === 'failed' && (!runnerThrew || repairableRunnerFailure))
+
+        if (shouldRepair) {
           return await repair(context, terminalRun, executionRunner)
         }
         return { runId }

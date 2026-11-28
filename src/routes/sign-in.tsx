@@ -1,7 +1,31 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useState, type FormEvent } from 'react';
-import { signIn } from '../utils/authClient';
+import { sameOriginPath, signIn, signInWithGoogle } from '../utils/authClient';
 import { ShieldCheck, LogIn, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
+
+/** The Google mark, inline so the sign-in screen needs no remote asset. */
+function GoogleMark() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        fill="#4285F4"
+        d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.51h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.54-5.17 3.54-8.87Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.96-1.08 7.95-2.91l-3.88-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09A12 12 0 0 0 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.27 14.29a7.21 7.21 0 0 1 0-4.58V6.62H1.29a12 12 0 0 0 0 10.76l3.98-3.09Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42A11.97 11.97 0 0 0 12 0 12 12 0 0 0 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75Z"
+      />
+    </svg>
+  );
+}
 
 export const Route = createFileRoute('/sign-in')({
   validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
@@ -16,7 +40,25 @@ function SignInPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleGoogleSignIn = async () => {
+    setErrorMessage(null);
+    setIsGoogleLoading(true);
+
+    const callbackPath = sameOriginPath(redirectTo, window.location.origin);
+    const res = await signInWithGoogle(callbackPath);
+    if (res.ok && res.data?.url) {
+      // The provider redirect leaves the app; the callback exchange and guard
+      // run on the way back (see src/start.ts).
+      window.location.assign(res.data.url);
+      return;
+    }
+
+    setErrorMessage(res.ok ? 'Google sign-in failed' : res.error || 'Google sign-in failed');
+    setIsGoogleLoading(false);
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -74,6 +116,34 @@ function SignInPage() {
           </div>
         )}
 
+        {/* Google sign-in */}
+        <button
+          type="button"
+          onClick={handleGoogleSignIn}
+          disabled={isLoading || isGoogleLoading}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white text-[#1f2328] font-bold font-mono text-xs uppercase hover:bg-[#e6e6e6] transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed rounded-none"
+        >
+          {isGoogleLoading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Redirecting to Google...</span>
+            </>
+          ) : (
+            <>
+              <GoogleMark />
+              <span>Continue with Google</span>
+            </>
+          )}
+        </button>
+
+        <div className="my-5 flex items-center gap-3" aria-hidden="true">
+          <span className="h-px flex-1 bg-[#1e2229]" />
+          <span className="text-[10px] font-mono uppercase tracking-wider text-[#666]">
+            or use email
+          </span>
+          <span className="h-px flex-1 bg-[#1e2229]" />
+        </div>
+
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -106,7 +176,7 @@ function SignInPage() {
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || isGoogleLoading}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#f97316] text-black font-bold font-mono text-xs uppercase hover:bg-[#ea580c] transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed rounded-none mt-2"
           >
             {isLoading ? (

@@ -76,12 +76,10 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 
 | Gap | Owner issue | Blocks |
 |---|---|---|
-| Write a completed run back as result/run nodes and the `produced` edge | #7 | the graph beat showing a real result |
-| Production deploy | #9 | the deployed-link success criterion |
+| Production deploy | #9 | the deployed-link success criterion; configuration and the environment-variable list are in [11-deploy](./11-deploy.md), but no hosted URL exists yet |
 | Strategy selection | #26 | automated selection remains unbuilt; the repair loop and what-if branch are built as modules, and EXECUTE adoption of Run B is #62 |
-| Display the persisted run notebook in the UI | Server-side export landed in #67 | opening the notebook from the workspace |
 
-On 28 November, `pnpm typecheck`, `pnpm db:check` and `pnpm build` passed. The default `pnpm test` run passed 27 transport checks, 433 app tests and 90 seed tests. It skipped 64 opt-in Postgres, E2B and Gemini integration tests.
+On 28 November, `pnpm typecheck`, `pnpm db:check`, `pnpm build` and a `VERCEL=1 pnpm build` passed. The default `pnpm test` run passed 27 transport checks, 532 app tests and 93 seed tests. It skipped 74 opt-in integration tests; with a disposable local Postgres (`TEST_DATABASE_URL`), 65 of those ran and Vitest passed 597 tests, leaving 9 that need a real Neon branch or live Gemini/Meta/E2B credentials.
 
 ## Workstreams
 
@@ -94,7 +92,7 @@ Not assigned to people — assign on the day, by who is free. The seams are chos
 | C. Runtime | `PLAN_EXPERIMENT`, `EXECUTE`, `EVALUATE`, notebook export | writes `experiments`, `runs`, `run_artifacts` |
 | D. Demo | seed script, video, deck, deploy | reads everything |
 
-The integration seam — the point where four streams collide — is the write path from a completed run to its `result` node and `produced` edge. One person should own that function (#7, ivory-26). It is still unwritten.
+The integration seam — the point where four streams collide — is the write path from a completed run to its `result` node and `produced` edge. It is `projectRunToGraph` in `src/server/pipeline.ts` (#7, ivory-26), called by the production stage provider on every terminal run.
 
 ## The seed script
 

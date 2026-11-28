@@ -27,7 +27,7 @@
  */
 import { APICallError, Output, generateText } from 'ai'
 import type { LanguageModel } from 'ai'
-import { google } from '@ai-sdk/google'
+import { createGoogleGenerativeAI, google } from '@ai-sdk/google'
 import { z } from 'zod'
 import type { AgentTaskStatus, TaskKind } from '../shared/types'
 import { agentTasks, type NewAgentTask } from '../db/schema'
@@ -228,10 +228,41 @@ export type GeminiGeneratorDeps = {
 
 const modelCache = new Map<string, LanguageModel>()
 
+/**
+ * The Gemini API key the text generator uses.
+ *
+ * `@ai-sdk/google` reads `GOOGLE_GENERATIVE_AI_API_KEY` only; the embedding
+ * module (`src/server/ingest/embed.ts`) has always accepted `GEMINI_API_KEY`
+ * too. A deploy that follows the shorter name would therefore embed fine and
+ * fail every text call, so the same alias is resolved here. The deployed
+ * variable should still be `GOOGLE_GENERATIVE_AI_API_KEY` (see `.env.example`).
+ */
+export function resolveGeminiApiKey(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const key =
+    env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ||
+    env.GEMINI_API_KEY?.trim() ||
+    ''
+  return key.length > 0 ? key : null
+}
+
+let geminiProvider: ReturnType<typeof createGoogleGenerativeAI> | null = null
+
+function resolveGeminiProvider(): ReturnType<typeof createGoogleGenerativeAI> {
+  if (geminiProvider) return geminiProvider
+  const apiKey = resolveGeminiApiKey()
+  // No explicit key: keep the SDK's default provider, which reads the env at
+  // request time and fails with its own clear message if it is absent.
+  if (!apiKey) return google
+  geminiProvider = createGoogleGenerativeAI({ apiKey })
+  return geminiProvider
+}
+
 function resolveGeminiModel(modelId: string): LanguageModel {
   const cached = modelCache.get(modelId)
   if (cached) return cached
-  const model = google(modelId)
+  const model = resolveGeminiProvider()(modelId)
   modelCache.set(modelId, model)
   return model
 }
