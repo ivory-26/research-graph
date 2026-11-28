@@ -30,6 +30,8 @@ export interface AgentTaskQueryRow {
   latencyMs: number | null
   costUsd: string | number | null
   error: string | null
+  /** `agent_tasks.created_at`; optional so older callers keep compiling. */
+  createdAt?: Date | string | null
 }
 
 function nonEmptyString(value: unknown): string | null {
@@ -57,6 +59,10 @@ export function mapAgentTaskQueryRows(rows: AgentTaskQueryRow[]): AgentTaskRow[]
       typeof row.latencyMs === 'number' && Number.isFinite(row.latencyMs)
         ? row.latencyMs
         : null
+    const createdAt =
+      row.createdAt instanceof Date
+        ? row.createdAt.toISOString()
+        : nonEmptyString(row.createdAt)
 
     return {
       id: row.id,
@@ -69,6 +75,7 @@ export function mapAgentTaskQueryRows(rows: AgentTaskQueryRow[]): AgentTaskRow[]
       latencyMs,
       costUsd,
       error: row.error,
+      createdAt,
     }
   })
 }

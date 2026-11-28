@@ -58,6 +58,7 @@ import {
   type RepairRunTerminalHook,
 } from '../branch'
 import { evaluateAndExplainExperiment } from '../evaluate'
+import { SUPPORTED_EXPERIMENT_TEMPLATE_LABEL } from '../experiment-templates'
 import {
   callModel as productionCallModel,
   createDrizzleAgentTaskStore,
@@ -114,6 +115,63 @@ export type ProductionPipelineStages = PipelineStages & {
 /** A runner that can report its live sandboxes, as the E2B one does. */
 type CancellableRunner = ExperimentRunner & {
   getActiveSandboxes?: () => ReadonlyMap<string, unknown>
+}
+
+/**
+ * Wraps a runner so aborting the stage signal cancels every sandbox it has
+ * live. The sweep is deliberately not a single listener: the sandbox is
+ * created *inside* `runner.run`, so an abort that lands while `Sandbox.create`
+ * is still in flight finds an empty map and does nothing. The `finally` runs
+ * the sweep again once the run settles, which is what keeps disposal
+ * deterministic instead of leaving the sandbox to E2B's `timeoutMs` backstop.
+ *
+ * Both sweeps are best-effort (`void`), matching the listener: the abort
+ * reason is the error the pipeline must surface, never a cancellation failure.
+ */
+export function createSandboxCancellingRunner(
+  runner: ExperimentRunner,
+  signal: AbortSignal,
+): ExperimentRunner {
+  const cancellable = runner as CancellableRunner
+
+  return {
+    async run(spec, onStdout) {
+      signal.throwIfAborted()
+
+      /**
+       * Stops remote work when the client disconnects or the budget expires.
+       * Each sandbox id is cancelled at most once per run: the abort sweep and
+       * the settle sweep can both see a runner that still reports an id whose
+       * cancel is in flight, and re-issuing it adds nothing.
+       */
+      const swept = new Set<string>()
+      const cancelActiveSandboxes = (): void => {
+        const active = cancellable.getActiveSandboxes?.()
+        if (!active) return
+        for (const sandboxId of active.keys()) {
+          if (swept.has(sandboxId)) continue
+          swept.add(sandboxId)
+          void runner.cancel(sandboxId).catch((error: unknown) => {
+            console.error(
+              '[pipeline-delivery] could not cancel a sandbox after abort',
+              error,
+            )
+          })
+        }
+      }
+
+      signal.addEventListener('abort', cancelActiveSandboxes, { once: true })
+      try {
+        return await runner.run(spec, onStdout)
+      } finally {
+        signal.removeEventListener('abort', cancelActiveSandboxes)
+        // The listener may have fired before the runner had a sandbox to
+        // report. Sweep again now that the run has settled.
+        if (signal.aborted) cancelActiveSandboxes()
+      }
+    },
+    cancel: (sandboxId) => runner.cancel(sandboxId),
+  }
 }
 
 /** The placeholder environment a `running` row starts with. */
@@ -264,6 +322,9 @@ async function saveRunNotebookSafe(
         page: claim.data.locator.page,
         reported: claim.data.reported,
       },
+      // The verdict tests the supported adapted template, not the claim's
+      // original dataset; the notebook must say so.
+      templateLabel: SUPPORTED_EXPERIMENT_TEMPLATE_LABEL,
       verdict: evaluated.verdict,
       verdictExplanation: evaluated.detail.explanation,
     })
@@ -552,7 +613,6 @@ export function createProductionPipelineStages(
 
     async execute(context, spec) {
       const startedAt = now().toISOString()
-      const cancellable = runner as CancellableRunner
 
       await context.emit({ type: 'stage.started', stage: 'EXECUTE' })
 
@@ -572,36 +632,15 @@ export function createProductionPipelineStages(
         type: 'run.started',
         runId,
         attempt,
-        // E2BRunner does not expose the sandbox id to this layer; the run row
-        // is the durable place for it once the runtime workstream provides it.
+        // The sandbox does not exist yet; `runs.sandbox_id` is written with
+        // the measured result once the runner reports it.
         sandboxId: null,
       })
 
-      /** Stops remote work when the client disconnects or the budget expires. */
-      const cancelActiveSandboxes = (): void => {
-        const active = cancellable.getActiveSandboxes?.()
-        if (!active) return
-        for (const sandboxId of active.keys()) {
-          void runner.cancel(sandboxId).catch((error: unknown) => {
-            console.error(
-              '[pipeline-delivery] could not cancel a sandbox after abort',
-              error,
-            )
-          })
-        }
-      }
-      const executionRunner: ExperimentRunner = {
-        async run(spec, onStdout) {
-          context.signal.throwIfAborted()
-          context.signal.addEventListener('abort', cancelActiveSandboxes, { once: true })
-          try {
-            return await runner.run(spec, onStdout)
-          } finally {
-            context.signal.removeEventListener('abort', cancelActiveSandboxes)
-          }
-        },
-        cancel: (sandboxId) => runner.cancel(sandboxId),
-      }
+      const executionRunner = createSandboxCancellingRunner(
+        runner,
+        context.signal,
+      )
 
       let result: ExperimentResult
       let runnerThrew = false
@@ -666,6 +705,9 @@ export function createProductionPipelineStages(
         .update(runs)
         .set({
           status: runStatus,
+          // The sandbox id is part of the run's audit trail; a runner that
+          // cannot report one leaves the column null.
+          sandboxId: result.sandboxId ?? null,
           metrics: result.metrics,
           environment: result.environment,
           stdout: result.stdout,

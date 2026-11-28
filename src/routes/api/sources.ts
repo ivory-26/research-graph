@@ -14,9 +14,10 @@ import {
 import { ingestSourceToGraphForWorkspace } from '../../server/extract/pipeline'
 import { assertSameOrigin } from '../../server/pipeline-delivery/authorization'
 import { toErrorResponse } from '../../server/pipeline-delivery/errors'
+import { MAX_PDF_LABEL, MAX_PDF_BYTES } from '../../shared/source-limits'
+import { inferSourceKind } from '../../shared/source-kind'
 import {
   decodePdfBase64,
-  MAX_PDF_BYTES,
   MAX_SOURCE_TITLE_LENGTH,
   validateIngestUrl,
 } from '../../server/source-input'
@@ -94,7 +95,10 @@ async function parseIngestRequest(request: Request): Promise<
       return { ok: false, response: jsonError('PDF file is empty', 400) }
     }
     if (file.size > MAX_PDF_BYTES) {
-      return { ok: false, response: jsonError('PDF file exceeds the 25 MB limit', 413) }
+      return {
+        ok: false,
+        response: jsonError(`PDF file exceeds the ${MAX_PDF_LABEL} limit`, 413),
+      }
     }
     const bytes = new Uint8Array(await file.arrayBuffer())
     return {
@@ -143,7 +147,10 @@ async function parseIngestRequest(request: Request): Promise<
     if (!pdf) {
       return {
         ok: false,
-        response: jsonError('pdfBase64 is not a valid PDF payload under 25 MB', 400),
+        response: jsonError(
+          `pdfBase64 is not a valid PDF payload under ${MAX_PDF_LABEL}`,
+          400,
+        ),
       }
     }
     return { ok: true, value: { workspaceId, kind, title, pdf } }
@@ -157,7 +164,17 @@ async function parseIngestRequest(request: Request): Promise<
     return { ok: false, response: jsonError(validated.error, 400) }
   }
 
-  return { ok: true, value: { workspaceId, kind, title: title || undefined, url: validated.url } }
+  // The URL is authoritative: a caller cannot label a github.com repository as
+  // "web" (or an article as "repo") and change how it is ingested.
+  return {
+    ok: true,
+    value: {
+      workspaceId,
+      kind: inferSourceKind(validated.url),
+      title: title || undefined,
+      url: validated.url,
+    },
+  }
 }
 
 /**

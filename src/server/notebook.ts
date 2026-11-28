@@ -69,6 +69,11 @@ export type BuildNotebookInput = {
   paperTitle?: string | null
   doi?: string | null
   claim: NotebookClaimInfo
+  /**
+   * Names the supported template the run actually exercised. Without it the
+   * notebook would read as a reproduction of the claim's own dataset.
+   */
+  templateLabel?: string | null
   verdict?: Verdict | null
   verdictExplanation?: string | null
 }
@@ -159,6 +164,9 @@ function buildMetadataMarkdownCell(input: BuildNotebookInput): NbformatMarkdownC
     `- **Claim Quote${pageSuffix}:** "${input.claim.quote}"`,
     `- **Reported Value:** ${formatReportedValue(input.claim.reported)}`,
     `- **Mode:** \`${input.spec.mode}\``,
+    ...(input.templateLabel?.trim()
+      ? [`- **Experiment:** ${input.templateLabel.trim()}`]
+      : []),
     `- **Verdict:** ${verdictStr}`,
   ]
 

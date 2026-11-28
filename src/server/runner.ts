@@ -729,6 +729,7 @@ export class E2BRunner implements ExperimentRunner {
 
       return {
         exitCode: proc.exitCode,
+        sandboxId: sandboxId ?? null,
         stdout: proc.stdout,
         stderr: proc.stderr,
         metrics: validatedMetrics,
@@ -740,7 +741,21 @@ export class E2BRunner implements ExperimentRunner {
       if (sandboxId) {
         this.activeSandboxes.delete(sandboxId)
       }
-      await sandbox.kill().catch(() => {})
+      // Every exit path — success, a non-zero command exit, missing metrics, a
+      // timeout, a package mismatch or a thrown provider error — funnels
+      // through this `finally`, so a sandbox is killed exactly once and never
+      // left to E2B's `timeoutMs` unless this kill cannot reach the provider.
+      // A kill failure must not mask the run's result or error, but it is not
+      // silent either: the id and message make the leak visible in the log.
+      try {
+        await sandbox.kill()
+      } catch (error) {
+        console.warn(
+          `[runner] could not kill sandbox ${sandboxId || '(unknown id)'}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
     }
   }
 

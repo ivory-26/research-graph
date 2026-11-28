@@ -22,4 +22,10 @@ export interface AgentTaskRow {
   latencyMs: number | null;
   costUsd: number | null;
   error?: string | null;
+  /**
+   * When the attempt was recorded (`agent_tasks.created_at`, ISO 8601).
+   * Optional so callers that never needed ordering are unchanged; `null`
+   * means the row predates the field being exposed, not a missing attempt.
+   */
+  createdAt?: string | null;
 }

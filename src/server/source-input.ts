@@ -5,8 +5,12 @@
  * without constructing a TanStack server handler. Nothing here performs I/O.
  */
 import { isPdfUrl } from './firecrawl'
+import { MAX_PDF_BYTES } from '../shared/source-limits'
 
-export const MAX_PDF_BYTES = 25 * 1024 * 1024
+// Defined in `shared/source-limits.ts` (3 MiB) so the browser label and this
+// validator share one number; re-exported here because the sources route and
+// its tests import the limit from this module.
+export { MAX_PDF_BYTES }
 export const MAX_SOURCE_URL_LENGTH = 2_048
 export const MAX_SOURCE_TITLE_LENGTH = 300
 

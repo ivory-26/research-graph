@@ -255,11 +255,21 @@ evidence; no further live provider calls were made.
 - **Live verification is opt-in, not CI.** The two runs recorded above passed
   on 2026-11-25 against template build `3060b313`, but the files are skipped
   without credentials and are not part of the main suite. On 28 November
-  `pnpm test` reports 27 `node:test` transport checks, 532 app tests and 93
-  seed tests passed, with 74 opt-in integration tests skipped. Pointing
-  `TEST_DATABASE_URL` at a disposable local Postgres runs 65 of those: Vitest
-  then passed 597 and skipped 9 that need a real Neon branch or live
+  `pnpm test` reports 27 `node:test` transport checks, 569 app tests and 93
+  seed tests passed, with 75 opt-in integration tests skipped. Pointing
+  `TEST_DATABASE_URL` at a disposable local Postgres runs 66 of those: Vitest
+  then passed 635 and skipped 9 that need a real Neon branch or live
   Gemini/Meta/E2B credentials.
+- **Live browser E2E (28 November 2026).** Against the migrated Neon branch on
+  a local dev server, Google sign-in provisioned a first-use workspace;
+  Firecrawl ingested Strobl et al. 2007 (33 chunks, 11 verbatim claims);
+  extraction and edge proposals used `muse-spark-1.3-contributor` and
+  `gemini-embedding-2`; the graph reconciled at 24 nodes / 22 edges with no
+  edge missing evidence; an approved `rf-variable-importance` experiment ran in
+  E2B (exit 0, 10.9 s) and the code-computed verdict was `match`; the persisted
+  notebook reproduced the same metrics in Colab. The branch required committed
+  migration `0002_repair_approval_gates`; without it the pipeline failed before
+  the gate. The repair gate was not triggered because attempt 1 succeeded.
 - **Standalone provider probes are unresolved.** The isolated Gemini boundary
   runs failed with different errors (invalid key, then no output) while the
   full pipeline succeeded minutes earlier; the cause is not established.

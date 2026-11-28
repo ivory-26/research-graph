@@ -5,6 +5,8 @@ import { IngestionPanel, type LiveSourceChunk } from './IngestionPanel';
 import { DEMO_SOURCES } from '../../data/demoWorkspace';
 import rawWorkspace from '../../../fixtures/workspace.json';
 import { isDatabaseWorkspaceId } from '../../utils/graphClient';
+import { MAX_PDF_BYTES, MAX_PDF_LABEL } from '../../shared/source-limits';
+import { inferSourceKind } from '../../shared/source-kind';
 
 interface SourcesPageProps {
   onShowToast: (msg: string) => void;
@@ -196,6 +198,11 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({
       e.target.value = '';
       return;
     }
+    if (file.size > MAX_PDF_BYTES) {
+      onShowToast(`PDF file exceeds the ${MAX_PDF_LABEL} limit`);
+      e.target.value = '';
+      return;
+    }
 
     setIsIngestingWeb(true);
     setSourcesError(null);
@@ -246,7 +253,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({
       return;
     }
 
-    const kind: 'repo' | 'web' = webUrl.includes('github.com') ? 'repo' : 'web';
+    const kind = inferSourceKind(webUrl);
     const cleanTitle = webTitle.trim() || (kind === 'repo' ? 'GitHub Repo Source' : 'Web Source');
 
     setIsIngestingWeb(true);
@@ -483,7 +490,7 @@ export const SourcesPage: React.FC<SourcesPageProps> = ({
                 Drop research PDFs here
               </strong>
               <p className="text-[10px] text-[var(--text-dim)] mt-1 font-mono">
-                PDF files · coordinate-aware extraction · SHA-256 fingerprint
+                PDF files up to {MAX_PDF_LABEL} · coordinate-aware extraction · SHA-256 fingerprint
               </p>
               <div className="mt-3 px-3 py-1.5 bg-[#f97316] text-black font-bold text-xs hover:bg-[#ea580c] transition">
                 {isIngestingWeb ? 'Ingesting...' : 'Select files'}

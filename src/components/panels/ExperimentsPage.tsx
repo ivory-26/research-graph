@@ -60,6 +60,8 @@ interface LiveExperiment {
   claimNodeId: string;
   claimTitle: string;
   claimText: string | null;
+  templateId: string;
+  templateName: string;
   mode: string;
   approvalState: string;
   createdAt: string;
@@ -649,6 +651,10 @@ const LiveExperimentsPage: React.FC<
                     'Claim text unavailable.'}
                 </p>
               )}
+              <p className="text-[10px] text-amber-200/90 font-sans pt-1">
+                Only claims about random-forest feature importance are accepted. The template always
+                runs the fixed adapted breast-w protocol, not the claim&apos;s original dataset.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -777,6 +783,15 @@ const LiveExperimentsPage: React.FC<
                       {experiment.claimText}
                     </p>
                   )}
+                  <div
+                    className="text-[10px] text-[var(--text-dim)] font-sans"
+                    title={experiment.templateName}
+                  >
+                    <span className="badge-orange-outline !text-[8px] rounded-none uppercase mr-1.5">
+                      Template test · fixed breast-w protocol
+                    </span>
+                    {experiment.templateName ?? template?.name ?? 'Random forest variable importance'}
+                  </div>
                 </div>
                 <button
                   onClick={() => openStream(experiment.id)}

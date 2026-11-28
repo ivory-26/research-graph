@@ -12,7 +12,7 @@
  * spec; the planner validates it again before the SSE pipeline opens a gate.
  */
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../fixtures/hero-spec'
-import type { ExperimentSpec } from '../shared/types'
+import type { ExperimentSpec, NodeData } from '../shared/types'
 import { validateExperimentSpec } from './planner'
 
 export type SupportedExperimentTemplateId = 'rf-variable-importance'
@@ -74,6 +74,13 @@ export const SUPPORTED_EXPERIMENT_TEMPLATE_IDS: readonly SupportedExperimentTemp
   SUPPORTED_EXPERIMENT_TEMPLATE.id,
 ]
 
+/**
+ * One-line label for records that must not imply the run reproduced the
+ * claim's own dataset: the verdict comes from this fixed adapted template.
+ */
+export const SUPPORTED_EXPERIMENT_TEMPLATE_LABEL =
+  `${SUPPORTED_EXPERIMENT_TEMPLATE.name} — fixed adapted breast-w protocol (not the claim's original dataset)`
+
 export function isSupportedExperimentTemplateId(
   value: unknown,
 ): value is SupportedExperimentTemplateId {
@@ -81,6 +88,49 @@ export function isSupportedExperimentTemplateId(
     typeof value === 'string' &&
     (SUPPORTED_EXPERIMENT_TEMPLATE_IDS as readonly string[]).includes(value)
   )
+}
+
+export interface ClaimTemplateCompatibilityInput {
+  title?: string | null
+  data?: NodeData | null
+}
+
+export type ClaimTemplateCompatibility =
+  | { compatible: true }
+  | { compatible: false; reason: string }
+
+/**
+ * Claims the one supported template can honestly test: statements about
+ * random-forest variable/feature importance (impurity, permutation, Gini, RF).
+ * The template rebinds the claim but keeps the fixed breast-w script and
+ * criteria, so an unrelated claim would otherwise receive a random-forest
+ * verdict it never asked for.
+ */
+const CLAIM_TOPIC_PATTERN =
+  /random\s*forest|variable\s+importance|feature\s+importance|permutation\s+importance|gini|impurity|\brf\b/i
+
+export function assessClaimTemplateCompatibility(
+  input: ClaimTemplateCompatibilityInput,
+): ClaimTemplateCompatibility {
+  const claim = input.data?.type === 'claim' ? input.data : null
+  const haystack = [
+    input.title,
+    claim?.text,
+    claim?.methodName,
+    claim?.datasetName,
+  ]
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+    .join('\n')
+
+  if (CLAIM_TOPIC_PATTERN.test(haystack)) {
+    return { compatible: true }
+  }
+
+  return {
+    compatible: false,
+    reason:
+      'The supported template tests random-forest variable importance on the adapted breast-w protocol, so it only accepts claims about random-forest feature importance. Choose a claim that mentions random forest, variable importance, permutation importance, Gini or impurity.',
+  }
 }
 
 const UUID_REGEX =

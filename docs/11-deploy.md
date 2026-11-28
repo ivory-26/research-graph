@@ -19,6 +19,16 @@ Build Output API config per function (`maxDuration` in each `.vc-config.json`),
 so the value travels with the function rather than depending on a separate
 `vercel.json` mapping.
 
+## Request limits
+
+Vercel caps a serverless request body near 4.5 MB. Source ingestion therefore
+accepts PDFs up to **3 MB** (`MAX_PDF_BYTES`, `src/shared/source-limits.ts`,
+re-exported by `src/server/source-input.ts`). A PDF travels base64-encoded
+(about a third larger) inside a multipart or JSON envelope, so a larger
+advertised cap would be rejected by the platform before it reached the
+validator. The `413`/`400` messages and the upload label derive their text from
+the same constant.
+
 ## Environment variables
 
 Set every value below in the Vercel project (Production and Preview). They are

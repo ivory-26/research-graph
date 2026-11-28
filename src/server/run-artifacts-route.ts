@@ -13,9 +13,12 @@
  *
  * 1. method and path validation;
  * 2. the verified actor (401) — an anonymous request is refused before any
- *    lookup, so this is not an existence oracle;
- * 3. the run lookup (404);
- * 4. workspace membership proved against `workspace_members` (403).
+ *    lookup;
+ * 3. the run lookup, then workspace membership proved against
+ *    `workspace_members`. A missing run and a real run in another workspace
+ *    both answer 404 RUN_NOT_FOUND, so a signed-in caller cannot probe which
+ *    run ids exist outside their workspaces. Only an authentication
+ *    infrastructure failure still answers 5xx.
  *
  * The handler is framework-free and dependency-injected so it can be tested
  * without a router or a live identity service. `handleRunArtifacts` is the
@@ -196,7 +199,13 @@ export function createRunArtifactHandler(
         })
       } catch (error) {
         if (error instanceof ArtifactHttpError) throw error
-        throw authFailure(error)
+        const failure = authFailure(error)
+        // Hide the difference between a missing run and another tenant's run:
+        // a 403 here would confirm that this id exists.
+        if (failure.status === 403) {
+          throw new ArtifactHttpError(404, 'RUN_NOT_FOUND', 'Run not found')
+        }
+        throw failure
       }
 
       const selector = new URL(request.url).searchParams.get('artifact')

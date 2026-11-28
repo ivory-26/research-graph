@@ -3,7 +3,10 @@ import {
   UNATTRIBUTED_RUN_LABEL,
   aggregateAgentTasks,
   aggregateAgentTasksByRun,
+  latestAgentTask,
   summarizeAgentTaskRuns,
+  summarizeAgentTasks,
+  summarizeAgentTasksByKind,
   type AgentTaskRow,
 } from './strategyClient';
 
@@ -166,5 +169,95 @@ describe('per-run strategy comparison', () => {
     expect(summary!.avgLatencyMs).toBeNull();
     expect(summary!.avgCostUsd).toBeNull();
     expect(summary!.totalCostUsd).toBe(0);
+  });
+});
+
+describe('live agent task summarizers', () => {
+  const LIVE_TASKS: AgentTaskRow[] = [
+    {
+      id: 'live-1', taskKind: 'ingest', strategyId: 'sectioned',
+      runId: 'extract:strobl-2007:single_pass', runLabel: 'Strobl 2007 · single_pass',
+      model: 'gemini-3.8-flash', status: 'succeeded', latencyMs: 1000, costUsd: 0.002,
+      createdAt: '2026-11-20T10:00:00.000Z',
+    },
+    {
+      id: 'live-2', taskKind: 'extract_claims', strategyId: 'single_pass',
+      runId: 'extract:strobl-2007:single_pass', runLabel: 'Strobl 2007 · single_pass',
+      model: 'gemini-3.8-flash', status: 'failed', latencyMs: 500, costUsd: 0.001,
+      error: 'quote mismatch', createdAt: '2026-11-20T10:05:00.000Z',
+    },
+    {
+      id: 'live-3', taskKind: 'extract_claims', strategyId: 'single_pass',
+      runId: 'extract:strobl-2007:single_pass', runLabel: 'Strobl 2007 · single_pass',
+      model: 'muse-spark-1.3-contributor', status: 'retried', latencyMs: 1500, costUsd: 0.003,
+      createdAt: '2026-11-20T10:06:00.000Z',
+    },
+    {
+      id: 'live-4', taskKind: 'extract_claims', strategyId: 'single_pass',
+      runId: null, model: '  ', status: 'succeeded', latencyMs: null, costUsd: null,
+      createdAt: '2026-11-20T10:04:00.000Z',
+    },
+  ];
+
+  it('counts statuses and averages only recorded telemetry', () => {
+    const summary = summarizeAgentTasks(LIVE_TASKS);
+    expect(summary.totalTasks).toBe(4);
+    expect(summary.succeeded).toBe(2);
+    expect(summary.failed).toBe(1);
+    expect(summary.rejected).toBe(0);
+    expect(summary.retried).toBe(1);
+    expect(summary.latencySamples).toBe(3);
+    expect(summary.avgLatencyMs).toBe(1000);
+    expect(summary.costSamples).toBe(3);
+    expect(summary.totalCostUsd).toBeCloseTo(0.006);
+    expect(summary.models).toEqual(['gemini-3.8-flash', 'muse-spark-1.3-contributor']);
+  });
+
+  it('returns null averages and empty models for a workspace with no tasks', () => {
+    const summary = summarizeAgentTasks([]);
+    expect(summary.totalTasks).toBe(0);
+    expect(summary.avgLatencyMs).toBeNull();
+    expect(summary.totalCostUsd).toBe(0);
+    expect(summary.models).toEqual([]);
+    expect(latestAgentTask([])).toBeNull();
+  });
+
+  it('groups by taskKind with the latest row status, never an inferred one', () => {
+    const summaries = summarizeAgentTasksByKind(LIVE_TASKS);
+    expect(summaries.map((summary) => summary.taskKind)).toEqual([
+      'extract_claims',
+      'ingest',
+    ]);
+
+    const extraction = summaries[0]!;
+    expect(extraction.count).toBe(3);
+    expect(extraction.succeeded).toBe(1);
+    expect(extraction.failed).toBe(1);
+    expect(extraction.retried).toBe(1);
+    expect(extraction.latestStatus).toBe('retried');
+    expect(extraction.latestTaskId).toBe('live-3');
+    expect(extraction.avgLatencyMs).toBe(1000);
+    expect(extraction.totalCostUsd).toBeCloseTo(0.004);
+    expect(extraction.models).toEqual(['gemini-3.8-flash', 'muse-spark-1.3-contributor']);
+
+    const ingest = summaries[1]!;
+    expect(ingest.count).toBe(1);
+    expect(ingest.latestStatus).toBe('succeeded');
+    expect(ingest.latestTaskId).toBe('live-1');
+  });
+
+  it('falls back to array order only when no row carries a timestamp', () => {
+    const legacy: AgentTaskRow[] = [
+      { id: 'old', taskKind: 'propose_edges', strategyId: 'unassigned', runId: null, status: 'failed', latencyMs: null, costUsd: null },
+      { id: 'newer', taskKind: 'propose_edges', strategyId: 'unassigned', runId: null, status: 'succeeded', latencyMs: null, costUsd: null },
+    ];
+    expect(latestAgentTask(legacy)?.id).toBe('newer');
+    expect(summarizeAgentTasksByKind(legacy)[0]!.latestStatus).toBe('succeeded');
+
+    const mixed: AgentTaskRow[] = [
+      { id: 'timestamped', taskKind: 'propose_edges', strategyId: 'unassigned', runId: null, status: 'succeeded', latencyMs: null, costUsd: null, createdAt: '2026-11-20T10:00:00.000Z' },
+      { id: 'legacy-row', taskKind: 'propose_edges', strategyId: 'unassigned', runId: null, status: 'failed', latencyMs: null, costUsd: null },
+    ];
+    expect(latestAgentTask(mixed)?.id).toBe('timestamped');
   });
 });

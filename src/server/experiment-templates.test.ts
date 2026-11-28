@@ -1,14 +1,32 @@
 import { describe, expect, it } from 'vitest'
 
 import { HERO_EXPERIMENT_SPEC_RUN_A } from '../../fixtures/hero-spec'
+import type { NodeData } from '../shared/types'
 import {
+  assessClaimTemplateCompatibility,
   buildSupportedExperimentSpec,
   isSupportedExperimentTemplateId,
   SUPPORTED_EXPERIMENT_TEMPLATE,
+  SUPPORTED_EXPERIMENT_TEMPLATE_LABEL,
   supportedExperimentTemplateSummary,
 } from './experiment-templates'
 
 const CLAIM_ID = '11111111-2222-4333-8444-555555555555'
+
+function claimData(overrides: {
+  text?: string
+  methodName?: string | null
+  datasetName?: string | null
+} = {}): NodeData {
+  return {
+    type: 'claim',
+    text: overrides.text ?? 'A statement about the study.',
+    reported: null,
+    datasetName: overrides.datasetName ?? null,
+    methodName: overrides.methodName ?? null,
+    locator: { page: 1, quote: 'A statement about the study.' },
+  }
+}
 
 describe('supported experiment template', () => {
   it('builds the hero tabular spec for a workspace claim and validates it', () => {
@@ -117,5 +135,60 @@ describe('supported experiment template', () => {
     expect('files' in summary).toBe(false)
     expect(summary.criteria.checks).toHaveLength(2)
     expect(summary.datasets[0]?.name).toBe('breast-w')
+
+    // The notebook and experiment list use this to say the run is a template
+    // test, not a reproduction of the claim's dataset.
+    expect(SUPPORTED_EXPERIMENT_TEMPLATE_LABEL).toContain('fixed adapted breast-w protocol')
+    expect(SUPPORTED_EXPERIMENT_TEMPLATE_LABEL).toContain(
+      "not the claim's original dataset",
+    )
+  })
+})
+
+describe('claim/template compatibility', () => {
+  it('accepts claims that name random-forest variable or feature importance', () => {
+    for (const input of [
+      { title: 'Gini importance favours high-cardinality features', data: claimData() },
+      { title: 'The authors find a bias', data: claimData({ methodName: 'Random Forest' }) },
+      { title: 'The authors find a bias', data: claimData({ datasetName: 'permutation importance benchmark' }) },
+      {
+        title: 'The authors find a bias',
+        data: claimData({ text: 'Impurity-based importance ranks noise highly.' }),
+      },
+      { title: 'RF importances are biased', data: claimData() },
+    ]) {
+      expect(
+        assessClaimTemplateCompatibility(input),
+        JSON.stringify(input),
+      ).toEqual({ compatible: true })
+    }
+  })
+
+  it('rejects an unrelated claim with a reason that names the supported topic', () => {
+    const result = assessClaimTemplateCompatibility({
+      title: 'Transformers outperform LSTMs on translation',
+      data: claimData({
+        text: 'The transformer reaches 28.4 BLEU, beating the LSTM baseline.',
+        methodName: 'Transformer',
+        datasetName: 'WMT 2014',
+      }),
+    })
+
+    expect(result.compatible).toBe(false)
+    if (result.compatible) throw new Error('expected an incompatible claim')
+    expect(result.reason).toContain('random-forest variable importance')
+    expect(result.reason).toContain('adapted breast-w protocol')
+  })
+
+  it('rejects a missing claim node and reads non-claim data as title only', () => {
+    expect(assessClaimTemplateCompatibility({ title: 'A study of tables' })).toMatchObject({
+      compatible: false,
+    })
+    expect(
+      assessClaimTemplateCompatibility({
+        title: 'Feature importance in the appendix',
+        data: { type: 'note', body: 'unrelated' },
+      }),
+    ).toMatchObject({ compatible: true })
   })
 })

@@ -165,10 +165,11 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       parent_run_id: string | null
       attempt: number
       started_at: Date | null
+      sandbox_id: string | null
     }>(
       `SELECT id, status, spec, metrics, environment, stderr, verdict,
               verdict_detail, experiment_id, parent_run_id, attempt,
-              started_at
+              started_at, sandbox_id
          FROM runs
         WHERE experiment_id = $1
         ORDER BY created_at`,
@@ -655,6 +656,9 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       metrics: { score: 0.9 },
       verdict: 'match',
       started_at: expect.any(Date),
+      // The runner reports its sandbox id and the measured-result update
+      // persists it; the earlier `run.started` event could not (no sandbox yet).
+      sandbox_id: 'sandbox-test-1',
     })
     // The run keeps the exact plan that was approved, not a pointer.
     expect(rows[0]?.spec).toEqual(seed.spec)
@@ -699,6 +703,7 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     const metadata = notebook.cells[0].source.join('')
     expect(metadata).toContain('noise can outrank informative features')
     expect(metadata).toContain(rows[0]!.verdict_detail!.explanation)
+    expect(metadata).toContain('fixed adapted breast-w protocol')
 
     const tasks = await testDb.pool.query<{
       task_kind: string
@@ -1139,6 +1144,75 @@ describeIntegration('production pipeline stages over real Postgres', () => {
       ),
     ).toHaveLength(0)
     expect(graph.edges).toHaveLength(0)
+  })
+
+  /**
+   * Simulates the creation race: when the budget aborts, the runner holds no
+   * sandbox yet (as during `Sandbox.create`); it registers one only after the
+   * abort has fired, then settles.
+   */
+  function createLateSandboxRunner(delayMs: number): StubRunner {
+    const active = new Map<string, unknown>()
+    const cancelCalls: string[] = []
+    let runCalls = 0
+    return {
+      get runCalls() {
+        return runCalls
+      },
+      cancelCalls,
+      getActiveSandboxes: () => active,
+      async run() {
+        runCalls += 1
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+        active.set('sandbox-late', {})
+        return measuredResult({ sandboxId: 'sandbox-late' })
+      },
+      async cancel(sandboxId) {
+        cancelCalls.push(sandboxId)
+        active.delete(sandboxId)
+      },
+    }
+  }
+
+  it('disposes a sandbox that was still being created when the budget aborted', async () => {
+    const runner = createLateSandboxRunner(1_200)
+    const handlers = handlersFor(runner, {
+      budgetMs: 900,
+      heartbeatIntervalMs: 90,
+      approvalPollIntervalMs: 20,
+      eventPollIntervalMs: 20,
+      claimTtlMs: 5_000,
+    })
+
+    const sse = consume(
+      await handlers.stream(streamRequest(seed.experimentId), {
+        experimentId: seed.experimentId,
+      }),
+    )
+    await approveRequested(handlers, sse)
+
+    await sse.waitFor((event) => event.type === 'run.started')
+    await sse.waitFor((event) => event.type === 'run.timeout', 5_000)
+    await sse.waitForClose(5_000)
+
+    // The abort listener swept while the map was empty; the sweep after the
+    // runner settled is what disposes the late sandbox instead of leaving it
+    // to E2B's timeout. The stage settles after the stream's terminal, so poll.
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (runner.cancelCalls.includes('sandbox-late')) break
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    expect(runner.cancelCalls).toEqual(['sandbox-late'])
+    expect(runner.getActiveSandboxes().size).toBe(0)
+
+    // The aborted run is still marked durable and terminal.
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const rows = await runRows()
+      if (rows[0]?.status === 'timeout') break
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    const rows = await runRows()
+    expect(rows[0]).toMatchObject({ status: 'timeout', verdict: null })
   })
 
   it('cancels the live sandbox and marks the run timed out when the budget expires', async () => {

@@ -100,7 +100,7 @@ describe('createRunArtifactHandler', () => {
     expect(await errorCode(response)).toBe('RUN_NOT_FOUND')
   })
 
-  it('refuses a caller outside the run workspace', async () => {
+  it('answers 404 for a real run in another workspace, like a missing run', async () => {
     const handler = createRunArtifactHandler(
       deps({
         assertWorkspaceMember: async () => {
@@ -113,8 +113,26 @@ describe('createRunArtifactHandler', () => {
       runId: RUN_ID,
     })
 
-    expect(response.status).toBe(403)
-    expect(await errorCode(response)).toBe('WORKSPACE_ACCESS_DENIED')
+    // Same response as a missing run: this endpoint is not an existence oracle.
+    expect(response.status).toBe(404)
+    expect(await errorCode(response)).toBe('RUN_NOT_FOUND')
+  })
+
+  it('keeps a 5xx when membership cannot be checked at all', async () => {
+    const handler = createRunArtifactHandler(
+      deps({
+        assertWorkspaceMember: async () => {
+          throw Object.assign(new Error('auth down'), { status: 503 })
+        },
+      }),
+    )
+
+    const response = await handler(request(`/api/runs/${RUN_ID}/artifacts`), {
+      runId: RUN_ID,
+    })
+
+    expect(response.status).toBe(502)
+    expect(await errorCode(response)).toBe('AUTH_UNAVAILABLE')
   })
 
   it('returns the manifest with no-store headers for a member', async () => {

@@ -208,7 +208,7 @@ The shipped adapter (`src/server/runner.ts`) adds four things the sketch omits:
 - **Datasets are fetched before the sandbox exists.** The whole spec's bytes are resolved and hashed app-side first, so a refused dataset never creates a sandbox.
 - **The pinned environment is verified after the run.** `pip list` is compared with `PINNED_IMAGE_PACKAGES`; a missing or mismatched package raises `PackageVerificationError`, which preserves stdout, stderr, metrics and environment rather than discarding them.
 - **`cpuCount` is not passed to `Sandbox.create`.** The pinned template bakes 1 vCPU / 2048 MB; passing a count asks E2B to resize and fails on a team without resizable templates. The requested values stay in sandbox metadata for audit.
-- **Live sandboxes are tracked.** `cancel`/`getActiveSandboxes` let the pipeline's budget signal kill every live sandbox; the sandbox is also killed in `finally`.
+- **Live sandboxes are tracked and disposed of.** `cancel`/`getActiveSandboxes` let the pipeline's abort or budget signal kill every live sandbox; the runner also kills the sandbox in `finally`, logs a failed kill with the sandbox id, and the pipeline sweeps again when the run settles so a sandbox created during the abort is still disposed. The E2B `timeoutMs` is the final backstop. `runs.sandbox_id` records the sandbox that was used.
 
 `readEnvironment` records the real Python version and `pip list`, and reads `/etc/image-digest` if it exists. The published template does not write that file, so `imageDigest` is `unknown` on E2B today; the template id and build id are the durable identity.
 

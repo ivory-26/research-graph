@@ -35,7 +35,7 @@ The graph is the presentation, not the product. The product is the claim:
 - the production deploy (#9); the Nitro preset, Node 26 pin, 300 s function duration and environment-variable list are configured in [`docs/11-deploy.md`](./docs/11-deploy.md)
 - strategy selection (the repair loop and what-if branch are built)
 
-**Verified 28 November 2026:** `pnpm typecheck`, `pnpm db:check`, `pnpm test`, `pnpm build` and a `VERCEL=1 pnpm build` passed. The default suite passed 27 transport checks, 532 app tests and 93 seed tests. It skipped 74 opt-in integration tests; with a disposable Postgres (`TEST_DATABASE_URL`) 65 of those ran and Vitest passed 597 tests, leaving 9 that need a real Neon branch or live Gemini/Meta/E2B credentials. See the [pipeline delivery handoff](./docs/09-pipeline-delivery-handoff.md) for their configuration.
+**Verified 28 November 2026:** `pnpm typecheck`, `pnpm db:check`, `pnpm test`, `pnpm build` and a `VERCEL=1 pnpm build` passed. The default suite passed 27 transport checks, 569 app tests and 93 seed tests. It skipped 75 opt-in integration tests; with a disposable Postgres (`TEST_DATABASE_URL`) 66 of those ran and Vitest passed 635 tests, leaving 9 that need a real Neon branch or live Gemini/Meta/E2B credentials. A live browser E2E on 28 November passed through Google sign-in, Firecrawl ingestion, Gemini/Meta extraction, an E2B run and a Colab reproduction; see the [pipeline delivery handoff](./docs/09-pipeline-delivery-handoff.md). See the [pipeline delivery handoff](./docs/09-pipeline-delivery-handoff.md) for their configuration.
 
 | Document | Contents |
 |---|---|

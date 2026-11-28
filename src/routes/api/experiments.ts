@@ -13,6 +13,7 @@ import {
   WorkspaceAccessDeniedError,
 } from '../../server/auth.server'
 import {
+  assessClaimTemplateCompatibility,
   buildSupportedExperimentSpec,
   isSupportedExperimentTemplateId,
   supportedExperimentTemplateSummary,
@@ -60,7 +61,11 @@ function jsonError(message: string, status: number, code?: string): Response {
  *
  * POST creates one experiment from the single supported tabular template. It
  * does not run anything: the existing SSE route starts PLAN_EXPERIMENT, opens
- * the gate and executes after a human approves.
+ * the gate and executes after a human approves. Because the template rebinds
+ * the claim but keeps the fixed breast-w script and criteria, a claim that is
+ * not about random-forest variable importance is refused with 422
+ * `CLAIM_TEMPLATE_MISMATCH` instead of receiving a verdict it did not ask for.
+ * Every experiment in the response carries `templateId` / `templateName`.
  */
 export const Route = createFileRoute('/api/experiments')({
   server: {
@@ -178,6 +183,10 @@ export const Route = createFileRoute('/api/experiments')({
                 claimTitle: row.claimTitle ?? 'Unknown claim',
                 claimText:
                   row.claimData?.type === 'claim' ? row.claimData.text : null,
+                // The stored spec does not carry a template id; every stored
+                // experiment was created from the one supported template.
+                templateId: SUPPORTED_EXPERIMENT_TEMPLATE.id,
+                templateName: SUPPORTED_EXPERIMENT_TEMPLATE.name,
                 mode: row.mode,
                 approvalState: row.approvalState,
                 approvedBy: row.approvedBy,
@@ -313,6 +322,14 @@ export const Route = createFileRoute('/api/experiments')({
             return jsonError('Claim node not found in this workspace', 404, 'CLAIM_NOT_FOUND')
           }
 
+          const compatibility = assessClaimTemplateCompatibility({
+            title: claim.title,
+            data: claim.data,
+          })
+          if (!compatibility.compatible) {
+            return jsonError(compatibility.reason, 422, 'CLAIM_TEMPLATE_MISMATCH')
+          }
+
           const built = buildSupportedExperimentSpec({
             claimNodeId: claim.id,
             templateId: SUPPORTED_EXPERIMENT_TEMPLATE.id,
@@ -357,6 +374,8 @@ export const Route = createFileRoute('/api/experiments')({
               experiment: {
                 ...created,
                 claimTitle: claim.title,
+                templateId: SUPPORTED_EXPERIMENT_TEMPLATE.id,
+                templateName: SUPPORTED_EXPERIMENT_TEMPLATE.name,
                 spec: built.spec,
               },
               template: supportedExperimentTemplateSummary(),

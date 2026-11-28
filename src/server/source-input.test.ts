@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { decodePdfBase64, validateIngestUrl } from './source-input'
+import { MAX_PDF_LABEL } from '../shared/source-limits'
+import { decodePdfBase64, MAX_PDF_BYTES, validateIngestUrl } from './source-input'
 
 describe('source ingestion input validation', () => {
   it('accepts ordinary public http(s) sources', () => {
@@ -73,5 +74,16 @@ describe('source ingestion input validation', () => {
 
     expect(decodePdfBase64('!!!not-base64!!!')).toBeNull()
     expect(decodePdfBase64('')).toBeNull()
+  })
+
+  it('caps PDFs at 3 MiB so the encoded body fits the platform request limit', () => {
+    expect(MAX_PDF_BYTES).toBe(3 * 1024 * 1024)
+    expect(MAX_PDF_LABEL).toBe('3 MB')
+
+    const atLimit = Buffer.alloc(MAX_PDF_BYTES)
+    expect(decodePdfBase64(atLimit.toString('base64'))).not.toBeNull()
+
+    const overLimit = Buffer.alloc(MAX_PDF_BYTES + 1)
+    expect(decodePdfBase64(overLimit.toString('base64'))).toBeNull()
   })
 })

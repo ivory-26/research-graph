@@ -132,7 +132,10 @@ function WorkspacePage() {
 
   // URL-addressable active page and workspace (active id derived directly from search.workspace)
   const currentPage: PageId = search.page ?? 'graph';
-  const activeWorkspaceId = search.workspace ?? workspaces[1]?.id ?? FIXTURE_WORKSPACE_ID;
+  const activeWorkspaceId =
+    search.workspace ??
+    workspaces.find((workspace) => isDatabaseWorkspaceId(workspace.id))?.id ??
+    FIXTURE_WORKSPACE_ID;
   const activeIsDatabaseWorkspace = isDatabaseWorkspaceId(activeWorkspaceId);
   const activeWorkspaceObj = workspaces.find((w) => w.id === activeWorkspaceId) ?? {
     id: activeWorkspaceId,
@@ -755,7 +758,11 @@ function WorkspacePage() {
         {/* Page Views Container */}
         <div className="flex-1 overflow-auto relative">
           {currentPage === 'overview' && (
-            <OverviewPage onOpenGraph={() => setCurrentPage('graph')} />
+            <OverviewPage
+              workspaceId={activeWorkspaceId}
+              isLive={activeIsDatabaseWorkspace}
+              onOpenGraph={() => setCurrentPage('graph')}
+            />
           )}
 
           {currentPage === 'graph' && (
@@ -809,7 +816,10 @@ function WorkspacePage() {
           )}
 
           {currentPage === 'agents' && (
-            <AgentMonitorPage />
+            <AgentMonitorPage
+              workspaceId={activeWorkspaceId}
+              isLive={activeIsDatabaseWorkspace}
+            />
           )}
 
           {currentPage === 'experiments' && (
