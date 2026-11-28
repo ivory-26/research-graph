@@ -16,7 +16,7 @@ import {
  * Auth-guarded, workspace-scoped Graph API endpoint.
  *
  * Reads persisted graph nodes and evidenced edges (joined with source_chunks
- * for verbatim quote, page, and character offsets) from Postgres.
+ * for verbatim chunk text, page, and character offsets) from Postgres.
  */
 export const Route = createFileRoute('/api/graph')({
   server: {

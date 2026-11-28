@@ -484,7 +484,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
         <span className="text-[var(--text-primary)] font-semibold">{targetName}</span>
       </div>
 
-      {/* Verbatim Cited Quote Card or Run-Evidenced State with Sharp Corners */}
+        {/* Source evidence chunk or run evidence */}
       {quote ? (
         <div className="c p-4 border-l-[3px] !border-l-[#f97316] !rounded-none bg-[var(--card-bg)] border border-[var(--border-primary)]">
           <div className="text-[13px] leading-relaxed text-[var(--text-primary)] font-serif italic">
@@ -492,9 +492,10 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
           </div>
           <div className="m text-[10px] text-[var(--text-dim)] mt-3 border-t border-[var(--border-primary)] pt-2 flex items-center justify-between gap-2">
             <span>
-              {page !== undefined
-                ? `PAGE ${page}${chunkNumber !== undefined ? ` · CHUNK #${chunkNumber}` : ''}${charStart !== undefined ? ` · CHARS ${charStart}–${charEnd}` : ''}`
-                : 'EVIDENCE CHUNK'}
+              EVIDENCE CHUNK
+              {page !== undefined && ` · PAGE ${page}`}
+              {chunkNumber !== undefined && ` · #${chunkNumber}`}
+              {charStart !== undefined && charEnd !== undefined && ` · CHARS ${charStart}–${charEnd}`}
             </span>
             <button
               type="button"
@@ -508,7 +509,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
                 }
               }}
               className="flex items-center gap-1 px-1.5 py-0.5 border border-[var(--border-primary)] bg-[var(--bg-surface)] hover:border-[#f97316] hover:text-[#f97316] transition text-[9px] font-mono uppercase cursor-pointer"
-              title="Copy quote to clipboard"
+              title="Copy evidence text to clipboard"
             >
               <Copy className="h-2.5 w-2.5" />
               <span>{copiedQuote?.edgeId === edge?.id ? 'Copied' : 'Copy'}</span>
