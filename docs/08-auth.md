@@ -65,4 +65,4 @@ For a live identity check set `NEON_AUTH_BASE_URL`, `AUTH_HARNESS_EMAIL`, and `A
 
 The #4 live membership check used the #3 migration on an expiring Neon branch. It verified that a signed-in user is denied before assignment, gets access as the same actor after an explicit row is inserted, is denied for another workspace, and loses access when the row is removed. An anonymous request received 401.
 
-On 25 November, `pnpm typecheck` and `pnpm test` pass with the auth unit tests included. The harness and the live membership check are opt-in; they are not part of CI because they need Neon credentials. The approval POST, `GET /api/graph`, and the `/` route `beforeLoad` gate exercise the auth guards.
+`pnpm typecheck` and `pnpm test` verify the auth types and unit tests. The harness and the live membership check require Neon credentials and run separately from CI. The approval POST, `GET /api/graph`, and the `/` route `beforeLoad` gate use the auth guards.
