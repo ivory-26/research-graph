@@ -467,11 +467,17 @@ function WorkspacePage() {
         `[${new Date().toLocaleTimeString()}] [SSE] Connecting to /api/pipeline/${expId}...`,
       ]);
 
+      let awaitingApproval = false;
       streamCleanupRef.current = subscribeToPipelineStream(
         expId,
         {
           onEvent: (event) => {
-            if (typeof event.seq === 'number') {
+            if (event.type === 'approval.requested') awaitingApproval = true;
+            if (event.type === 'approval.resolved') awaitingApproval = false;
+
+            // Keep the manual reconnect cursor before a pending gate so its
+            // spec and decision controls can be restored from replay.
+            if (!awaitingApproval && typeof event.seq === 'number') {
               lastSeqRef.current[expId] = Math.max(lastSeqRef.current[expId] ?? 0, event.seq);
             }
           },
@@ -511,8 +517,7 @@ function WorkspacePage() {
               streamCleanupRef.current = null;
             }
             setIsStreaming(false);
-            // A dead connection cannot deliver this gate's decision. Reset the
-            // gate but keep the URL so a reload can retry the experiment.
+            // The next open replays any pending gate from the saved cursor.
             clearGate();
             setApprovalError(msg);
             if (approvalOpenedByStreamRef.current) {

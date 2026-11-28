@@ -64,7 +64,7 @@ These land on **day 0** and are then frozen. Everyone codes against them from da
 | `src/server/model.ts` | `callModel<T>(schema, prompt, ctx)` signature (body by ivory-26) |
 | `fixtures/workspace.json` | a complete fake workspace — sources, nodes, edges, two runs |
 
-The UI still renders `fixtures/workspace.json`; the runtime is exercised with `HERO_EXPERIMENT_SPEC_RUN_A`. Nobody is blocked by anybody.
+The demo workspace renders `fixtures/workspace.json`. Database workspaces load the graph and strategy dashboard from the workspace APIs, and the approval screen follows the selected experiment's pipeline stream. The runtime is exercised with `HERO_EXPERIMENT_SPEC_RUN_A`.
 
 ## What each stream can pick up now
 
