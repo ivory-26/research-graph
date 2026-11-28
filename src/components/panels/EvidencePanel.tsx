@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { WorkspaceEdge, WorkspaceNode } from '../../data/demoWorkspace';
 import { NODE_CATEGORY_THEMES } from '../canvas/MemoryNode';
 import {
@@ -39,8 +39,14 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
   onUpdateStatus,
   onClose,
 }) => {
-  const [copiedQuote, setCopiedQuote] = useState(false);
+  const [copiedQuote, setCopiedQuote] = useState<{ edgeId: string } | null>(null);
   const datasetNode = allNodes.find((n) => n.type === 'dataset');
+
+  useEffect(() => {
+    if (!copiedQuote) return;
+    const timer = setTimeout(() => setCopiedQuote(null), 1800);
+    return () => clearTimeout(timer);
+  }, [copiedQuote]);
 
   // If neither node nor edge is provided, render the Workspace & Variables Inspector
   if (!node && !edge) {
@@ -494,10 +500,9 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
               type="button"
               onClick={async () => {
                 try {
-                  if (!navigator.clipboard?.writeText) return;
+                  if (!edge || !navigator.clipboard?.writeText) return;
                   await navigator.clipboard.writeText(quote);
-                  setCopiedQuote(true);
-                  setTimeout(() => setCopiedQuote(false), 1800);
+                  setCopiedQuote({ edgeId: edge.id });
                 } catch {
                   // Ignore clipboard rejection
                 }
@@ -506,7 +511,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
               title="Copy quote to clipboard"
             >
               <Copy className="h-2.5 w-2.5" />
-              <span>{copiedQuote ? 'Copied' : 'Copy'}</span>
+              <span>{copiedQuote?.edgeId === edge?.id ? 'Copied' : 'Copy'}</span>
             </button>
           </div>
         </div>

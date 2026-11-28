@@ -72,14 +72,14 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 | Fixture run comparison | #21 | `src/components/panels/ComparisonView.tsx` shows the changed importance method and signed rank delta. |
 | Guarded strategy dashboard data | Related to #22 | `src/routes/api/strategies.ts` reads workspace tasks, and `src/utils/strategyClient.ts` aggregates them for the dashboard. |
 
-### Not on `main` on 27 November
+### Not on `main` on 28 November
 
 | Gap | Owner issue | Blocks |
 |---|---|---|
 | Write a completed run back as result/run nodes and the `produced` edge | #7 | the graph beat showing a real result |
 | Production deploy | #9 | the deployed-link success criterion |
 | Strategy selection | #26 | automated selection remains unbuilt; the repair loop and what-if branch are built as modules, and EXECUTE adoption of Run B is #62 |
-| Server-side notebook export | Built into production run evaluation | a notebook generated from a real run |
+| Display the persisted run notebook in the UI | Server-side export landed in #67 | opening the notebook from the workspace |
 
 On 28 November, `pnpm typecheck`, `pnpm db:check` and `pnpm build` passed. The default `pnpm test` run passed 27 transport checks, 433 app tests and 90 seed tests. It skipped 64 opt-in Postgres, E2B and Gemini integration tests.
 

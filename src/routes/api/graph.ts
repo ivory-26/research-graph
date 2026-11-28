@@ -53,7 +53,8 @@ export const Route = createFileRoute('/api/graph')({
               })
               .from(edges)
               .leftJoin(sourceChunks, eq(edges.evidenceChunkId, sourceChunks.id))
-              .where(eq(edges.workspaceId, membership.workspaceId)),
+              .where(eq(edges.workspaceId, membership.workspaceId))
+              .orderBy(asc(edges.createdAt), asc(edges.id)),
           ]);
 
           const nodeTitleById = new Map(dbNodes.map((n) => [n.id, n.title]));
