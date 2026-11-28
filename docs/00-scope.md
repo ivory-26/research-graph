@@ -66,7 +66,7 @@ The comparison view ships in the UI. The what-if branch that creates Run B (`BRA
 | Organise | Claims and edges are extracted and validated against quotes | Canvas renders the fixture graph |
 | Understand | Retrieval API with verified citations works | Ask page answers from fixture chunks |
 | Experiment | Planner validation, real E2B runner and deterministic verdict work; SSE delivery mounts | Approval and experiment pages render from the hero fixture |
-| Learn | What-if branch execution and queued Run B adoption work (#62); no strategy selection yet | Comparison and dashboard render recorded values |
+| Learn | What-if branch execution and queued Run B adoption work (#62); no strategy selection yet | Comparison and dashboard use fixture data on `main`. PR #68 adds live `agent_tasks` aggregation to the dashboard for database workspaces. |
 | Share | Server-side notebook export is built and persisted in `run_artifacts`; no workspace JSON export | Export modal builds both client-side from the fixture; the persisted notebook is not surfaced yet |
 
 PR #68 adds the browser connection to the pipeline and workspace APIs. Graph write-back (#7) and deployment (#9) are the remaining work for the recording. The seed script (#8) is built.
