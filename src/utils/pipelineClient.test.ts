@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  PIPELINE_STREAM_BUDGET_MS,
   PIPELINE_STREAM_WATCHDOG_MS,
   sendPipelineApproval,
   subscribeToPipelineStream,
@@ -365,7 +364,6 @@ describe('subscribeToPipelineStream watchdog', () => {
   }
 
   it('is aligned with the server stream budget plus one heartbeat', () => {
-    expect(PIPELINE_STREAM_BUDGET_MS).toBe(STREAM_BUDGET_MS);
     expect(PIPELINE_STREAM_WATCHDOG_MS).toBe(
       STREAM_BUDGET_MS + HEARTBEAT_INTERVAL_MS,
     );

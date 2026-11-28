@@ -350,6 +350,13 @@ function WorkspacePage() {
     };
   }, [search.workspace]);
 
+  useEffect(() => {
+    return () => {
+      streamCleanupRef.current?.();
+      streamCleanupRef.current = null;
+    };
+  }, []);
+
   // Separate effect for URL-triggered SSE pipeline stream so workspace switches do not kill an active stream
   useEffect(() => {
     const urlExperimentId = search.experimentId;

@@ -2,11 +2,11 @@
 
 Ordered by how likely they are to cost the submission, not by how interesting they are.
 
-Status as of 27 November. Rows marked **verified** have been exercised against the real service; they stay in the table because the recording depends on the service again.
+Status as of 28 November. Rows marked **verified** have been exercised against the real service; they stay in the table because the recording depends on the service again.
 
 | # | Risk | Likelihood | Impact | Mitigation | Fallback |
 |---|---|---|---|---|---|
-| 1 | **The browser never reaches the pipeline** | Medium | High | `src/utils/pipelineClient.ts` and `ApprovalModal` wire the SSE/approval flow; end-to-end still needs seeded/created experiment rows (#8) | Record the backend and the UI separately, and say so |
+| 1 | **The browser never reaches the pipeline** | Low — **verified** | High | PR #68 exercised browser approval through pipeline completion and rejection through cancellation using fresh pending experiments in the workspace seeded by #8 | Record the backend and the UI separately, and say so |
 | 2 | **No deploy on 30 November** | High | High | `vercel.json` exists; #9 is unstarted | A local recording and a repository link; say plainly that no hosted link exists |
 | 3 | Seed replay exceeds the one-minute target | Medium | Medium | `pnpm seed` rebuilds the recorded workspace through the production paths (#8); replay takes 3m07s on the free-tier embedding quota, capture 5m29s | Use a billed Gemini embedding key for the take, or record embeddings; the video does not depend on a fresh seed |
 | 4 | **Deck written on the last night** | High | High | The deck is not on `main` | Ship a shorter deck; the video carries the submission |

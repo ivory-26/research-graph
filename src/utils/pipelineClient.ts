@@ -5,6 +5,7 @@ import type {
   PipelineCancelledEvent,
   PipelineFailedEvent,
 } from '../shared/events';
+import { HEARTBEAT_INTERVAL_MS, STREAM_BUDGET_MS } from '../server/pipeline-transport/constants';
 
 export type ApprovalDecision = 'approved' | 'rejected';
 
@@ -153,17 +154,6 @@ export interface PipelineStreamHandlers {
 }
 
 /**
- * The server's hard response budget (`STREAM_BUDGET_MS` in
- * `src/server/pipeline-transport/constants.ts`, docs/01-architecture.md).
- * One response is one pipeline attempt, and the server closes it — with a
- * terminal event for the owner — within this window.
- */
-export const PIPELINE_STREAM_BUDGET_MS = 240_000;
-
-/** The server's SSE comment cadence; the watchdog allows one missed heartbeat. */
-export const PIPELINE_HEARTBEAT_INTERVAL_MS = 15_000;
-
-/**
  * How long the client waits for new events before it stops the browser's
  * native `EventSource` from retrying forever.
  *
@@ -172,11 +162,10 @@ export const PIPELINE_HEARTBEAT_INTERVAL_MS = 15_000;
  * each attempt opens a new request, gets the same refusal and fires `onerror`
  * again. The watchdog is one server budget plus one heartbeat of silence; a
  * reconnect that is actually replaying events re-arms it, while a refusal
- * loop never does. A test asserts the value stays aligned with the server
- * budget constants.
+ * loop never does.
  */
 export const PIPELINE_STREAM_WATCHDOG_MS =
-  PIPELINE_STREAM_BUDGET_MS + PIPELINE_HEARTBEAT_INTERVAL_MS;
+  STREAM_BUDGET_MS + HEARTBEAT_INTERVAL_MS;
 
 export interface PipelineStreamOptions {
   EventSourceClass?: typeof EventSource;
