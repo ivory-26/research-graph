@@ -35,6 +35,7 @@ import {
   SEED_WORKSPACE_NAME,
   SEED_WORKSPACE_SLUG,
   SeedError,
+  assertExtractionRunAttribution,
   extractionRunId,
   extractionRunLabel,
   resolveSeedActor,
@@ -426,7 +427,6 @@ async function readExtractionRuns(db: Database): Promise<AgentTaskRunSummary[]> 
     .select({
       id: agentTasks.id,
       taskKind: agentTasks.taskKind,
-      strategyId: agentTasks.strategyId,
       status: agentTasks.status,
       inputRef: agentTasks.inputRef,
       latencyMs: agentTasks.latencyMs,
@@ -499,16 +499,7 @@ export async function seedWorkspaceGraph(
   // The dashboard's two-run comparison is only honest if at least two actual
   // extraction batches were recorded. Refuse before the run half rather than
   // letting a workspace with a single unattributed batch claim otherwise.
-  const attributedExtractionRuns = extractionRuns.filter(
-    (run) => run.runId !== null && run.taskKinds.includes('extract_claims'),
-  )
-  if (attributedExtractionRuns.length < 2) {
-    throw new SeedError(
-      'EXTRACTION_RUN_ATTRIBUTION_MISSING',
-      `Expected at least two attributed extract_claims runs; found ${attributedExtractionRuns.length}.`,
-      'The extractor must write input_ref.extractionRunId for every batch. Re-run the seed after fixing attribution; no run id is invented here.',
-    )
-  }
+  assertExtractionRunAttribution(extractionRuns)
 
   for (const run of extractionRuns) {
     logger.info(
@@ -573,7 +564,6 @@ export async function seedWorkspaceGraph(
     actorUserId: actor.userId,
     heroSourceId: heroSource.sourceId,
     sources,
-    extractionRuns,
     heroClaim,
     heroClaimProblem,
     counts,

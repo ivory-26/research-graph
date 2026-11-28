@@ -65,7 +65,7 @@ const RunKpiCard: React.FC<{ run: AgentTaskRunSummary }> = ({ run }) => {
           <span className="text-[var(--text-primary)]">{run.successRate.toFixed(0)}%</span>
         </div>
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[var(--text-dim)]">Wins</span>
+          <span className="text-[var(--text-dim)]">Successes</span>
           <span className="text-[var(--text-primary)]">{run.successes}</span>
         </div>
         <div className="flex items-baseline justify-between gap-2">
@@ -312,7 +312,7 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
               <th className="text-left p-3.5 font-semibold text-[var(--text-dim)]">Task kind</th>
               <th className="text-left p-3.5 font-semibold text-[var(--text-dim)]">Strategy</th>
               <th className="text-right p-3.5 font-semibold text-[var(--text-dim)]">Tries</th>
-              <th className="text-right p-3.5 font-semibold text-[var(--text-dim)]">Wins</th>
+              <th className="text-right p-3.5 font-semibold text-[var(--text-dim)]">Successes</th>
               <th className="text-right p-3.5 font-semibold text-[var(--text-dim)]">Failures</th>
               <th className="text-right p-3.5 font-semibold text-[var(--text-dim)]">Success rate</th>
               <th className="text-right p-3.5 font-semibold text-[var(--text-dim)]">Avg latency</th>

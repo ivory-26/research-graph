@@ -226,8 +226,6 @@ export interface SeedGraphResult {
   actorUserId: string
   heroSourceId: string
   sources: SeedSourceReport[]
-  /** Per-run KPI rows read back from the persisted `agent_tasks`. */
-  extractionRuns: AgentTaskRunSummary[]
   heroClaim: SeedHeroClaimSelection | null
   heroClaimProblem: SeedHeroClaimProblem | null
   counts: {
@@ -323,6 +321,23 @@ export class SeedError extends Error {
     this.name = 'SeedError'
     this.code = code
     this.details = details
+  }
+}
+
+/** The seeded dashboard needs two distinct batches with persisted extraction tasks. */
+export function assertExtractionRunAttribution(
+  runs: readonly Pick<AgentTaskRunSummary, 'runId' | 'taskKinds'>[],
+): void {
+  const attributedIds = new Set(
+    runs.filter((run) => run.runId !== null && run.taskKinds.includes('extract_claims'))
+      .map((run) => run.runId),
+  )
+  if (attributedIds.size < 2) {
+    throw new SeedError(
+      'EXTRACTION_RUN_ATTRIBUTION_MISSING',
+      `Expected at least two attributed extract_claims runs; found ${attributedIds.size}.`,
+      'Record input_ref.extractionRunId for every extraction batch.',
+    )
   }
 }
 

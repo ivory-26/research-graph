@@ -16,12 +16,13 @@
 import type { AgentTaskStatus, TaskKind } from '../shared/types'
 import type { AgentTaskRow } from '../shared/strategies'
 
+const STRATEGY_UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
+
 export interface AgentTaskQueryRow {
   id: string
   taskKind: TaskKind
   /** Joined `agent_strategies.name`, preferred for display when present. */
   strategyName: string | null
-  strategyId: string | null
   status: AgentTaskStatus
   inputRef: Record<string, unknown> | null
   latencyMs: number | null
@@ -41,10 +42,11 @@ export function mapAgentTaskQueryRows(rows: AgentTaskQueryRow[]): AgentTaskRow[]
     const extractionRunId = nonEmptyString(inputRef.extractionRunId)
     const experimentRunId = nonEmptyString(inputRef.runId)
     const extractionRunLabel = nonEmptyString(inputRef.extractionRunLabel)
-    // The extractor records the human strategy name in `input_ref.strategy`
-    // (`single_pass`, `sectioned`, ...). Use it before a raw strategy UUID so
-    // the dashboard's strategy column names the strategy, not an unjoined id.
+    // Older edge tasks may have stored a UUID in the strategy name field.
     const recordedStrategy = nonEmptyString(inputRef.strategy)
+    const recordedName = recordedStrategy && !STRATEGY_UUID.test(recordedStrategy)
+      ? recordedStrategy
+      : null
 
     const rawCost = row.costUsd === null ? null : Number(row.costUsd)
     const costUsd =
@@ -57,7 +59,7 @@ export function mapAgentTaskQueryRows(rows: AgentTaskQueryRow[]): AgentTaskRow[]
     return {
       id: row.id,
       taskKind: row.taskKind,
-      strategyId: row.strategyName ?? recordedStrategy ?? row.strategyId ?? 'unassigned',
+      strategyId: row.strategyName ?? recordedName ?? 'unassigned',
       runId: extractionRunId ?? experimentRunId,
       runLabel: extractionRunId ? extractionRunLabel : null,
       status: row.status,

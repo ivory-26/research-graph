@@ -392,7 +392,7 @@ export async function proposeEdges(
         evidenceSelection: options.evidenceSelection ?? 'caller_chunks',
         ...(runId ? { extractionRunId: runId } : {}),
         ...(runLabel ? { extractionRunLabel: runLabel } : {}),
-        ...(options.strategyId ? { strategy: options.strategyId } : {}),
+        ...(options.strategyId && !validStrategyId ? { strategy: options.strategyId } : {}),
       },
     },
   )

@@ -469,10 +469,10 @@ export function parseWorkspaceFixture(raw: unknown): WorkspaceFixture {
   for (const [key, chunk] of Object.entries(fixture.chunks)) {
     assert(key === chunk.id, `chunk map key ${key} does not match chunk id ${chunk.id}`);
     assert(!chunksById.has(chunk.id), `duplicate chunk id ${chunk.id}`);
-    assert(sourcesById.has(chunk.sourceId), `chunk ${chunk.id} names unknown source ${chunk.sourceId}`);
     const source = sourcesById.get(chunk.sourceId);
+    assert(source !== undefined, `chunk ${chunk.id} names unknown source ${chunk.sourceId}`);
     assert(
-      source === undefined || source.title === chunk.sourceTitle,
+      source.title === chunk.sourceTitle,
       `chunk ${chunk.id} sourceTitle does not match source ${chunk.sourceId}`,
     );
     chunksById.set(chunk.id, chunk);

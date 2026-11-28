@@ -5,6 +5,7 @@ import {
   SEED_WORKSPACE_ID,
   SEED_WORKSPACE_SLUG,
   SeedError,
+  assertExtractionRunAttribution,
   extractionRunId,
   extractionRunLabel,
   resolveSeedActor,
@@ -62,5 +63,20 @@ describe('seed contracts', () => {
     const label = extractionRunLabel('Feature Selection with the Boruta Package', 'single_pass')
     expect(label).toBe('Feature Selection with the Boruta Package · single_pass')
     expect(label).not.toMatch(/\d+(?:\.\d+)?\s*(?:ms|s|%|\$)/)
+  })
+
+  it('requires two distinct attributed batches with persisted extraction tasks', () => {
+    const first = { runId: 'extract:strobl-2007:single_pass', taskKinds: ['extract_claims' as const] }
+    const unrelated = [
+      { runId: null, taskKinds: first.taskKinds },
+      { runId: 'edge-only', taskKinds: ['propose_edges' as const] },
+    ]
+    expect(() => assertExtractionRunAttribution([first, first, ...unrelated]))
+      .toThrow(expect.objectContaining({ code: 'EXTRACTION_RUN_ATTRIBUTION_MISSING' }))
+    expect(() => assertExtractionRunAttribution([
+      first,
+      { ...first, runId: 'extract:strobl-2008:single_pass' },
+      ...unrelated,
+    ])).not.toThrow()
   })
 })

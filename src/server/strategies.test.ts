@@ -7,7 +7,6 @@ function row(overrides: Partial<AgentTaskQueryRow> = {}): AgentTaskQueryRow {
     id: 'task-1',
     taskKind: 'extract_claims',
     strategyName: 'single_pass',
-    strategyId: null,
     status: 'succeeded',
     inputRef: {},
     latencyMs: 1200,
@@ -73,23 +72,27 @@ describe('mapAgentTaskQueryRows', () => {
     expect(measured!.latencyMs).toBe(250)
   })
 
-  it('uses the joined strategy name, then the recorded name, then the raw id, then unassigned', () => {
+  it('uses strategy names and leaves tasks without a name unassigned', () => {
     const tasks = mapAgentTaskQueryRows([
-      row({ strategyName: 'sectioned', strategyId: 'strategy-uuid' }),
+      row({ strategyName: 'sectioned', inputRef: { strategy: 'single_pass' } }),
       row({
         id: 'task-2',
         strategyName: null,
-        strategyId: 'strategy-uuid',
         inputRef: { strategy: 'single_pass' },
       }),
-      row({ id: 'task-3', strategyName: null, strategyId: 'strategy-uuid' }),
-      row({ id: 'task-4', strategyName: null, strategyId: null }),
+      row({
+        id: 'task-3',
+        taskKind: 'propose_edges',
+        strategyName: null,
+        inputRef: { strategy: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+      }),
+      row({ id: 'task-4', strategyName: null }),
     ])
 
     expect(tasks.map((task) => task.strategyId)).toEqual([
       'sectioned',
       'single_pass',
-      'strategy-uuid',
+      'unassigned',
       'unassigned',
     ])
   })

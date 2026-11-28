@@ -425,7 +425,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
 
   // SCENARIO 2: EDGE EVIDENCE INSPECTOR (Original behavior preserved)
   const relation = edge?.relation || 'supports';
-  const status = edge?.status || 'accepted';
+  const status = edge?.status ?? 'unknown';
   const confidence = edge?.confidence ? `conf ${edge.confidence.toFixed(2)}` : null;
   const evidence = resolveEdgeEvidence(edge, allNodes);
   const sourceName = edge?.sourceTitle || 'Source';
@@ -441,7 +441,7 @@ export const EvidencePanel: React.FC<EvidencePanelProps> = ({
       <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
         <div className="l font-mono text-xs">CITATION & EVIDENCE INSPECTOR</div>
         <div className="flex items-center gap-2">
-          <span className="badge-solid-white rounded-none uppercase">{status || 'unknown'}</span>
+          <span className="badge-solid-white rounded-none uppercase">{status}</span>
           {onClose && (
             <button
               onClick={onClose}
