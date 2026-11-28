@@ -103,12 +103,16 @@ export function validateIngestUrl(
 
   const ipv6Groups = parseIpv6Groups(hostname)
   if (ipv6Groups) {
-    // Only global unicast (2000::/3) is reachable from here. Loopback,
-    // ULA (fc00::/7), link-local (fe80::/10), unspecified (::), and
-    // IPv4-embedded or NAT64 forms that wrap a private v4 address all fall
-    // outside that range and are refused as literal addresses.
+    // Only global unicast (2000::/3) is reachable from here, excluding 6to4
+    // (2002::/16) and Teredo (2001:0000::/32), which embed an IPv4 address
+    // that may be private. Loopback, ULA (fc00::/7), link-local (fe80::/10),
+    // unspecified (::), IPv4-mapped (::ffff:0:0/96) and NAT64 (64:ff9b::/96)
+    // all fall outside 2000::/3 and are refused as literal addresses.
     const isGlobalUnicast = (ipv6Groups[0]! & 0xe000) === 0x2000
-    if (!isGlobalUnicast) {
+    const embedsIpv4 =
+      ipv6Groups[0] === 0x2002 ||
+      (ipv6Groups[0] === 0x2001 && ipv6Groups[1] === 0x0000)
+    if (!isGlobalUnicast || embedsIpv4) {
       return { error: 'url must not point at a private or reserved address' }
     }
   }

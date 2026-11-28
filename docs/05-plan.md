@@ -79,7 +79,7 @@ The plan above is intent; this table is what is on `main`. Updated as PRs merge.
 | Production deploy | #9 | the deployed-link success criterion; configuration and the environment-variable list are in [11-deploy](./11-deploy.md), but no hosted URL exists yet |
 | Strategy selection | #26 | automated selection remains unbuilt; the repair loop and what-if branch are built as modules, and EXECUTE adoption of Run B is #62 |
 
-On 28 November, `pnpm typecheck`, `pnpm db:check`, `pnpm build` and a `VERCEL=1 pnpm build` passed. The default `pnpm test` run passed 27 transport checks, 569 app tests and 93 seed tests. It skipped 75 opt-in integration tests; with a disposable local Postgres (`TEST_DATABASE_URL`), 66 of those ran and Vitest passed 635 tests, leaving 9 that need a real Neon branch or live Gemini/Meta/E2B credentials.
+On 28 November, `pnpm typecheck`, `pnpm db:check`, `pnpm build` and a `VERCEL=1 pnpm build` passed. The default `pnpm test` run passed 27 transport checks, 571 app tests and 93 seed tests. It skipped 75 opt-in integration tests; with a disposable local Postgres (`TEST_DATABASE_URL`), 66 of those ran and Vitest passed 637 tests, leaving 9 that need a real Neon branch or live Gemini/Meta/E2B credentials.
 
 ## Workstreams
 

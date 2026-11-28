@@ -15,6 +15,7 @@ import {
 import {
   assessClaimTemplateCompatibility,
   buildSupportedExperimentSpec,
+  experimentTemplateFields,
   isSupportedExperimentTemplateId,
   supportedExperimentTemplateSummary,
   SUPPORTED_EXPERIMENT_TEMPLATE,
@@ -183,10 +184,9 @@ export const Route = createFileRoute('/api/experiments')({
                 claimTitle: row.claimTitle ?? 'Unknown claim',
                 claimText:
                   row.claimData?.type === 'claim' ? row.claimData.text : null,
-                // The stored spec does not carry a template id; every stored
-                // experiment was created from the one supported template.
-                templateId: SUPPORTED_EXPERIMENT_TEMPLATE.id,
-                templateName: SUPPORTED_EXPERIMENT_TEMPLATE.name,
+                // Derived from the stored spec, so a future custom experiment
+                // is not mislabelled as the one supported template.
+                ...experimentTemplateFields(row.spec),
                 mode: row.mode,
                 approvalState: row.approvalState,
                 approvedBy: row.approvedBy,
@@ -374,8 +374,7 @@ export const Route = createFileRoute('/api/experiments')({
               experiment: {
                 ...created,
                 claimTitle: claim.title,
-                templateId: SUPPORTED_EXPERIMENT_TEMPLATE.id,
-                templateName: SUPPORTED_EXPERIMENT_TEMPLATE.name,
+                ...experimentTemplateFields(built.spec),
                 spec: built.spec,
               },
               template: supportedExperimentTemplateSummary(),

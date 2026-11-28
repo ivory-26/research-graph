@@ -703,7 +703,9 @@ describeIntegration('production pipeline stages over real Postgres', () => {
     const metadata = notebook.cells[0].source.join('')
     expect(metadata).toContain('noise can outrank informative features')
     expect(metadata).toContain(rows[0]!.verdict_detail!.explanation)
-    expect(metadata).toContain('fixed adapted breast-w protocol')
+    // The synthetic spec is not the supported template, so the notebook must
+    // not claim the fixed breast-w protocol.
+    expect(metadata).not.toContain('fixed adapted breast-w protocol')
 
     const tasks = await testDb.pool.query<{
       task_kind: string

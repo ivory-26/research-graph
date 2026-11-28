@@ -58,7 +58,10 @@ import {
   type RepairRunTerminalHook,
 } from '../branch'
 import { evaluateAndExplainExperiment } from '../evaluate'
-import { SUPPORTED_EXPERIMENT_TEMPLATE_LABEL } from '../experiment-templates'
+import {
+  identifyExperimentTemplate,
+  SUPPORTED_EXPERIMENT_TEMPLATE_LABEL,
+} from '../experiment-templates'
 import {
   callModel as productionCallModel,
   createDrizzleAgentTaskStore,
@@ -323,8 +326,10 @@ async function saveRunNotebookSafe(
         reported: claim.data.reported,
       },
       // The verdict tests the supported adapted template, not the claim's
-      // original dataset; the notebook must say so.
-      templateLabel: SUPPORTED_EXPERIMENT_TEMPLATE_LABEL,
+      // original dataset; a custom spec must not carry that label.
+      templateLabel: identifyExperimentTemplate(spec)
+        ? SUPPORTED_EXPERIMENT_TEMPLATE_LABEL
+        : null,
       verdict: evaluated.verdict,
       verdictExplanation: evaluated.detail.explanation,
     })

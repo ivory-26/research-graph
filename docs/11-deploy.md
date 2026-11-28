@@ -1,8 +1,10 @@
 # Deploy configuration (Vercel)
 
-Status: configuration is committed and checked by `pnpm build`; **no production
-deploy exists yet** (#9). This document records what the deploy needs and which
-values are deliberately not in the repository.
+Status: deployed to production at <https://research-graph-sage.vercel.app>
+(Vercel project `research-graph`, team `sahil-64d5`; app commit `33d9933`). The
+public URL redirects to `/sign-in`; Google sign-in completes and the signed-in
+user lands in their workspace. This document records what the deploy needs and
+which values are deliberately not in the repository.
 
 ## Runtime
 
@@ -71,7 +73,8 @@ baseline even when `META_API_KEY` is absent (the recording is keyed to it).
   personal owner workspace on first visit; it does not seed papers or runs.
 - The E2B template published in the same E2B team as `E2B_API_KEY`
   (`node scripts/build-e2b-template.mjs`).
-- Vercel environment variables copied from `.env.example`.
+- Vercel environment variables set from `.env.example` (production and preview
+  are configured; see the deployed status above).
 
 ## Not fixes, and why
 

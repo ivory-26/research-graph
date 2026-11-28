@@ -60,8 +60,8 @@ interface LiveExperiment {
   claimNodeId: string;
   claimTitle: string;
   claimText: string | null;
-  templateId: string;
-  templateName: string;
+  templateId: string | null;
+  templateName: string | null;
   mode: string;
   approvalState: string;
   createdAt: string;
@@ -783,15 +783,21 @@ const LiveExperimentsPage: React.FC<
                       {experiment.claimText}
                     </p>
                   )}
-                  <div
-                    className="text-[10px] text-[var(--text-dim)] font-sans"
-                    title={experiment.templateName}
-                  >
-                    <span className="badge-orange-outline !text-[8px] rounded-none uppercase mr-1.5">
-                      Template test · fixed breast-w protocol
-                    </span>
-                    {experiment.templateName ?? template?.name ?? 'Random forest variable importance'}
-                  </div>
+                  {experiment.templateId ? (
+                    <div
+                      className="text-[10px] text-[var(--text-dim)] font-sans"
+                      title={experiment.templateName ?? undefined}
+                    >
+                      <span className="badge-orange-outline !text-[8px] rounded-none uppercase mr-1.5">
+                        Template test · fixed breast-w protocol
+                      </span>
+                      {experiment.templateName}
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-[var(--text-dim)] font-sans">
+                      Custom spec · not a supported template
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={() => openStream(experiment.id)}

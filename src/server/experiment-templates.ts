@@ -90,6 +90,51 @@ export function isSupportedExperimentTemplateId(
   )
 }
 
+/**
+ * Identifies a stored spec as the one supported template by its fixed parts
+ * (image, entrypoint, script, dataset bytes/hash and criteria). The claim and
+ * the bounded parameter overrides are deliberately ignored. Returns null for a
+ * spec that is not this template, so a future custom experiment is never
+ * mislabelled as the random-forest test.
+ */
+export function identifyExperimentTemplate(
+  spec: ExperimentSpec,
+): { id: SupportedExperimentTemplateId; name: string } | null {
+  const fixed = HERO_EXPERIMENT_SPEC_RUN_A
+  const fixedDataset = fixed.datasets[0]
+  const dataset = spec.datasets[0]
+  const sameCriteria =
+    JSON.stringify(spec.criteria) === JSON.stringify(fixed.criteria)
+
+  if (
+    spec.image === fixed.image &&
+    spec.entrypoint === fixed.entrypoint &&
+    spec.files['main.py'] === fixed.files['main.py'] &&
+    dataset?.url === fixedDataset?.url &&
+    dataset?.sha256 === fixedDataset?.sha256 &&
+    dataset?.bytes === fixedDataset?.bytes &&
+    sameCriteria
+  ) {
+    return {
+      id: SUPPORTED_EXPERIMENT_TEMPLATE.id,
+      name: SUPPORTED_EXPERIMENT_TEMPLATE.name,
+    }
+  }
+
+  return null
+}
+
+/** The template fields carried by an experiment response. */
+export function experimentTemplateFields(
+  spec: ExperimentSpec,
+): { templateId: SupportedExperimentTemplateId | null; templateName: string | null } {
+  const identified = identifyExperimentTemplate(spec)
+  return {
+    templateId: identified?.id ?? null,
+    templateName: identified?.name ?? null,
+  }
+}
+
 export interface ClaimTemplateCompatibilityInput {
   title?: string | null
   data?: NodeData | null

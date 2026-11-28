@@ -5,6 +5,8 @@ import type { NodeData } from '../shared/types'
 import {
   assessClaimTemplateCompatibility,
   buildSupportedExperimentSpec,
+  experimentTemplateFields,
+  identifyExperimentTemplate,
   isSupportedExperimentTemplateId,
   SUPPORTED_EXPERIMENT_TEMPLATE,
   SUPPORTED_EXPERIMENT_TEMPLATE_LABEL,
@@ -190,5 +192,30 @@ describe('claim/template compatibility', () => {
         data: { type: 'note', body: 'unrelated' },
       }),
     ).toMatchObject({ compatible: true })
+  })
+})
+
+describe('identifyExperimentTemplate', () => {
+  it('identifies the supported spec by its fixed parts', () => {
+    expect(identifyExperimentTemplate(HERO_EXPERIMENT_SPEC_RUN_A)).toEqual({
+      id: SUPPORTED_EXPERIMENT_TEMPLATE.id,
+      name: SUPPORTED_EXPERIMENT_TEMPLATE.name,
+    })
+    expect(experimentTemplateFields(HERO_EXPERIMENT_SPEC_RUN_A)).toEqual({
+      templateId: SUPPORTED_EXPERIMENT_TEMPLATE.id,
+      templateName: SUPPORTED_EXPERIMENT_TEMPLATE.name,
+    })
+  })
+
+  it('does not label a spec whose script differs from the template', () => {
+    const custom = {
+      ...HERO_EXPERIMENT_SPEC_RUN_A,
+      files: { 'main.py': 'print("custom")\n' },
+    }
+    expect(identifyExperimentTemplate(custom)).toBeNull()
+    expect(experimentTemplateFields(custom)).toEqual({
+      templateId: null,
+      templateName: null,
+    })
   })
 })

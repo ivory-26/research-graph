@@ -48,6 +48,8 @@ describe('source ingestion input validation', () => {
       'http://[::ffff:127.0.0.1]/',
       'http://[::ffff:8.8.8.8]/',
       'http://[64:ff9b::7f00:1]/',
+      'http://[2002:7f00:0001::]/',
+      'http://[2001:0000:4136:e378:8000:63bf:3fff:fdd2]/',
     ]) {
       expect(validateIngestUrl(url), url).toEqual({
         error: 'url must not point at a private or reserved address',
