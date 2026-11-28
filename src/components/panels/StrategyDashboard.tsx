@@ -222,8 +222,8 @@ export const StrategyDashboard: React.FC<StrategyDashboardProps> = ({
           </div>
           <div className="text-[22px] font-bold mt-1 text-[var(--text-primary)] font-mono tracking-tight">
             {isDatabaseMode
-              ? 'Autonomous Strategy Selection · Task Aggregation'
-              : 'Autonomous Strategy Selection · Demo Fixture Preview'}
+              ? 'Extraction Strategy Runs · Task Aggregation'
+              : 'Extraction Strategy Runs · Demo Fixture Preview'}
           </div>
         </div>
 
